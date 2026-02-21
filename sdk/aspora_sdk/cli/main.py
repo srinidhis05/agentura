@@ -3,6 +3,7 @@
 import click
 
 from aspora_sdk.cli.apply_cmd import apply
+from aspora_sdk.cli.approve_cmd import approve
 from aspora_sdk.cli.correct import correct
 from aspora_sdk.cli.create import create
 from aspora_sdk.cli.describe_cmd import describe
@@ -14,6 +15,7 @@ from aspora_sdk.cli.run import run
 from aspora_sdk.cli.status_cmd import status
 from aspora_sdk.cli.test_cmd import test
 from aspora_sdk.cli.validate import validate
+from aspora_sdk.cli.watch_cmd import watch
 
 
 @click.group()
@@ -48,6 +50,9 @@ def cli():
       aspora memory search "query"           Search shared memory
       aspora memory prompt <d/n>             Assembled prompt (DOMAIN + reflexion + SKILL)
       aspora replay <execution-id>           Re-run a past execution
+      aspora approve <execution-id>          Approve/reject pending execution
+      aspora watch                           Live execution feed
+      aspora get approvals                   List pending approvals
     """
     pass
 
@@ -112,11 +117,13 @@ cli.add_command(validate)
 cli.add_command(replay)
 
 # Gateway operations
+cli.add_command(approve)
 cli.add_command(describe)
 cli.add_command(get)
 cli.add_command(logs)
 cli.add_command(status)
 cli.add_command(memory)
+cli.add_command(watch)
 
 
 if __name__ == "__main__":

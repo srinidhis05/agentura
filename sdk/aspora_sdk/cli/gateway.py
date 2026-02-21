@@ -126,3 +126,14 @@ def get_prompt_assembly(domain: str, skill: str) -> dict:
         res = c.get(f"/api/v1/memory/prompt-assembly/{domain}/{skill}")
         res.raise_for_status()
         return res.json()
+
+
+def approve_execution(execution_id: str, approved: bool, notes: str = "") -> dict:
+    """POST /api/v1/executions/{id}/approve."""
+    with _client() as c:
+        res = c.post(
+            f"/api/v1/executions/{execution_id}/approve",
+            json={"approved": approved, "reviewer_notes": notes},
+        )
+        res.raise_for_status()
+        return res.json()
