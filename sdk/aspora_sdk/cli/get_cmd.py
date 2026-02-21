@@ -296,6 +296,60 @@ def get_threads(limit: int, fmt: str):
     console.print(table)
 
 
+@get.command("approvals")
+@click.option("-o", "--output", "fmt", type=click.Choice(["table", "json"]), default="table")
+def get_approvals(fmt: str):
+    """List executions pending approval."""
+    from aspora_sdk.cli.gateway import list_executions
+    import json
+
+    console = Console()
+
+    try:
+        execs = list_executions()
+    except Exception as e:
+        console.print(f"[yellow]Could not fetch executions: {e}[/]")
+        return
+
+    pending = [e for e in execs if e.get("outcome") in ("pending_approval", "pending_review")]
+
+    if fmt == "json":
+        console.print_json(json.dumps(pending, indent=2))
+        return
+
+    if not pending:
+        console.print("[green]No pending approvals.[/]")
+        return
+
+    table = Table(title=f"Pending Approvals ({len(pending)})")
+    table.add_column("ID", style="dim")
+    table.add_column("Skill", style="cyan")
+    table.add_column("Status", style="bright_yellow")
+    table.add_column("Cost", justify="right", style="dim")
+    table.add_column("Model", style="dim")
+    table.add_column("Timestamp", style="dim")
+    table.add_column("Input", style="dim")
+
+    for e in pending:
+        ts = e.get("timestamp", "")[:19] if e.get("timestamp") else ""
+        input_str = e.get("input_summary", "")
+        if not isinstance(input_str, str):
+            input_str = json.dumps(input_str)
+        table.add_row(
+            e.get("execution_id", ""),
+            e.get("skill", ""),
+            e.get("outcome", ""),
+            f"${e.get('cost_usd', 0):.4f}",
+            (e.get("model_used") or "").split("/")[-1],
+            ts,
+            input_str[:40],
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]Approve with: aspora approve <id>[/]")
+    console.print(f"[dim]Reject with:  aspora approve <id> --reject[/]")
+
+
 @get.command("reflexions")
 @click.option("-s", "--skill", help="Filter by skill.")
 @click.option("-o", "--output", "fmt", type=click.Choice(["table", "json"]), default="table")
