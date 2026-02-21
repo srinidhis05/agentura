@@ -1,0 +1,8 @@
+{
+  "query": "Example input for suggest-allocation",
+  "context": {
+    "domain": "wealth",
+    "user_id": "test-user-001",
+    "session_id": "test-session-001"
+  }
+}

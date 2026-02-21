@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aspora-config
+  namespace: aspora
+data:
+  SKILLS_DIR: "/skills"
+  ASPORA_KNOWLEDGE_DIR: "/data/.aspora"
+  EXECUTOR_URL: "http://executor:8000"
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  DB_USER: "aspora"
+  DB_NAME: "aspora"

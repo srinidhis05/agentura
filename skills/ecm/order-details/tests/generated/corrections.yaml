@@ -1,0 +1,55 @@
+description: Generated regression tests for order-details
+tests:
+- assert:
+  - type: is-json
+  - threshold: 0.8
+    type: similar
+    value: '{"correction": "UAE corridor orders stuck in CNR_RESERVED need LULU escalation,
+      not standard path. Always check LULU ops team first for UAE orders."}'
+  description: 'Correction CORR-001: UAE corridor orders stuck in CNR_RESERVED need
+    LULU escalation, not standard pat'
+  vars:
+    input: '{"order_id": "AE789X123", "query": "UAE corridor order stuck in CNR_RESERVED"}'
+- assert:
+  - type: is-json
+  - threshold: 0.8
+    type: similar
+    value: '{"correction": "UK corridor orders in COMPLIANCE_HOLD must be escalated
+      to the FCA Regulatory Affairs team, not generic Compliance Operations. FCA holds
+      require a specific SAR (Suspicious Activity Report) filing check within 4 hours.
+      Standard compliance team cannot clear FCA holds \u2014 only the FCA liaison
+      officer has authority."}'
+  description: 'Correction CORR-005: UK corridor orders in COMPLIANCE_HOLD must be
+    escalated to the FCA Regulatory Af'
+  vars:
+    input: '{"order_id": "AE789X123", "query": "UAE corridor order stuck in CNR_RESERVED"}'
+- assert:
+  - type: is-json
+  - threshold: 0.8
+    type: similar
+    value: '{"correction": "India inward remittances in RBI_HOLD MUST go through the
+      Authorized Dealer (AD) bank route, not generic RBI Liaison. The AD bank is the
+      only entity authorized to release RBI holds under FEMA Section 6. Always check
+      FEMA purpose code (P0103 for family maintenance, P0107 for personal gifts) as
+      wrong purpose code is the #1 reason for RBI holds on India corridors. Escalation
+      goes to AD Bank compliance desk, not our internal team."}'
+  description: 'Correction CORR-006: India inward remittances in RBI_HOLD MUST go
+    through the Authorized Dealer (AD) '
+  vars:
+    input: '{"order_id": "IN567R234", "query": "India inward remittance stuck in RBI_HOLD
+      sub-state for 12 hours"}'
+- assert:
+  - type: is-json
+  - threshold: 0.8
+    type: similar
+    value: '{"correction": "Singapore MAS_REVIEW holds are governed by MAS Notice
+      626 (Prevention of Money Laundering). For amounts above SGD 20,000, the MAS-appointed
+      compliance officer at our Singapore entity must file a CTR (Cash Transaction
+      Report) BEFORE the hold can be released. Standard ops cannot bypass this \u2014
+      it requires the Singapore MLRO (Money Laundering Reporting Officer) sign-off.
+      Typical clearance: 2-4 hours after CTR filing."}'
+  description: 'Correction CORR-007: Singapore MAS_REVIEW holds are governed by MAS
+    Notice 626 (Prevention of Money L'
+  vars:
+    input: '{"order_id": "SG445T789", "query": "Singapore corridor order stuck in
+      MAS_REVIEW for 6 hours"}'

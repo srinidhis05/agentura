@@ -1,0 +1,597 @@
+# ECM Knowledge Graph
+# Source: Cross-referenced from Notion SOPs + GitHub code + Redshift schema + existing runbooks
+# Generated: 2026-02-08
+# Repos analyzed: app-server (Java), goms (Go), falcon-service (Java), lulu-fulfilment-service (Java),
+#                 ybl-fulfillment (Java), alphadesk (JS), alphadesk-api (Java)
+#
+# THIS FILE IS THE SINGLE SOURCE OF TRUTH FOR ECM DECISIONS.
+# Order-details and other skills MUST use only this file (and approved mappings) for diagnosis and resolution.
+
+# ============================================================================
+# SECTION 1: ORDER STATE MACHINE (verified against code)
+# ============================================================================
+
+state_machines:
+  # --- app-server OrderStatus enum (source of truth for legacy/display) ---
+  app_server_order_status:
+    source: "Vance-Club/app-server/src/main/java/in/vance/appserver/enums/order/OrderStatus.java"
+    states:
+      NEW:
+        terminal: false
+        valid_previous: [FAILED, CREATED]
+        display: ON_TIME
+      CREATED:
+        terminal: false
+        valid_previous: [NEW, CREATED, FAILED]
+        display: ON_TIME
+      ORDER_PAYMENT_COMPLETED:
+        terminal: false
+        valid_previous: [NEW, CREATED, ORDER_PAYMENT_COMPLETED]
+        display: ON_TIME
+      ORDER_FULFILMENT_INITIATED:
+        terminal: false
+        valid_previous: [ORDER_PAYMENT_COMPLETED, ORDER_FULFILMENT_INITIATED]
+        display: ON_TIME
+      PROCESSING_DEAL_IN:
+        terminal: false
+        valid_previous: [ORDER_FULFILMENT_INITIATED, CREATED, FAILED, PROCESSING_DEAL_IN, ON_HOLD, COMPLETED]
+        display: ON_TIME
+      ON_HOLD:
+        terminal: false
+        valid_previous: [NEW, CREATED, ORDER_PAYMENT_COMPLETED, COMPLETED, ORDER_FULFILMENT_INITIATED, PROCESSING_DEAL_IN, ON_HOLD, PROCESSING_DEAL_OUT]
+        display: ON_HOLD
+      PROCESSING_DEAL_OUT:
+        terminal: false
+        valid_previous: [CREATED, ORDER_PAYMENT_COMPLETED, ORDER_FULFILMENT_INITIATED, PROCESSING_DEAL_IN, ON_HOLD]
+        display: ON_HOLD
+      COMPLETED:
+        terminal: true
+        valid_previous: [PROCESSING_DEAL_IN, ON_HOLD, PROCESSING_DEAL_OUT, COMPLETED]
+        display: COMPLETED
+      FAILED:
+        terminal: true
+        valid_previous: [NEW, CREATED, ORDER_PAYMENT_COMPLETED, ORDER_FULFILMENT_INITIATED, PROCESSING_DEAL_IN, ON_HOLD, PROCESSING_DEAL_OUT, FAILED, COMPLETED]
+        display: FAILED
+    pending_states: [NEW, CREATED, ORDER_PAYMENT_COMPLETED, ORDER_FULFILMENT_INITIATED, PROCESSING_DEAL_IN, ON_HOLD, PROCESSING_DEAL_OUT]
+
+  # --- GOMS workflow states (source of truth for state machine) ---
+  goms_uae_states:
+    source: "Notion SOP: UAE Orders + GOMS code"
+    region: AE
+    flow:
+      - CREATED
+      - PRE_ORDER
+      - INIT_PAYMENT
+      - PENDING
+      - PAYMENT_SUCCESS
+      - BRN_WAIT_WINDOW          # UAE-specific: wait for Lulu BRN
+      - FULFILLMENT_TRIGGER
+      - FULFILLMENT_PENDING
+      - CNR_RESERVED_WAIT        # 10-day CNR monitoring
+      - COMPLETED
+    failure_branch:
+      - PAYMENT_FAILURE
+      - CHECK_MANUAL_REVIEW_REQUIRED
+      - MANUAL_REVIEW             # AlphaDesk ops action needed
+      - TRIGGER_REFUND
+      - REFUND_TRIGGERED
+      - REFUND_FAILED             # CRITICAL: immediate escalation
+      - FAILED
+    alarm_thresholds:
+      CREATED: 10s
+      PRE_ORDER: 10s
+      INIT_PAYMENT: 10s
+      PENDING: 15min
+      PAYMENT_SUCCESS: 10s
+      BRN_WAIT_WINDOW: 4h        # polls every 5min, max 4h
+      FULFILLMENT_TRIGGER: 10s
+      FULFILLMENT_PENDING: 24h
+      CNR_RESERVED_WAIT: 10d
+      MANUAL_REVIEW: 30min
+      TRIGGER_REFUND: 2h
+      REFUND_TRIGGERED: 2h
+      REFUND_FAILED: 0s           # immediate
+
+  goms_uk_states:
+    source: "Notion SOP: UK Orders"
+    region: GB
+    flow:
+      - CREATED
+      - PRE_ORDER
+      - INIT_PAYMENT
+      - PENDING
+      - PAYMENT_SUCCESS
+      - FULFILLMENT_TRIGGER
+      - FULFILLMENT_PENDING
+      - TRIGGER_EXTERNAL_CHECKS   # UK-specific
+      - AWAIT_EXTERNAL_ACTION     # RFI / manual action
+      - CNR_RESERVED_WAIT
+      - COMPLETED
+    failure_branch:
+      - PAYMENT_FAILURE
+      - AWAIT_RETRY_INTENT        # 15min timeout
+      - TRIGGER_REFUND
+      - REFUND_TRIGGERED
+      - REFUND_FAILED
+      - FAILED
+    alarm_thresholds:
+      PENDING: 15min
+      FULFILLMENT_PENDING: 1h
+      AWAIT_EXTERNAL_ACTION: 24h
+      CNR_RESERVED_WAIT: 10d
+      REFUND_TRIGGERED: 2h
+
+  goms_us_states:
+    source: "Notion SOP: US Orders"
+    region: US
+    flow:
+      - CREATED
+      - PRE_ORDER
+      - SARDINE_CHECK_FOR_FAILURE
+      - SARDINE_CHECK
+      - WAIT_SETTLEMENT_TIME      # US ACH: 2+ working days
+      - PAYMENT_PENDING
+      - INSTANT_TRANSFER_CHECK
+      - PENDING
+      - PAYMENT_SUCCESS
+      - WAIT_POST_SETTLEMENT_BUFFER  # 4-day cooling for high-risk
+      - FULFILLMENT_TRIGGER
+      - FULFILLMENT_PENDING
+      - PRE_COMPLETION_AWAIT_PAYMENT
+      - CNR_RESERVED_WAIT
+      - COMPLETED
+    special_states:
+      - SARDINE_FAILURE_AWAIT_EXTERNAL_ACTION  # @Rakesh M manual review
+      - AWAIT_EXTERNAL_ACTION
+      - INSTANT_NSF               # CRITICAL: immediate escalation to @Prajwal/@Mujavid
+    failure_branch:
+      - PAYMENT_FAILURE
+      - RETRY_PAYMENT_CHECK
+      - AWAIT_RETRY_INTENT
+      - PRE_REFUND_AWAIT_PAYMENT
+      - TRIGGER_REFUND
+      - REFUND_TRIGGERED
+      - REFUND_FAILED
+      - FAILED
+
+  # --- Falcon transaction states ---
+  falcon_transaction_states:
+    source: "Notion SOP: Falcon + falcon-service code"
+    states: [NEW, CREATED, QUEUED, PROCESSING, ON_HOLD, VALIDATION_ON_HOLD, SAFEGUARD_RELEASE, COMPLETED, FAILED, EXPIRED, REJECTED, VALIDATION_FAILED]
+    terminal: [COMPLETED, FAILED, EXPIRED, REJECTED, VALIDATION_FAILED]
+
+  # --- Falcon payout states (verified from code) ---
+  falcon_payout_states:
+    source: "Vance-Club/falcon-service PayoutStatus.java"
+    states: [PENDING, PUSHING_TO_QUEUE, QUEUE_PUSH_FAILED, ATTEMPTING_PAYOUT, PAYOUT_ATTEMPT_FAILED, PROCESSING, ADDITIONAL_DOCUMENTS_REQUIRED, COMPLETED, FAILED, PENDING_RETRY]
+    terminal: [COMPLETED, FAILED]
+    transitions:
+      PENDING: {from: [QUEUE_PUSH_FAILED, PENDING_RETRY]}
+      PUSHING_TO_QUEUE: {from: [PENDING]}
+      ATTEMPTING_PAYOUT: {from: [PUSHING_TO_QUEUE, PENDING]}
+      QUEUE_PUSH_FAILED: {from: [PUSHING_TO_QUEUE]}
+      PAYOUT_ATTEMPT_FAILED: {from: [ATTEMPTING_PAYOUT, PUSHING_TO_QUEUE]}
+      PROCESSING: {from: [ATTEMPTING_PAYOUT, ADDITIONAL_DOCUMENTS_REQUIRED, PAYOUT_ATTEMPT_FAILED]}
+      ADDITIONAL_DOCUMENTS_REQUIRED: {from: [PROCESSING]}
+      COMPLETED: {from: [PENDING, PROCESSING, ATTEMPTING_PAYOUT, ADDITIONAL_DOCUMENTS_REQUIRED]}
+      FAILED: {from: [PENDING, ATTEMPTING_PAYOUT, PROCESSING, ADDITIONAL_DOCUMENTS_REQUIRED, PUSHING_TO_QUEUE]}
+      PENDING_RETRY: {from: [ATTEMPTING_PAYOUT]}
+
+  # --- RFI states (verified from app-server code) ---
+  rfi_states:
+    source: "Vance-Club/app-server RFIStatus.java"
+    states: [REQUESTED, SUBMITTED, SENT_TO_PROVIDER, VERIFIED, REJECTED, EXPIRED, FAILED, RE_OPEN]
+    input_required_states: [REJECTED, REQUESTED]  # isInputRequired() returns true
+    notes:
+      REJECTED: "Requested retry from user (not permanent rejection)"
+      FAILED: "Rejected permanently"
+      RE_OPEN: "RFI re-opened after previous resolution"
+      SENT_TO_PROVIDER: "Docs forwarded to fulfillment partner"
+
+  # --- Lulu fulfillment sub-states ---
+  lulu_sub_states:
+    source: "Notion SOP: UAE Orders + lulu-fulfilment-service"
+    states: [CREATED, PENDING, RELEASE_ORDER, RESERVED_FULFILLMENT_WAIT, COMPLETED, FAILED]
+    brn_polling: "every 10min, up to 48h"
+    cnr_polling: "every 30min for 10 days"
+
+# ============================================================================
+# SECTION 2: RFI DECISION LOGIC (verified against code + runbooks)
+# ============================================================================
+
+rfi_decision_logic:
+  data_freshness_rule:
+    check: "modified_at in transfer_rfi table"
+    threshold: 4h
+    action: "Check AlphaDesk for real-time status before proceeding"
+    reason: "Redshift data may be stale due to ETL lag"
+
+  by_status:
+    REQUESTED:
+      meaning: "Customer has NOT responded"
+      within_24h:
+        action: "DO NOT nudge. Monitor only."
+        outcome: "Wait. No outreach."
+      exceeded_24h:
+        action: "Nudge user via email/SMS/push"
+        outcome: "Send reminder. Escalate if needed."
+      exceeded_48h:
+        action: "Consider cancellation"
+        escalation: "Customer support for direct outreach"
+
+    SUBMITTED:
+      meaning: "Customer HAS responded, awaiting review"
+      action: "Monitor provider review. No customer action needed."
+      stale_check: "If modified_at > 4h with no status change, check AlphaDesk"
+
+    SENT_TO_PROVIDER:
+      meaning: "Documents forwarded to fulfillment partner"
+      action: "Monitor partner response"
+      note: "Not in runbooks - discovered in code. Gap."
+
+    VERIFIED:
+      meaning: "RFI approved, fulfillment should proceed"
+      action: "Check if order/fulfillment advanced"
+      alarm: "If fulfillment still ON_HOLD 30min after VERIFIED"
+
+    REJECTED:
+      meaning: "Documents rejected, customer must resubmit (NOT permanent)"
+      within_24h: "Notify customer of rejection reason"
+      exceeded_24h: "Nudge customer to resubmit"
+      note: "Code says REJECTED = 'requested retry from user', not permanent"
+
+    EXPIRED:
+      meaning: "RFI window expired without response"
+      action: "Order likely auto-cancelled by partner"
+      lulu_specific: "2 working days for Lulu AML/RFI. Auto-cancels and blocks user."
+      follow_up: "excess-credit.md for refund"
+
+    FAILED:
+      meaning: "Permanently rejected"
+      action: "Order should be failed/cancelled"
+
+    RE_OPEN:
+      meaning: "RFI re-opened after previous resolution"
+      action: "Treat as new REQUESTED"
+      note: "Not in runbooks. Gap."
+
+  rfi_types_from_code:
+    - ID_PROOF: {for: RECIPIENT, allowed: [PASSPORT, AADHAR_CARD]}
+    - RELATIONSHIP: {for: RECIPIENT, type: TEXT}
+    - PURPOSE_OF_TRANSFER: {for: USER, type: TEXT}
+    - BANK_ACCOUNT_DETAILS: {for: RECIPIENT, type: BANK_DETAILS}
+
+  rfi_sources:
+    falcon-service: "Falcon raises RFI via falcon → app-server"
+    email-service: "RFI raised via email notification service"
+    lulu-fulfilment-service: "Lulu AML/RFI"
+
+  us_rfi_thresholds:
+    low_risk: {max_amount: 15000, action: "Approve if no red flags"}
+    high_risk: {min_amount: 15001, action: "Thorough verification, save in DB"}
+    escalation: {contact: "@Monish/@Rakesh", trigger: "Ambiguous risk"}
+
+# ============================================================================
+# SECTION 3: PARTNER PLAYBOOK
+# ============================================================================
+
+partners:
+  LULU:
+    role: "UAE fulfillment partner (AED→INR payout)"
+    integration: "API + webhook"
+    repo: "Vance-Club/lulu-fulfilment-service"
+    happy_path: "BRN received → BRN updated → Lulu processes → payout completed"
+    failure_modes:
+      - name: brn_not_received
+        detect: "BRN_WAIT_WINDOW > 4h"
+        fix: "Check payment acquirer for BRN, manual signal"
+        auto_fixable: false
+        sla: 4h
+      - name: brn_update_failed
+        detect: "lulu_data.status = CREATED > 2h"
+        fix: "Check Lulu BRN API, retry"
+        auto_fixable: false
+        sla: 2h
+      - name: fulfillment_stuck_pending
+        detect: "lulu_data.status = PENDING > 24h"
+        fix: "Contact Lulu support (Binoy: binoy.francis@ae.luluexchange.com)"
+        auto_fixable: false
+        sla: 24h
+      - name: aml_rfi_timeout
+        detect: "RFI REQUESTED > 2 working days"
+        fix: "Lulu auto-cancels, blocks user. Follow excess-credit.md"
+        auto_fixable: false
+        sla: "2 working days"
+      - name: status_sync_issue
+        detect: "LULU=CREDITED but order=PROCESSING_DEAL_IN"
+        fix: "Force status sync via webhook replay"
+        auto_fixable: true
+        sla: 1h
+    quirks:
+      - "Auto-cancels after 2 working days if AML/RFI not resolved"
+      - "Blocks user after auto-cancel"
+      - "BRN polling every 10min, max 48h backoff"
+      - "CNR monitoring polls every 30min for 10 days"
+
+  FALCON:
+    role: "Fulfillment orchestration (all regions except UAE-direct)"
+    integration: "API + webhook + Kafka"
+    repo: "Vance-Club/falcon-service"
+    happy_path: "Created → Compliance → Queued → Router → Partner payout → Completed"
+    failure_modes:
+      - name: compliance_hold
+        detect: "falcon_transaction.status = ON_HOLD"
+        fix: "AlphaDesk ComplianceReview → manual release or reject"
+        auto_fixable: false
+        sla: "immediate"
+        escalation: "Compliance Team"
+      - name: payout_attempt_failed
+        detect: "payout.status = PAYOUT_ATTEMPT_FAILED"
+        fix: "Manual review to verify payout not created on partner side"
+        auto_fixable: false
+        sla: "immediate"
+      - name: kafka_push_failed
+        detect: "payout.status = QUEUE_PUSH_FAILED"
+        fix: "Check Kafka health, retry"
+        auto_fixable: true
+        sla: 1h
+      - name: webhook_missed
+        detect: "falcon=COMPLETED but goms=FULFILLMENT_PENDING"
+        fix: "Force sync via admin webhook endpoint"
+        auto_fixable: true
+        sla: 30min
+    quirks:
+      - "EventPushProcessor runs every 100ms"
+      - "Rate limiting + balance checks before payout"
+      - "PAYOUT_ATTEMPT_FAILED needs manual verification - cannot auto-retry"
+
+  CHECKOUT:
+    role: "Payment acquirer (card payments - all regions)"
+    integration: "API + webhook"
+    failure_modes:
+      - name: webhook_missed
+        detect: "Checkout=CAPTURED but payment=PENDING > 15min"
+        fix: "Manual reconciliation endpoint"
+        tool: "POST /api/v1/payment/reconcile"
+        auto_fixable: true
+      - name: 3ds_abandoned
+        detect: "payment=PENDING, customer closed 3DS window"
+        fix: "Should auto-expire, if not → force payment failure"
+        auto_fixable: false
+    contact: "Zaid (zaid.khashogji@checkout.com)"
+
+  LEANTECH:
+    role: "Payment acquirer (UAE bank transfers)"
+    integration: "API + webhook"
+    failure_modes:
+      - name: webhook_before_settlement
+        detect: "Webhook received but funds not settled"
+        fix: "Manual dashboard verification required"
+        auto_fixable: false
+        note: "Known issue from Payin Partners Doc"
+      - name: reconciliation_stuck
+        detect: "LEANTECH payment with PAYMENT_PENDING lulu status"
+        fix: "Check Lean reconciliation queue"
+        auto_fixable: false
+    contact: "Ahsan (dedicated Slack channel)"
+
+  TRUELAYER:
+    role: "Payment acquirer (UK open banking)"
+    integration: "API + webhook"
+    failure_modes:
+      - name: stuck_authorizing
+        detect: "TrueLayer=authorizing > 24h"
+        fix: "Known issue, usually auto-resolves. If >24h escalate."
+        auto_fixable: false
+    contact: "TrueLayer support portal (truelayer.zendesk.com)"
+
+  COLUMN:
+    role: "Payment acquirer (US ACH)"
+    integration: "API + webhook"
+    failure_modes:
+      - name: ach_settlement_delay
+        detect: "WAIT_SETTLEMENT_TIME > 2 US working days"
+        fix: "Check Column API for settlement status"
+        tool: "Column /transfers/ach/{id}"
+        auto_fixable: false
+    quirks:
+      - "ACH settlement takes 2+ US working days"
+      - "US holidays extend settlement time"
+
+  SARDINE:
+    role: "Risk/fraud screening (US orders)"
+    integration: "API"
+    failure_modes:
+      - name: high_risk_flag
+        detect: "order.state = SARDINE_FAILURE_AWAIT_EXTERNAL_ACTION"
+        fix: "Manual review by @Rakesh M in AlphaDesk"
+        auto_fixable: false
+        sla: "immediate"
+
+  YBL:
+    role: "Yes Bank payout partner (India)"
+    integration: "API"
+    repo: "Vance-Club/ybl-fulfillment"
+    failure_modes:
+      - name: aml_rfi
+        detect: "payout.status = ADDITIONAL_DOCUMENTS_REQUIRED"
+        fix: "Upload Aadhaar/Passport to YBL Lastmile Portal"
+        tool: "https://corporate.yes.bank.in/iportalweb/iportal/jsps/orbilogin.jsp"
+        auto_fixable: false
+    quirks:
+      - "Aadhaar must have first 8 digits masked"
+      - "Use Stellar Image Masker if not masked"
+
+  ALPHADESK:
+    role: "Business observability & ops action layer"
+    integration: "Web UI + API"
+    repos: ["Vance-Club/alphadesk", "Vance-Club/alphadesk-api"]
+    capabilities:
+      - "Order lookup and status viewing"
+      - "Manual order release/reject"
+      - "RFI review and approval"
+      - "Compliance hold release"
+      - "Payment reconciliation"
+      - "Refund confirmation"
+    actions:
+      release_order: "ManualAction:updates event → GOMS"
+      create_rfi: "Create RFI button"
+      reject_order: "Reject button → order FAILED"
+      compliance_release: "ComplianceReview:updates event"
+      refund_confirm: "refund:updates event"
+
+# ============================================================================
+# SECTION 4: PRIORITY SCORING MODEL
+# ============================================================================
+
+priority_scoring:
+  formula: |
+    PRIORITY_SCORE = (
+      0.25 * age_score +
+      0.20 * amount_score +
+      0.25 * stuck_severity_score +
+      0.15 * rfi_urgency_score +
+      0.10 * payment_risk_score +
+      0.05 * attempt_score
+    )
+
+  factors:
+    age_score:
+      weight: 0.25
+      scoring:
+        "< 4h": 0.1
+        "4-12h": 0.3
+        "12-24h": 0.5
+        "24-36h": 0.7
+        "36-72h": 0.9
+        "> 72h": 1.0
+      rationale: "Older orders need faster resolution, customer patience degrades"
+
+    amount_score:
+      weight: 0.20
+      scoring:
+        "< $100": 0.1
+        "$100-$500": 0.3
+        "$500-$2000": 0.5
+        "$2000-$5000": 0.7
+        "$5000-$15000": 0.8
+        "> $15000": 1.0
+      rationale: "Higher value = more customer impact + regulatory attention"
+
+    stuck_severity_score:
+      weight: 0.25
+      scoring:
+        REFUND_FAILED: 1.0           # CRITICAL
+        INSTANT_NSF: 1.0             # CRITICAL
+        PAYOUT_ATTEMPT_FAILED: 0.9   # Needs immediate manual review
+        ON_HOLD_compliance: 0.9      # Compliance block
+        SARDINE_FAILURE: 0.8         # Risk flag
+        no_rfi_created: 0.8          # Should have RFI but doesn't
+        status_sync_issue: 0.6       # Auto-fixable
+        brn_issue: 0.5               # Known issue, fixable
+        rfi_pending: 0.4             # Waiting on customer
+        fulfillment_pending: 0.3     # Normal processing
+      rationale: "Some stuck states are more dangerous than others"
+
+    rfi_urgency_score:
+      weight: 0.15
+      scoring:
+        no_rfi: 0.0
+        "REQUESTED < 24h": 0.1      # Don't nudge
+        "REQUESTED > 24h": 0.7      # Nudge
+        "REJECTED < 24h": 0.5       # Customer notified
+        "REJECTED > 24h": 0.8       # Nudge to resubmit
+        "SUBMITTED > 4h": 0.4       # Check AlphaDesk
+        "EXPIRED": 0.9              # Lulu may auto-cancel
+      rationale: "RFI urgency depends on customer responsiveness"
+
+    payment_risk_score:
+      weight: 0.10
+      scoring:
+        COMPLETED: 0.0
+        PENDING: 0.3
+        FAILED_no_refund: 0.9
+        RECONCILED: 0.0
+      rationale: "Unresolved payment = customer funds at risk"
+
+    attempt_score:
+      weight: 0.05
+      scoring:
+        "1 attempt": 0.1
+        "2 attempts": 0.5
+        "3+ attempts": 0.9
+      rationale: "Multiple attempts = systemic issue"
+
+# ============================================================================
+# SECTION 5: GAPS & DISCREPANCIES (code vs docs)
+# ============================================================================
+
+gaps:
+  code_not_in_runbooks:
+    - status: SENT_TO_PROVIDER
+      source: "RFIStatus.java"
+      issue: "No runbook covers this RFI state"
+      recommendation: "Add to rfi-pending.md as a monitoring state"
+
+    - status: RE_OPEN
+      source: "RFIStatus.java"
+      issue: "No runbook covers re-opened RFIs"
+      recommendation: "Add handling: treat as new REQUESTED"
+
+    - status: PENDING_RETRY
+      source: "PayoutStatus.java (Falcon)"
+      issue: "Not covered in any runbook"
+      recommendation: "Add to stuck-at-rda-partner.md"
+
+    - status: ADDITIONAL_DOCUMENTS_REQUIRED
+      source: "PayoutStatus.java (Falcon)"
+      issue: "Falcon payout-level status, partially covered in no-rfi-created.md"
+      recommendation: "Cross-link with rda-rfi.md"
+
+    - status: VALIDATION_ON_HOLD
+      source: "Falcon transaction states"
+      issue: "Not in runbooks, separate from ON_HOLD"
+      recommendation: "Add to falcon-failed.md"
+
+  runbooks_not_in_code:
+    - stuck_reason: carrier_exception
+      runbook: "runbooks/carrier-exception.md"
+      issue: "No corresponding code path found in any repo"
+      recommendation: "Verify if this is still relevant"
+
+    - stuck_reason: out_of_stock
+      runbook: "runbooks/out-of-stock.md"
+      issue: "No corresponding code path found (seems e-commerce, not remittance)"
+      recommendation: "May be legacy, consider removing"
+
+  discrepancies:
+    - area: "RFI status naming"
+      code: "REJECTED means 'requested retry from user' (not permanent)"
+      docs: "Runbooks treat REJECTED as permanent rejection"
+      resolution: "Clarify in runbooks that REJECTED = retry requested. FAILED = permanent."
+
+    - area: "Order status in app-server vs GOMS"
+      code: "app-server has 9 states, GOMS has 20+ workflow states per region"
+      docs: "Runbooks reference a mix of both"
+      resolution: "Runbooks should specify which state machine they reference"
+
+  missing_coverage:
+    - scenario: "What if RFI is rejected twice?"
+      covered: false
+      recommendation: "Add escalation path: 2nd rejection → call customer → 3rd → cancel"
+
+    - scenario: "What if payment succeeds but fulfillment partner is completely down?"
+      covered: false
+      recommendation: "Add runbook for partner outage with refund trigger after SLA"
+
+    - scenario: "What if LULU auto-cancels but payment was already captured?"
+      covered: "Partially in excess-credit.md"
+      recommendation: "Explicit cross-link from rfi-pending.md"
+
+    - scenario: "What if Falcon payout completes on partner side but Falcon shows ATTEMPTING_PAYOUT?"
+      covered: false
+      recommendation: "Add to falcon-failed.md: force-update via admin API"
+
+    - scenario: "Order exists in GOMS but no downstream system has a record (no falcon, no lulu, no payout, no payment completed)"
+      covered: false
+      recommendation: "Dead orders. Flag for engineering cleanup. Do NOT assign to ops agents — no action possible."

@@ -1,0 +1,46 @@
+server:
+  host: "0.0.0.0"
+  port: 3001
+
+database:
+  host: ${DB_HOST}
+  port: 5432
+  user: ${DB_USER}
+  password: ${DB_PASSWORD}
+  name: ${DB_NAME}
+  ssl_mode: disable
+
+agent:
+  grpc_addr: ${AGENT_GRPC_ADDR}
+
+market_data:
+  provider: mock
+
+broker:
+  mode: paper
+
+auth:
+  clerk_secret_key: ${CLERK_SECRET_KEY}
+  enabled: false
+
+cors:
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:5173"
+    - "https://srinidhi-fe.knowyourshit.xyz"
+
+rate_limit:
+  requests_per_second: 10
+  burst: 20
+
+logging:
+  level: info
+  format: json
+
+metrics:
+  enabled: true
+  path: /metrics
+
+executor:
+  url: "http://localhost:8000"
+  timeout: 120

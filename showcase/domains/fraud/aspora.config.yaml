@@ -1,0 +1,67 @@
+domain: fraud
+description: >
+  Fraud detection rule simulation and testing.
+  Simulate rules on historical transaction data before deployment.
+  Measure false positive rates, verification rates, and operational impact.
+
+skills:
+  - name: rule-simulation
+    role: specialist
+    trigger: manual
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget_per_execution: "$0.20"
+    timeout: 180s
+
+routing: []
+
+guardrails:
+  max_cost_per_session: "$2.00"
+  max_skills_per_session: 3
+  require_human_approval:
+    - action: "deploy_rule"
+      threshold: "always"
+    - action: "disable_rule"
+      threshold: "always"
+  blocked_actions:
+    - "modify_production_rules"
+    - "delete_transaction_data"
+    - "alter_audit_trail"
+
+observability:
+  log_level: info
+  trace_provider: langfuse
+  metrics:
+    - name: simulation_duration_seconds
+      type: histogram
+      labels: [rule_name, data_size]
+    - name: flagged_transactions_total
+      type: counter
+      labels: [rule_name, threshold]
+    - name: verification_rate
+      type: gauge
+      labels: [rule_name, threshold]
+    - name: estimated_daily_ops_volume
+      type: gauge
+      labels: [rule_name, threshold]
+
+feedback:
+  capture_corrections: true
+  correction_store: episodic_memory
+  auto_generate_tests: true
+  test_framework: deepeval
+  reflexion_enabled: true
+
+mcp_tools:
+  - name: redshift-db
+    description: "Read access to transaction data for simulation"
+    server: redshift-mcp
+    tools:
+      - execute_sql
+      - describe_table
+  - name: file-io
+    description: "Read CSV/Excel input, write simulation reports"
+    server: file-mcp
+    tools:
+      - read_csv
+      - read_excel
+      - write_file

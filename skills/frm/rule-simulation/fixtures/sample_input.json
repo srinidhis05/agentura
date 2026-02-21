@@ -1,0 +1,18 @@
+{
+  "rule_definition": {
+    "rule_name": "SameAmountMultiTxn",
+    "signal": "Multiple transactions of the same amount from the same user within lookback window",
+    "lookback": "90 days",
+    "scope": "user",
+    "thresholds": { "same_amount_count": 3 },
+    "action": "hold"
+  },
+  "data_source": "inline",
+  "data": [
+    { "txn_id": "TXN001", "user_id": "USR-101", "amount": 5000, "currency": "AED", "beneficiary_id": "BEN-201", "created_at": "2026-01-15T10:00:00Z", "status": "completed" },
+    { "txn_id": "TXN002", "user_id": "USR-101", "amount": 5000, "currency": "AED", "beneficiary_id": "BEN-202", "created_at": "2026-01-20T14:30:00Z", "status": "completed" },
+    { "txn_id": "TXN003", "user_id": "USR-101", "amount": 5000, "currency": "AED", "beneficiary_id": "BEN-203", "created_at": "2026-02-01T09:15:00Z", "status": "completed" },
+    { "txn_id": "TXN004", "user_id": "USR-102", "amount": 3000, "currency": "AED", "beneficiary_id": "BEN-301", "created_at": "2026-01-10T08:00:00Z", "status": "completed" },
+    { "txn_id": "TXN005", "user_id": "USR-102", "amount": 3000, "currency": "AED", "beneficiary_id": "BEN-301", "created_at": "2026-01-25T16:45:00Z", "status": "completed" }
+  ]
+}

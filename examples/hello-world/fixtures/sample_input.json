@@ -1,0 +1,8 @@
+{
+  "query": "Hello! What can you do?",
+  "context": {
+    "domain": "examples",
+    "user_id": "test-user-001",
+    "session_id": "test-session-001"
+  }
+}

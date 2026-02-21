@@ -1,0 +1,5 @@
+{
+  "message": "order UK131K456 is stuck in processing for 3 days",
+  "source": "slack",
+  "user_id": "ops-agent-sarah"
+}

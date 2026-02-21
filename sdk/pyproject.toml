@@ -1,0 +1,44 @@
+[project]
+name = "aspora-sdk"
+version = "0.1.0"
+description = "Aspora Platform SDK — Create, run, and test skills locally"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1.0",
+    "pydantic>=2.6.0",
+    "pydantic-ai>=0.0.14",
+    "anthropic>=0.28.0",
+    "jinja2>=3.1.0",
+    "rich>=13.0.0",
+    "python-frontmatter>=1.1.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
+    "mem0ai>=1.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "deepeval>=1.0.0",
+    "promptfoo>=0.60.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+server = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+]
+
+[project.scripts]
+aspora = "aspora_sdk.cli.main:cli"
+aspora-server = "aspora_sdk.server.app:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["aspora_sdk*"]
+
+[tool.setuptools.package-data]
+aspora_sdk = ["templates/*.j2"]

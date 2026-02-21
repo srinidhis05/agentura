@@ -1,0 +1,162 @@
+package handler
+
+import (
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/wealth-copilot/wealth-copilot-go/internal/middleware"
+)
+
+type Handlers struct {
+	Health       *HealthHandler
+	Market       *MarketHandler
+	Scoring      *ScoringHandler
+	Risk         *RiskHandler
+	Portfolio    *PortfolioHandler
+	Trade        *TradeHandler
+	Goal         *GoalHandler
+	CrossBorder  *CrossBorderHandler
+	Geopolitics  *GeopoliticsHandler
+	Chat         *ChatHandler
+	Notification *NotificationHandler
+	Skill        *SkillHandler
+	Knowledge    *KnowledgeHandler
+	Domain       *DomainHandler
+	Platform     *PlatformHandler
+	Events       *EventsHandler
+	Memory       *MemoryHandler
+}
+
+func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
+	mux := http.NewServeMux()
+
+	// Health — no auth
+	mux.HandleFunc("GET /healthz", h.Health.Healthz)
+	mux.HandleFunc("GET /readyz", h.Health.Readyz)
+
+	// Metrics — no auth
+	mux.Handle("GET /metrics", promhttp.Handler())
+
+	// API routes — auth applied
+	api := http.NewServeMux()
+
+	// Market data
+	api.HandleFunc("GET /api/v1/market/quote/{symbol}", h.Market.GetQuote)
+	api.HandleFunc("GET /api/v1/market/fundamentals/{symbol}", h.Market.GetFundamentals)
+	api.HandleFunc("GET /api/v1/market/technicals/{symbol}", h.Market.GetTechnicals)
+
+	// Scoring
+	api.HandleFunc("POST /api/v1/scoring/score", h.Scoring.Score)
+	api.HandleFunc("POST /api/v1/scoring/rank", h.Scoring.ScoreAndRank)
+
+	// Risk
+	api.HandleFunc("GET /api/v1/risk/limits", h.Risk.GetLimits)
+	api.HandleFunc("GET /api/v1/risk/status", h.Risk.GetStatus)
+	api.HandleFunc("POST /api/v1/risk/validate", h.Risk.ValidateSignal)
+	api.HandleFunc("GET /api/v1/risk/circuit-breaker", h.Risk.GetCircuitBreaker)
+
+	// Portfolio
+	api.HandleFunc("POST /api/v1/portfolios", h.Portfolio.Create)
+	api.HandleFunc("GET /api/v1/portfolios", h.Portfolio.List)
+	api.HandleFunc("GET /api/v1/portfolios/{id}", h.Portfolio.Get)
+	api.HandleFunc("POST /api/v1/portfolios/{id}/transactions", h.Portfolio.AddTransaction)
+	api.HandleFunc("GET /api/v1/portfolios/{id}/holdings", h.Portfolio.GetHoldings)
+	api.HandleFunc("GET /api/v1/portfolios/{id}/performance", h.Portfolio.GetPerformance)
+
+	// Trades
+	api.HandleFunc("POST /api/v1/trades/buy", h.Trade.Buy)
+	api.HandleFunc("POST /api/v1/trades/sell", h.Trade.Sell)
+	api.HandleFunc("GET /api/v1/trades/orders", h.Trade.GetOrders)
+
+	// Goals
+	api.HandleFunc("POST /api/v1/goals", h.Goal.Create)
+	api.HandleFunc("GET /api/v1/goals", h.Goal.List)
+	api.HandleFunc("GET /api/v1/goals/{id}", h.Goal.Get)
+	api.HandleFunc("POST /api/v1/goals/suggest-allocation", h.Goal.SuggestAllocation)
+	api.HandleFunc("POST /api/v1/goals/{id}/rebalance", h.Goal.Rebalance)
+
+	// FX / Cross-border
+	api.HandleFunc("GET /api/v1/fx/rate", h.CrossBorder.GetFxRate)
+	api.HandleFunc("GET /api/v1/fx/impact/{symbol}", h.CrossBorder.GetCurrencyImpact)
+
+	// Geopolitics
+	api.HandleFunc("GET /api/v1/geopolitics/scenarios", h.Geopolitics.GetScenarios)
+	api.HandleFunc("POST /api/v1/geopolitics/detect", h.Geopolitics.DetectScenario)
+
+	// Chat
+	api.HandleFunc("POST /api/v1/chat/message", h.Chat.SendMessage)
+
+	// Notifications
+	api.HandleFunc("GET /api/v1/notifications", h.Notification.List)
+	api.HandleFunc("PUT /api/v1/notifications/preferences", h.Notification.SetPreferences)
+
+	// Skills (proxied to Python executor)
+	if h.Skill != nil {
+		api.HandleFunc("POST /api/v1/skills", h.Skill.CreateSkill)
+		api.HandleFunc("GET /api/v1/skills", h.Skill.ListSkills)
+		api.HandleFunc("GET /api/v1/skills/{domain}/{skill}", h.Skill.GetSkill)
+		api.HandleFunc("POST /api/v1/skills/{domain}/{skill}/execute", h.Skill.ExecuteSkill)
+		api.HandleFunc("POST /api/v1/skills/{domain}/{skill}/correct", h.Skill.Correct)
+		api.HandleFunc("GET /api/v1/executions", h.Skill.ListExecutions)
+		api.HandleFunc("GET /api/v1/executions/{execution_id}", h.Skill.GetExecution)
+		api.HandleFunc("POST /api/v1/executions/{execution_id}/approve", h.Skill.ApproveExecution)
+		api.HandleFunc("GET /api/v1/analytics", h.Skill.GetAnalytics)
+	}
+
+	// Knowledge Layer (proxied to Python executor)
+	if h.Knowledge != nil {
+		api.HandleFunc("GET /api/v1/knowledge/reflexions", h.Knowledge.ListReflexions)
+		api.HandleFunc("GET /api/v1/knowledge/corrections", h.Knowledge.ListCorrections)
+		api.HandleFunc("GET /api/v1/knowledge/tests", h.Knowledge.ListTests)
+		api.HandleFunc("GET /api/v1/knowledge/stats", h.Knowledge.GetStats)
+		api.HandleFunc("POST /api/v1/knowledge/search/{domain}/{skill}", h.Knowledge.SemanticSearch)
+		api.HandleFunc("POST /api/v1/knowledge/validate/{domain}/{skill}", h.Knowledge.ValidateTests)
+	}
+
+	// Domains (proxied to Python executor)
+	if h.Domain != nil {
+		api.HandleFunc("GET /api/v1/domains", h.Domain.ListDomains)
+		api.HandleFunc("GET /api/v1/domains/{domain}", h.Domain.GetDomain)
+	}
+
+	// Platform health (proxied to Python executor)
+	if h.Platform != nil {
+		api.HandleFunc("GET /api/v1/platform/health", h.Platform.GetHealth)
+	}
+
+	// Memory Explorer (proxied to Python executor)
+	if h.Memory != nil {
+		api.HandleFunc("GET /api/v1/memory/status", h.Memory.GetStatus)
+		api.HandleFunc("POST /api/v1/memory/search", h.Memory.Search)
+		api.HandleFunc("GET /api/v1/memory/prompt-assembly/{domain}/{skill}", h.Memory.GetPromptAssembly)
+	}
+
+	// Events (proxied to Python executor)
+	if h.Events != nil {
+		api.HandleFunc("GET /api/v1/events", h.Events.ListEvents)
+	}
+
+	// Apply auth middleware to API routes
+	authedAPI := middleware.Auth(mw.AuthEnabled)(api)
+	mux.Handle("/api/", authedAPI)
+
+	// Apply global middleware stack
+	handler := middleware.Chain(
+		mux,
+		middleware.Recovery,
+		middleware.RequestID,
+		middleware.CORS(mw.CORSOrigins),
+		middleware.Logging,
+		middleware.Metrics,
+		middleware.RateLimit(mw.RateLimitRPS, mw.RateLimitBurst),
+	)
+
+	return handler
+}
+
+type MiddlewareConfig struct {
+	AuthEnabled    bool
+	CORSOrigins    []string
+	RateLimitRPS   float64
+	RateLimitBurst int
+}

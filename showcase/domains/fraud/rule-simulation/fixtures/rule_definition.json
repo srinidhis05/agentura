@@ -1,0 +1,22 @@
+{
+  "rule_name": "SameAmountMultiTxn",
+  "description": "Detect users sending multiple transactions of the same amount within a time window — a common structuring pattern to avoid reporting thresholds.",
+  "signal": "multiple_txns_same_amount",
+  "lookback": "24h",
+  "scope": "user",
+  "thresholds": {
+    "txn_count": 3
+  },
+  "action": "hold",
+  "sweep_range": [2, 3, 4, 5, 6, 7],
+  "context": {
+    "reporting_threshold_aed": 5000,
+    "reporting_threshold_usd": 3000,
+    "typical_structuring_pattern": "3-5 transactions of $4,999 or AED 4,999 within 24h",
+    "known_false_positive_patterns": [
+      "Payroll: companies sending same salary to multiple employees",
+      "Rent: monthly payments of exact same amount",
+      "SIP: systematic investment plans with fixed amounts"
+    ]
+  }
+}
