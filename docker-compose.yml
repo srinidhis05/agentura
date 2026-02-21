@@ -1,0 +1,69 @@
+services:
+  executor:
+    build:
+      context: ./sdk
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./skills:/skills:rw
+      - aspora-knowledge:/data/.aspora
+    environment:
+      SKILLS_DIR: /skills
+      ASPORA_KNOWLEDGE_DIR: /data/.aspora
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  gateway:
+    build:
+      context: ./wealth-copilot-go
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: aspora
+      DB_PASSWORD: ${DB_PASSWORD:-aspora_dev}
+      DB_NAME: aspora
+      EXECUTOR_URL: http://executor:8000
+    depends_on:
+      executor:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://gateway:8080
+    depends_on:
+      - gateway
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: aspora
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-aspora_dev}
+      POSTGRES_DB: aspora
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aspora"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
+  aspora-knowledge:

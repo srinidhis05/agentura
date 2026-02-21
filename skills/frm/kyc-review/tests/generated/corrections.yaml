@@ -1,0 +1,15 @@
+description: Generated regression tests for kyc-review
+tests:
+- assert:
+  - type: is-json
+  - threshold: 0.8
+    type: similar
+    value: '{"correction": "For UAE corporate KYC reviews, ALWAYS check DFSA (Dubai
+      Financial Services Authority) sanctions list before proceeding. UAE corporates
+      require mandatory DFSA screening plus UBO verification for any shareholder with
+      >25% ownership. Missing DFSA check is a compliance violation."}'
+  description: 'Correction CORR-002: For UAE corporate KYC reviews, ALWAYS check DFSA
+    (Dubai Financial Services Autho'
+  vars:
+    input: '{"customer_id": "UAE-CUST-8812", "customer_type": "corporate", "jurisdiction":
+      "UAE", "documents": ["trade_license", "passport", "bank_statement"]}'

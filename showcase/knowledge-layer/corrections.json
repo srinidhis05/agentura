@@ -1,0 +1,50 @@
+{
+  "_description": "User corrections captured from skill executions. Each correction is used to: (1) generate a DeepEval regression test, (2) create a Promptfoo test case, (3) create a Reflexion entry for future executions.",
+  "corrections": [
+    {
+      "correction_id": "CORR-001",
+      "execution_id": "EXEC-20260212-001",
+      "skill": "wealth/suggest-allocation",
+      "timestamp": "2026-02-12T09:20:00Z",
+      "original_output": {
+        "risk_profile_used": "moderate",
+        "max_equity_allocation": 0.60,
+        "suggested_instruments": ["UTI NIFTY 50 SIP INR 45K/mo", "HDFC NRE FD INR 500K"]
+      },
+      "user_correction": "I said moderate but I want aggressive allocation for my India equity. My Mumbai apartment goal has a tight deadline — I need higher returns. Keep USD/AED holdings conservative.",
+      "corrected_output": {
+        "risk_profile_used": "moderate (overall), aggressive (India equity)",
+        "max_equity_allocation_india": 0.80,
+        "max_equity_allocation_intl": 0.40,
+        "suggested_instruments": ["UTI NIFTY 50 SIP INR 65K/mo", "Parag Parikh Flexi Cap INR 35K/mo", "iShares TLT hold (conservative USD)"]
+      },
+      "lesson_learned": "Per-market risk profiles can differ from overall profile. When a user has a time-sensitive goal in a specific currency, allow aggressive allocation for that currency/market while maintaining overall profile for others.",
+      "test_generated": {
+        "deepeval_file": "../feedback-loop/generated_test.py",
+        "promptfoo_file": "../feedback-loop/regression.yaml"
+      }
+    },
+    {
+      "correction_id": "CORR-002",
+      "execution_id": "EXEC-20260214-001",
+      "skill": "fincrime/triage-alerts",
+      "timestamp": "2026-02-14T07:30:00Z",
+      "original_output": {
+        "event_id": "EVT-20260214-005",
+        "classification": "Quick Approve",
+        "reason": "Low amount (AED 1,200), repeat beneficiary, 5 prior successful orders"
+      },
+      "user_correction": "BEN-7832 is receiving from 3 different users this week. Always cross-check beneficiary across users before approving — this could be a money mule.",
+      "corrected_output": {
+        "event_id": "EVT-20260214-005",
+        "classification": "Needs Investigation",
+        "reason": "Beneficiary BEN-7832 receiving from 3+ unique users in 7 days. Potential money mule network. Amount is irrelevant — structuring uses small amounts."
+      },
+      "lesson_learned": "ALWAYS cross-check beneficiary_id across users before Quick Approve. A low-amount transaction to a high-traffic beneficiary is MORE suspicious, not less.",
+      "test_generated": {
+        "deepeval_file": "tests/test_corr002_bene_crosscheck.py",
+        "promptfoo_file": "../feedback-loop/regression.yaml"
+      }
+    }
+  ]
+}

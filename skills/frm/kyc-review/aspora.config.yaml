@@ -1,0 +1,33 @@
+domain:
+  name: frm
+  description: "Fraud & Risk Management"
+  owner: "frm-team"
+
+skills:
+  - name: kyc-review
+    path: kyc-review
+    role: specialist
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.15"
+    triggers:
+      - type: routed
+        from: frm/alert-triage
+        condition: "classification == 'kyc_review'"
+      - type: command
+        pattern: "kyc review {user_id}"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.15"
+    alert_at: "$0.12"
+  human_in_loop:
+    required_for: ["watchlist_escalation", "tier_change"]
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval
+
+mcp_tools:
+  - server: redshift
+    tools: ["query"]

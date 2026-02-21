@@ -1,0 +1,3 @@
+[console_scripts]
+aspora = aspora_sdk.cli.main:cli
+aspora-server = aspora_sdk.server.app:main

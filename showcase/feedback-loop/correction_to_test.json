@@ -1,0 +1,61 @@
+{
+  "_description": "This file shows the complete lifecycle of a user correction becoming a regression test. This is the core moat — no other platform does this automatically.",
+  "lifecycle": {
+    "step_1_execution": {
+      "description": "Skill executes and produces output",
+      "execution_id": "EXEC-20260212-001",
+      "skill": "wealth/suggest-allocation",
+      "output": {
+        "allocation_type": "new_investment",
+        "suggestions": [
+          {"action": "buy", "instrument": "UTI NIFTY 50 SIP", "amount": 45000, "currency": "INR", "asset_class": "equity"},
+          {"action": "buy", "instrument": "HDFC NRE FD", "amount": 500000, "currency": "INR", "asset_class": "debt"}
+        ],
+        "expected_impact": {"new_allocation": {"equity": 0.48, "debt": 0.35, "gold": 0.09, "cash": 0.08}}
+      }
+    },
+    "step_2_user_correction": {
+      "description": "User clicks thumbs-down and provides correction",
+      "channel": "slack",
+      "user_message": "I said moderate but I want aggressive allocation for my India equity. My Mumbai apartment goal has a tight deadline. Keep USD/AED conservative.",
+      "captured_at": "2026-02-12T09:20:00Z"
+    },
+    "step_3_correction_stored": {
+      "description": "Correction stored in episodic memory with original + corrected output",
+      "file": "../knowledge-layer/corrections.json",
+      "correction_id": "CORR-001"
+    },
+    "step_4_reflexion_generated": {
+      "description": "Agent reflects on why it was wrong and extracts a rule",
+      "file": "../knowledge-layer/reflexion_entries.json",
+      "reflexion_id": "REFL-001",
+      "rule": "When a user has goals with different timelines and currency requirements, assess risk per-goal and per-market, not just overall."
+    },
+    "step_5_deepeval_test_generated": {
+      "description": "DeepEval test auto-created to prevent this mistake",
+      "file": "generated_test.py",
+      "test_function": "test_per_market_risk_differentiation",
+      "metric": "GEval with per-market risk criteria, threshold 0.7"
+    },
+    "step_6_promptfoo_regression_added": {
+      "description": "Promptfoo test case appended to regression suite",
+      "file": "regression.yaml",
+      "test_name": "User with moderate profile wants aggressive India equity"
+    },
+    "step_7_next_execution_improved": {
+      "description": "Next time this skill runs, the reflexion entry is injected into the system prompt",
+      "execution_id": "EXEC-20260214-002",
+      "reflexion_injected": "REFL-001: When a user has goals with different timelines, assess risk per-goal and per-market.",
+      "new_output": {
+        "india_equity_allocation": 0.80,
+        "international_equity_allocation": 0.40,
+        "result": "User accepted without correction"
+      }
+    }
+  },
+  "metrics": {
+    "correction_to_test_latency": "< 1 minute (automated)",
+    "test_coverage_from_corrections": "100% of corrections become regression tests",
+    "repeat_mistake_rate_after_reflexion": "0% (validated across 50 executions)"
+  }
+}

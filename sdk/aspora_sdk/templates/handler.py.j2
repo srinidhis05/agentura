@@ -1,0 +1,28 @@
+"""{{ skill_name }} — Python handler (optional).
+
+Use this when your skill needs custom logic beyond the LLM prompt in SKILL.md.
+Most skills are pure markdown (prompt-only). Add code here only when needed.
+
+Contract: SkillContext → SkillResult (DEC-005)
+"""
+
+from aspora_sdk.types import SkillContext, SkillResult
+
+
+async def handle(ctx: SkillContext) -> SkillResult:
+    """Execute {{ skill_name }} skill.
+
+    Args:
+        ctx: Skill execution context with input_data and config.
+
+    Returns:
+        SkillResult with structured output.
+    """
+    # Default: delegate to LLM via system_prompt from SKILL.md
+    # Override this function to add pre/post-processing logic
+    return SkillResult(
+        skill_name=ctx.skill_name,
+        success=True,
+        output={"message": "Handler executed", "input": ctx.input_data},
+        model_used=ctx.model,
+    )

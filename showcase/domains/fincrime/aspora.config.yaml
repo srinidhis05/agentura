@@ -1,0 +1,69 @@
+domain: fincrime
+description: >
+  Financial crime alert triage and investigation.
+  Covers 22 production TRM rules with risk-based prioritization,
+  composite scoring, and regulatory-grade audit trails.
+
+skills:
+  - name: triage-alerts
+    role: specialist
+    trigger: manual
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget_per_execution: "$0.15"
+    timeout: 120s
+
+routing: []
+
+guardrails:
+  max_cost_per_session: "$2.00"
+  max_skills_per_session: 5
+  require_human_approval:
+    - action: "approve_critical_alert"
+      threshold: "always"
+    - action: "reject_transaction"
+      threshold: "always"
+    - action: "add_to_blacklist"
+      threshold: "always"
+  blocked_actions:
+    - "auto_approve_watchlist_hit"
+    - "delete_investigation_case"
+    - "modify_audit_log"
+
+observability:
+  log_level: info
+  trace_provider: langfuse
+  metrics:
+    - name: alert_triage_duration_seconds
+      type: histogram
+      labels: [rule_tag, severity, disposition]
+    - name: alerts_processed_total
+      type: counter
+      labels: [severity, disposition]
+    - name: false_positive_rate
+      type: gauge
+      labels: [rule_tag]
+    - name: sla_compliance_rate
+      type: gauge
+      labels: [severity]
+
+feedback:
+  capture_corrections: true
+  correction_store: episodic_memory
+  auto_generate_tests: true
+  test_framework: deepeval
+  reflexion_enabled: true
+
+mcp_tools:
+  - name: redshift-db
+    description: "Read access to fincrime_master, orders_goms, uservault_users"
+    server: redshift-mcp
+    tools:
+      - execute_sql
+      - describe_table
+  - name: case-management
+    description: "Write investigation cases and update alert status"
+    server: case-mgmt-mcp
+    tools:
+      - create_case
+      - update_disposition
+      - log_activity
