@@ -1,6 +1,6 @@
-# Aspora — Kubernetes for AI Agent Swarms
+# Agentura — Kubernetes for AI Agent Swarms
 
-[![CI](https://github.com/aspora/aspora/actions/workflows/ci.yml/badge.svg)](https://github.com/aspora/aspora/actions/workflows/ci.yml)
+[![CI](https://github.com/agentura/agentura/actions/workflows/ci.yml/badge.svg)](https://github.com/agentura/agentura/actions/workflows/ci.yml)
 
 > Deploy, orchestrate, and improve AI agent skills across your entire organization. Config-driven. Self-improving. Observable.
 
@@ -11,17 +11,17 @@ Correction → Test → Reflexion → Re-injection → Better output
 
 ## What Is This?
 
-Aspora is an **agentic AI platform** that treats AI skills like Kubernetes treats workloads:
+Agentura is an **agentic AI platform** that treats AI skills like Kubernetes treats workloads:
 
-| Kubernetes | Aspora |
+| Kubernetes | Agentura |
 |------------|--------|
 | Namespace | Domain (ECM, Wealth, FRM, HR, DevOps) |
 | Pod/Deployment | Skill (SKILL.md + config YAML) |
 | Service/Ingress | Routing (LLM classifier → manager → specialist → field) |
-| ConfigMap | DOMAIN.md, plugin.yaml, aspora.config.yaml |
+| ConfigMap | DOMAIN.md, plugin.yaml, agentura.config.yaml |
 | ResourceQuota | Cost budgets, rate limits, human approval thresholds |
 | Events | Unified event stream (executions, corrections, reflexions) |
-| kubectl | `aspora` CLI (verb-resource pattern) |
+| kubectl | `agentura` CLI (verb-resource pattern) |
 
 **The difference**: Every execution feeds a learning loop. User corrections automatically generate regression tests, reflexion rules, and guardrails. After 6 months, your organization has 10,000+ test cases and measurable improvement trajectories — something no competitor offers.
 
@@ -46,7 +46,7 @@ Aspora is an **agentic AI platform** that treats AI skills like Kubernetes treat
 ┌──────────────────────────▼──────────────────────────────────┐
 │                    Skills Directory                           │
 │  skills/{domain}/{skill}/SKILL.md + fixtures + tests         │
-│  .aspora/ (episodic_memory, corrections, reflexions)        │
+│  .agentura/ (episodic_memory, corrections, reflexions)        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,8 +54,8 @@ Aspora is an **agentic AI platform** that treats AI skills like Kubernetes treat
 
 ```bash
 # 1. Clone
-git clone https://github.com/aspora/aspora.git
-cd aspora
+git clone https://github.com/agentura/agentura.git
+cd agentura
 
 # 2. Set your API key
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
@@ -74,16 +74,16 @@ This is the moat. Every correction makes the system smarter:
 
 ```
 1. USER RUNS SKILL
-   $ aspora run ecm/order-details --input order.json
+   $ agentura run ecm/order-details --input order.json
    → Model generates output
-   → Logged to .aspora/episodic_memory.json
+   → Logged to .agentura/episodic_memory.json
 
 2. USER CORRECTS MISTAKE
-   $ aspora correct ecm/order-details \
+   $ agentura correct ecm/order-details \
        --execution-id EXEC-20260219 \
        --correction "UAE corridor orders need LULU escalation, not standard path"
-   → Stored in .aspora/corrections.json
-   → Reflexion rule generated in .aspora/reflexion_entries.json
+   → Stored in .agentura/corrections.json
+   → Reflexion rule generated in .agentura/reflexion_entries.json
    → DeepEval regression test auto-generated
    → Promptfoo regression test auto-generated
    → GUARDRAILS.md updated
@@ -137,29 +137,29 @@ That's it. The platform handles execution, logging, corrections, test generation
 ## Project Structure
 
 ```
-aspora/
+agentura/
 ├── sdk/                          # Python SDK + Skill Executor
-│   └── aspora_sdk/
+│   └── agentura_sdk/
 │       ├── server/app.py         # FastAPI server (all endpoints)
 │       ├── runner/
 │       │   ├── skill_loader.py   # Loads SKILL.md + DOMAIN.md + reflexions
 │       │   ├── local_runner.py   # Pydantic AI execution engine
 │       │   └── config_loader.py  # YAML config parser
 │       ├── cli/
-│       │   ├── run.py            # aspora run
-│       │   └── correct.py        # aspora correct (learning loop)
+│       │   ├── run.py            # agentura run
+│       │   └── correct.py        # agentura correct (learning loop)
 │       └── testing/
 │           ├── deepeval_runner.py # Auto-generate DeepEval tests
 │           └── test_generator.py  # Auto-generate Promptfoo tests
 │
-├── wealth-copilot-go/            # Go API Gateway
+├── gateway/                      # Go API Gateway
 │   ├── cmd/server/main.go        # Entry point
 │   └── internal/
 │       ├── handler/              # HTTP handlers (JSON passthrough)
 │       ├── adapter/executor/     # Python executor client
 │       └── middleware/           # Auth, CORS, rate limit, metrics
 │
-├── apps/web/                     # Next.js Dashboard
+├── web/                          # Next.js Dashboard
 │   └── src/app/
 │       ├── page.tsx              # Platform overview
 │       ├── domains/              # Domain-as-namespace pages
@@ -175,7 +175,7 @@ aspora/
 │   ├── wealth/suggest-allocation/ # Portfolio allocation
 │   └── frm/rule-simulation/      # Fraud rule simulation
 │
-├── .aspora/                      # Knowledge layer (learning state)
+├── .agentura/                      # Knowledge layer (learning state)
 │   ├── episodic_memory.json      # Execution history
 │   ├── corrections.json          # User corrections
 │   └── reflexion_entries.json    # Learned rules
@@ -221,7 +221,7 @@ aspora/
 
 ## How It Compares
 
-| Feature | Aspora | Swarms | CrewAI | LangGraph |
+| Feature | Agentura | Swarms | CrewAI | LangGraph |
 |---------|--------|--------|--------|-----------|
 | Skills as config (no code) | SKILL.md + YAML | Python classes (6K LOC agent.py) | Python (role/goal/backstory) | Python graphs |
 | Learning loop | Correction → Test → Reflexion | None | None | None |
@@ -249,10 +249,10 @@ aspora/
 cd sdk && pip install -e ".[dev]"
 
 # Go Gateway
-cd wealth-copilot-go && go build ./...
+cd gateway && go build ./...
 
 # Next.js Dashboard
-cd apps/web && npm install && npm run dev
+cd web && npm install && npm run dev
 ```
 
 ## License

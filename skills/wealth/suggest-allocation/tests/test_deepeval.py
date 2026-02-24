@@ -1,6 +1,6 @@
 """DeepEval tests for suggest-allocation.
 
-Run: aspora test wealth/suggest-allocation
+Run: agentura test wealth/suggest-allocation
 Or:  pytest tests/test_deepeval.py
 """
 

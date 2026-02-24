@@ -1,7 +1,7 @@
 # Iteration 1: Hello World
 
 > **Docker parallel:** `docker run hello-world`
-> **Aspora parallel:** `aspora run showcase/hello --dry-run`
+> **Agentura parallel:** `agentura run showcase/hello --dry-run`
 
 ## What This Proves
 
@@ -26,18 +26,18 @@ That's the entire agent definition. Like a Dockerfile — declarative, readable,
 
 ```bash
 # Dry run (no API key needed — validates structure)
-aspora run hello --dry-run --input showcase/iterations/01-hello-world/hello/fixtures/sample_input.json
+agentura run hello --dry-run --input showcase/iterations/01-hello-world/hello/fixtures/sample_input.json
 
 # Real run (calls the model via OpenRouter)
 export OPENROUTER_API_KEY=your-key
-aspora run hello --input showcase/iterations/01-hello-world/hello/fixtures/sample_input.json
+agentura run hello --input showcase/iterations/01-hello-world/hello/fixtures/sample_input.json
 ```
 
 ## What Happens
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│ SKILL.md    │────▶│ aspora run   │────▶│ LLM Output  │
+│ SKILL.md    │────▶│ agentura run   │────▶│ LLM Output  │
 │ (markdown)  │     │ (SDK runner) │     │ (JSON)      │
 └─────────────┘     └──────────────┘     └─────────────┘
 ```

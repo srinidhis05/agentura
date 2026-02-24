@@ -1,0 +1,46 @@
+/**
+ * {{ skill_name }} — TypeScript handler (optional).
+ *
+ * Use this when your skill needs custom logic beyond the LLM prompt in SKILL.md.
+ * Most skills are pure markdown (prompt-only). Add code here only when needed.
+ *
+ * Contract: SkillContext → SkillResult (DEC-005)
+ *
+ * NOTE: TypeScript runner is Phase 2. This file scaffolds the interface.
+ */
+
+interface SkillContext {
+  skill_name: string;
+  domain: string;
+  role: string;
+  model: string;
+  system_prompt: string;
+  input_data: Record<string, unknown>;
+  routed_context: Record<string, unknown>;
+  mcp_tools: string[];
+}
+
+interface SkillResult {
+  skill_name: string;
+  success: boolean;
+  output: Record<string, unknown>;
+  reasoning_trace: string[];
+  model_used: string;
+  cost_usd: number;
+  latency_ms: number;
+  route_to?: string;
+  context_for_next: Record<string, unknown>;
+}
+
+export async function handle(ctx: SkillContext): Promise<SkillResult> {
+  return {
+    skill_name: ctx.skill_name,
+    success: true,
+    output: { message: "Handler executed", input: ctx.input_data },
+    reasoning_trace: [],
+    model_used: ctx.model,
+    cost_usd: 0,
+    latency_ms: 0,
+    context_for_next: {},
+  };
+}

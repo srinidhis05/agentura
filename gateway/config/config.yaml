@@ -1,0 +1,36 @@
+server:
+  host: "0.0.0.0"
+  port: 3001
+
+database:
+  host: ${DB_HOST}
+  port: 5432
+  user: ${DB_USER}
+  password: ${DB_PASSWORD}
+  name: ${DB_NAME}
+  ssl_mode: disable
+
+auth:
+  enabled: false
+
+cors:
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:3002"
+    - "http://localhost:5173"
+
+rate_limit:
+  requests_per_second: 10
+  burst: 20
+
+logging:
+  level: info
+  format: json
+
+metrics:
+  enabled: true
+  path: /metrics
+
+executor:
+  url: "${EXECUTOR_URL}"
+  timeout: 120

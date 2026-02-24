@@ -3,7 +3,7 @@ name: kyc-review
 role: specialist
 domain: frm
 trigger: manual
-model: anthropic/claude-sonnet-4-5-20250929
+model: anthropic/claude-sonnet-4.5
 cost_budget_per_execution: "$0.15"
 timeout: "45s"
 ---

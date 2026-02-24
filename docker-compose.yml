@@ -7,30 +7,39 @@ services:
       - "8000:8000"
     volumes:
       - ./skills:/skills:rw
-      - aspora-knowledge:/data/.aspora
+      - agentura-knowledge:/data/.agentura
     environment:
       SKILLS_DIR: /skills
-      ASPORA_KNOWLEDGE_DIR: /data/.aspora
+      AGENTURA_KNOWLEDGE_DIR: /data/.agentura
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DATABASE_URL: postgresql://agentura:${DB_PASSWORD:-agentura_dev}@postgres:5432/agentura
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   gateway:
     build:
-      context: ./wealth-copilot-go
+      context: ./gateway
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "3001:3001"
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_USER: aspora
-      DB_PASSWORD: ${DB_PASSWORD:-aspora_dev}
-      DB_NAME: aspora
+      DB_USER: agentura
+      DB_PASSWORD: ${DB_PASSWORD:-agentura_dev}
+      DB_NAME: agentura
       EXECUTOR_URL: http://executor:8000
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      JWKS_URL: ${JWKS_URL:-}
+      JWT_ISSUER: ${JWT_ISSUER:-}
     depends_on:
       executor:
         condition: service_healthy
@@ -39,31 +48,47 @@ services:
 
   web:
     build:
-      context: ./apps/web
+      context: ./web
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://gateway:8080
+      API_TARGET: http://gateway:3001
     depends_on:
       - gateway
+
+  slack:
+    build:
+      context: ./services/agentura-slack
+      dockerfile: Dockerfile
+    environment:
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      AGENTURA_EXECUTOR_URL: http://executor:8000
+      AGENTURA_GATEWAY_URL: http://gateway:8080
+    depends_on:
+      executor:
+        condition: service_healthy
+    profiles:
+      - slack
 
   postgres:
     image: postgres:16-alpine
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: aspora
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-aspora_dev}
-      POSTGRES_DB: aspora
+      POSTGRES_USER: agentura
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-agentura_dev}
+      POSTGRES_DB: agentura
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aspora"]
+      test: ["CMD-SHELL", "pg_isready -U agentura"]
       interval: 5s
       timeout: 3s
       retries: 5
 
 volumes:
   pgdata:
-  aspora-knowledge:
+  agentura-knowledge:

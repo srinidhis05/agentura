@@ -1,8 +1,20 @@
 {
-  "query": "Example input for suggest-allocation",
-  "context": {
-    "domain": "wealth",
-    "user_id": "test-user-001",
-    "session_id": "test-session-001"
+  "investor": {
+    "age": 32,
+    "residence": "UAE",
+    "citizenship": "Indian",
+    "annual_income_usd": 120000,
+    "monthly_savings_usd": 4000,
+    "risk_tolerance": "moderate",
+    "investment_horizon_years": 15,
+    "existing_portfolio": {
+      "indian_equity_mf": 25000,
+      "fd_nre": 50000,
+      "gold_physical": 10000
+    },
+    "goals": ["retirement", "child_education"],
+    "investment_amount_usd": 50000,
+    "account_types": ["NRE", "NRO"],
+    "tax_filing": ["India", "UAE"]
   }
 }

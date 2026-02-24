@@ -1,5 +1,5 @@
 # Promptfoo test config for suggest-allocation
-# Run: aspora test wealth/suggest-allocation --framework promptfoo
+# Run: agentura test wealth/suggest-allocation --framework promptfoo
 # Or:  promptfoo eval -c tests/test_promptfoo.yaml
 
 description: "suggest-allocation regression tests"

@@ -3,7 +3,7 @@
 Classifies incoming ECM queries and routes to the correct specialist.
 """
 
-from aspora_sdk.types import SkillContext, SkillResult
+from agentura_sdk.types import SkillContext, SkillResult
 
 
 async def handle(ctx: SkillContext) -> SkillResult:

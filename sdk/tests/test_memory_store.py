@@ -14,9 +14,9 @@ import pytest
 @pytest.fixture
 def json_store(tmp_path):
     """Create a JSONStore pointing to a temp directory."""
-    from aspora_sdk.memory.json_store import JSONStore
+    from agentura_sdk.memory.json_store import JSONStore
 
-    store = JSONStore(knowledge_dir=tmp_path / ".aspora")
+    store = JSONStore(knowledge_dir=tmp_path / ".agentura")
     return store
 
 
@@ -25,9 +25,9 @@ def mem0_fallback(tmp_path, monkeypatch):
     """Ensure get_memory_store returns JSONStore when no API key."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setenv("ASPORA_KNOWLEDGE_DIR", str(tmp_path / ".aspora"))
+    monkeypatch.setenv("ASPORA_KNOWLEDGE_DIR", str(tmp_path / ".agentura"))
 
-    from aspora_sdk.memory.store import get_memory_store
+    from agentura_sdk.memory.store import get_memory_store
     return get_memory_store()
 
 
@@ -122,7 +122,7 @@ class TestJSONStore:
 
 class TestMemoryStoreFallback:
     def test_returns_json_store_without_api_key(self, mem0_fallback):
-        from aspora_sdk.memory.json_store import JSONStore
+        from agentura_sdk.memory.json_store import JSONStore
         assert isinstance(mem0_fallback, JSONStore)
 
     def test_fallback_store_works(self, mem0_fallback):

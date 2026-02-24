@@ -62,8 +62,18 @@
 **Rule**: Singapore MAS_REVIEW holds are governed by MAS Notice 626 (Prevention of Money Laundering). For amounts above SGD 20,000, the MAS-appointed compliance officer at our Singapore entity must file a CTR (Cash Transaction Report) BEFORE the hold can be released. Standard ops cannot bypass this — it requires the Singapore MLRO (Money Laundering Reporting Officer) sign-off. Typical clearance: 2-4 hours after CTR filing.
 **Detection**: Auto-generated — review and refine this guardrail.
 
+
+---
+
+## GRD-007: Auto-generated from correction
+
+**Mistake**: Agent produced incorrect output.
+**Impact**: User had to manually correct.
+**Rule**: Singapore PEP orders in SANCTIONS_HOLD must go through the MAS Compliance desk, NOT generic sanctions review. Always route Singapore PEP cases to mas-compliance@ops.internal with priority P1. Standard AlphaDesk flow is wrong for Singapore corridor.
+**Detection**: Auto-generated — review and refine this guardrail.
+
 ## When to Add New Guardrails
 
-- User corrects an output → guardrail added automatically via `aspora correct`
+- User corrects an output → guardrail added automatically via `agentura correct`
 - Ops manager flags a pattern → add manually here
 - Max 20 guardrails per domain. If more, some belong in individual skill guardrails.

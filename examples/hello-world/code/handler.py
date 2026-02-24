@@ -4,7 +4,7 @@ This handler is optional. The SKILL.md prompt is the primary skill definition.
 Use a handler only when you need custom pre/post-processing logic.
 """
 
-from aspora_sdk.types import SkillContext, SkillResult
+from agentura_sdk.types import SkillContext, SkillResult
 
 
 async def handle(ctx: SkillContext) -> SkillResult:
