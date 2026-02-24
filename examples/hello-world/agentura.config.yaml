@@ -1,0 +1,42 @@
+# Hello World — Minimal Agentura skill example
+# Demonstrates the simplest possible config
+
+domain:
+  name: examples
+  description: "Example skills for learning the Agentura SDK"
+  owner: platform-team
+
+skills:
+  - name: hello-world
+    path: ./SKILL.md
+    role: specialist
+    model: anthropic/claude-haiku-4.5
+    cost_budget: "$0.01"
+    triggers:
+      - type: manual
+
+routing: []
+
+guardrails:
+  budget:
+    max_cost_per_execution: "$0.05"
+  rate_limits:
+    max_executions_per_minute: 30
+
+observability:
+  metrics:
+    - name: hello_world_executions_total
+      type: counter
+      labels: [skill, outcome]
+  logs:
+    destination: langfuse
+    capture:
+      - skill_input
+      - skill_output
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval
+
+mcp_tools: []

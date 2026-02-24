@@ -1,0 +1,47 @@
+# Wealth Market Brief Configuration
+# Skill: wealth/market-brief
+
+domain:
+  name: wealth
+  description: "Wealth domain skills"
+  owner: team-wealth
+
+skills:
+  - name: market-brief
+    path: ./SKILL.md
+    role: specialist
+    model: anthropic/claude-haiku-4.5
+    cost_budget: "$0.03"
+    triggers:
+      - type: manual
+      - type: cron
+        schedule: "0 7 * * 1-5"
+        description: "Morning brief at 7 AM on weekdays"
+      - type: slack
+        description: "On-demand via Slack"
+
+routing: []
+
+guardrails:
+  budget:
+    max_cost_per_execution: "$0.10"
+  rate_limits:
+    max_executions_per_minute: 10
+
+observability:
+  metrics:
+    - name: wealth_market_brief_executions_total
+      type: counter
+      labels: [skill, domain, outcome]
+  logs:
+    destination: langfuse
+    capture:
+      - skill_input
+      - skill_output
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval
+
+mcp_tools: []

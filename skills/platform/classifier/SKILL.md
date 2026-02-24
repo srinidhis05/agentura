@@ -3,7 +3,7 @@ name: classifier
 role: manager
 domain: platform
 trigger: always
-model: anthropic/claude-haiku-4-5-20251001
+model: anthropic/claude-haiku-4.5
 cost_budget_per_execution: "$0.01"
 timeout: "5s"
 routes_to:

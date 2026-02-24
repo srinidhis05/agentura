@@ -35,6 +35,9 @@ Thumbs.db
 # Claude Code
 .claude/
 
+# Internal docs (not for public repo)
+docs/internal/
+
 # Docker
 *.log
 

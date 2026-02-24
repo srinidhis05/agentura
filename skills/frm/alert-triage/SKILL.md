@@ -3,7 +3,7 @@ name: alert-triage
 role: manager
 domain: frm
 trigger: always
-model: anthropic/claude-haiku-4-5-20251001
+model: anthropic/claude-haiku-4.5
 cost_budget_per_execution: "$0.02"
 timeout: "10s"
 ---

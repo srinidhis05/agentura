@@ -3,7 +3,7 @@ name: resume-screen
 role: specialist
 domain: hr
 trigger: manual
-model: anthropic/claude-sonnet-4-5-20250929
+model: anthropic/claude-sonnet-4.5
 cost_budget_per_execution: "$0.05"
 timeout: "30s"
 ---

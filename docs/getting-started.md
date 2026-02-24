@@ -1,4 +1,4 @@
-# Getting Started with Aspora SDK
+# Getting Started with Agentura SDK
 
 ## Prerequisites
 
@@ -8,26 +8,26 @@
 ## Install
 
 ```bash
-cd wealth-copilot
+cd agentura
 pip install -e "sdk[test]"
 ```
 
 Verify:
 ```bash
-aspora --version
+agentura --version
 ```
 
 ## Create Your First Skill
 
 ```bash
-aspora create skill demo/hello --lang python --role specialist
+agentura create skill demo/hello --lang python --role specialist
 ```
 
 This creates:
 ```
 skills/demo/hello/
 ├── SKILL.md              # Edit this — your skill's brain
-├── aspora.config.yaml    # Routing, guardrails, observability
+├── agentura.config.yaml    # Routing, guardrails, observability
 ├── DECISIONS.md          # Track decisions
 ├── GUARDRAILS.md         # Track anti-patterns
 ├── code/handler.py       # Optional custom logic
@@ -50,7 +50,7 @@ Key sections:
 ## Validate
 
 ```bash
-aspora validate demo/hello
+agentura validate demo/hello
 ```
 
 Checks: required files exist, config is valid, SKILL.md has frontmatter.
@@ -59,17 +59,17 @@ Checks: required files exist, config is valid, SKILL.md has frontmatter.
 
 ```bash
 # Dry run (no API key needed)
-aspora run demo/hello --dry-run
+agentura run demo/hello --dry-run
 
 # With model (requires OPENROUTER_API_KEY)
 export OPENROUTER_API_KEY=your-key
-aspora run demo/hello
+agentura run demo/hello
 ```
 
 ## Test
 
 ```bash
-aspora test demo/hello
+agentura test demo/hello
 ```
 
 Runs DeepEval (quality metrics) and Promptfoo (regression tests).

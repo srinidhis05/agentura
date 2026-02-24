@@ -1,0 +1,16 @@
+domain:
+  name: platform
+  description: "SKILL.md generation from interview specs"
+
+skills:
+  - name: cortex-generator
+    role: specialist
+    model: anthropic/claude-sonnet-4.5
+    trigger: manual
+    cost_budget: "$0.10"
+    timeout: "60s"
+
+guardrails:
+  max_cost_per_execution: "$0.20"
+  human_in_loop:
+    require_approval: false

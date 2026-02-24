@@ -3,7 +3,7 @@ name: leave-policy
 role: specialist
 domain: hr
 trigger: manual
-model: anthropic/claude-haiku-4-5-20251001
+model: anthropic/claude-haiku-4.5
 cost_budget_per_execution: "$0.01"
 timeout: "10s"
 ---

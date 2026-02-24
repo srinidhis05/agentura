@@ -1,4 +1,4 @@
-# Aspora Platform — Architecture Decision Record
+# Agentura Platform — Architecture Decision Record
 
 > **Purpose**: Preserve key decisions to prevent re-litigation and guide future work.
 > **Format**: `DEC-NNN: Chose X Over Y Because Z (Constraint: C)`
@@ -63,7 +63,7 @@
 - Wealth team prefers TypeScript (Next.js existing codebase)
 - Data science team prefers Python (Pydantic AI ecosystem)
 - High-performance teams may prefer Go (fraud detection, ECM indexing)
-- Platform provides language-agnostic interface via `aspora.config.yaml`
+- Platform provides language-agnostic interface via `agentura.config.yaml`
 
 **Constraint**: All handlers MUST implement same interface (`SkillContext → SkillResult`).
 **Date**: 2026-02-16
@@ -124,7 +124,7 @@
 - Used by AWS Lambda (battle-tested at scale)
 - Prevents malicious skills from accessing other tenants' data
 
-**Constraint**: Each skill execution gets isolated VM with CPU/memory caps from `aspora.config.yaml`.
+**Constraint**: Each skill execution gets isolated VM with CPU/memory caps from `agentura.config.yaml`.
 **Date**: 2026-02-16
 
 ---
@@ -354,8 +354,8 @@
 
 ## DEC-024: CLI Follows kubectl Verb-Resource Pattern
 
-**Chose**: `aspora <verb> <resource> [name] [flags]` pattern (kubectl-style)
-**Over**: Flat commands (e.g., `aspora list-skills`, `aspora show-execution`)
+**Chose**: `agentura <verb> <resource> [name] [flags]` pattern (kubectl-style)
+**Over**: Flat commands (e.g., `agentura list-skills`, `agentura show-execution`)
 **Why**:
 - Verbs reusable across all resources: `get skills`, `get domains`, `get executions`, `get reflexions`
 - Users learn verbs once, apply everywhere (same as K8s learning curve)
@@ -378,7 +378,7 @@
 - Rust agent monitors shadow MCP servers + config compliance across 5 IDE clients
 - Fail-open policy: scanning bug ≠ block all MCP (DEC-008 from runlayer)
 - Configurable mode: block (403) or warn (200 + log)
-- Runs as sidecar webhook to Obot gateway — zero coupling to Aspora gateway
+- Runs as sidecar webhook to Obot gateway — zero coupling to Agentura gateway
 
 **Constraint**: All MCP tool calls MUST pass through mcp-guard before execution. Skill deployment validation (tests exist, budget OK, model approved) runs as pre-apply admission in the CLI.
 **Date**: 2026-02-20
@@ -386,9 +386,119 @@
 
 ---
 
-## Next Decisions to Record
+## DEC-026: Platform Renamed to "Agentura" Over Other Candidates
 
-As implementation progresses, add:
-- DEC-026: Cost budget enforcement (throttle vs pause vs notify)
-- DEC-027: Memory hierarchy storage (PostgreSQL vs dedicated memory service)
-- DEC-028: Event stream / watch API design
+**Chose**: Agentura (derived from "agency" in Romance/Slavic languages)
+**Over**: Volition, Sovren, Autonoma, Aspora (original name), various skill/craft names
+**Because**: Name captures agency and autonomy — the platform's core value prop. "Skill" is an implementation detail; the brand should reflect autonomous AI agents that act with their own authority. The word is distinctive, unmistakable in context, and not taken in the AI tooling space.
+**Constraint**: Must work as CLI command (`agentura run`), package name (`agentura-sdk`), and brand simultaneously.
+
+**Scope**: Full rename — Python package (`agentura_sdk`), CLI (`agentura`), config files (`agentura.config.yaml`), runtime dir (`.agentura/`), env vars (`AGENTURA_*` with backward-compatible ASPORA fallbacks), K8s manifests, Docker configs, web UI, docs.
+
+---
+
+## DEC-027: PostgreSQL as Production Memory Store Over JSON Files
+
+**Chose**: PostgreSQL with domain + workspace columns
+**Over**: JSON files on disk
+**Why**: Domain isolation requires column-level filtering. JSON files can't enforce cross-domain boundaries. PG supports concurrent access and ACID.
+**Constraint**: JSON fallback must remain for local dev without DATABASE_URL.
+**Date**: 2026-02-21
+
+---
+
+## DEC-028: OpenRouter for Multi-Model Routing Over Direct Provider SDKs
+
+**Chose**: OpenRouter as unified model gateway
+**Over**: Direct Anthropic/OpenAI SDK calls
+**Why**: Single API for 200+ models, automatic fallback chains (claude-sonnet → claude-haiku → gpt-4o-mini), unified billing.
+**Constraint**: Requires OPENROUTER_API_KEY. Falls back to direct Pydantic AI when not set.
+**Date**: 2026-02-21
+
+---
+
+## DEC-029: DomainScopedStore Wrapper Over Modifying MemoryStore Protocol
+
+**Chose**: Composition wrapper (`DomainScopedStore`) around any MemoryStore
+**Over**: Adding domain filtering to every MemoryStore implementation
+**Why**: Backward compatible, single enforcement point, any backend gets isolation for free.
+**Constraint**: All server endpoints must use `Depends(_get_domain_scope)` + `_filter_by_domain()`.
+**Date**: 2026-02-21
+
+---
+
+## DEC-030: JWT+JWKS for Gateway Auth Over API Keys
+
+**Chose**: RS256 JWT validation with JWKS key rotation (1hr cache)
+**Over**: Static API keys or session tokens
+**Why**: Standard, supports key rotation, carries domain_scope + workspace_id claims. Dev mode auto-injects safe defaults.
+**Constraint**: Requires JWKS_URL configured for production.
+**Date**: 2026-02-21
+
+---
+
+## DEC-031: MCP Registry Auto-Discovery Over Manual Configuration
+
+**Chose**: Auto-discover MCP servers from skill config files + environment variables
+**Over**: Manual registry configuration file
+**Why**: Zero-config for local dev. Skill configs already declare which MCP tools they need. Registry merges all declarations and tracks domain usage.
+**Constraint**: Well-known servers (redshift, google-sheets, jira) can also be registered via MCP_*_URL env vars.
+**Date**: 2026-02-21
+
+---
+
+## DEC-032: Open-Source Apache 2.0 Over Proprietary
+
+**Chose**: Open-source under Apache 2.0 before market is ready
+**Over**: Keeping proprietary until product-market fit
+**Why**: K8s pattern — ship before market needs it, capture mindshare. Correction→reflexion→test pipeline is the hook. Community builds ecosystem faster than one team.
+**Constraint**: Must remove internal domain skills (wealth/ecm/frm/hr) from public repo or move to examples/. No real API keys or customer data.
+**Date**: 2026-02-23
+
+---
+
+## DEC-033: Task Prompts (No Code Execution) Over Tool Instructions
+
+**Chose**: Skills produce text/JSON only (task prompts) — no shell commands, no code execution
+**Over**: Tool instructions model (OpenClaw/ClawHub — skills execute shell commands)
+**Why**: ClawHavoc incident: 341 malicious skills with shell access in ClawHub. Snyk article showed shell access from SKILL.md in 3 lines. Task-only = categorically safer. Tradeoff: need MCP bridge for real-world actions.
+**Constraint**: Skills REASON (safe). MCP tools ACT (governed by mcp-guard). Never mix execution into skills.
+**Date**: 2026-02-23
+
+---
+
+## DEC-034: ClawHub Skill Compatibility Over Proprietary Format
+
+**Chose**: Compatible SKILL.md format that can import/wrap ClawHub skills
+**Over**: Building proprietary skill marketplace from scratch
+**Why**: 3,286 existing ClawHub skills, same SKILL.md + YAML frontmatter format. Runtime semantics differ (tool vs task) but format is near-identical. Adapter layer translates tool instructions to task prompts.
+**Constraint**: Runtime adapter needed. ClawHub tool instructions must be converted to task prompts (strip shell commands, keep knowledge).
+**Date**: 2026-02-23
+
+---
+
+## DEC-035: Bundle with Obot + mcp-guard Over Building Custom Security
+
+**Chose**: Integrate Obot (MCP gateway + registry + RBAC) and mcp-guard (PII/secrets/injection scanning)
+**Over**: Building custom MCP security layer from scratch
+**Why**: Already running in runlayer repo. Covers 5/7 Ailoitte enterprise requirements without new code. Obot handles auth + RBAC + audit, mcp-guard handles policy enforcement.
+**Constraint**: Need shared auth (JWT) and unified docker-compose. Obot on :8080, mcp-guard on :8081, Agentura executor on :8000.
+**Date**: 2026-02-23
+
+---
+
+## DEC-036: Declarative Prompt Reasoning Over Imperative Tool Execution
+
+**Chose**: Declarative single-shot LLM call (system_prompt + input → structured output) via Pydantic AI
+**Over**: Imperative ReAct loop (reason → act → observe → repeat) used by OpenClaw
+**Why**:
+- Formal distinction: **imperative** (Turing-complete, agent loops shell commands) vs **declarative** (bounded, single LLM call produces text). IBM PDL research validates declarative agent patterns (67% faster dev, 74% less code).
+- Agentura uses Pydantic AI with **zero `@agent.tool` decorators** — `Agent(model, system_prompt)` → `agent.run(prompt)` → JSON output. No tool registration, no execution loop.
+- OpenClaw uses ReAct loop: LLM picks tools → executes shell/API → observes result → loops. Skills are tool manuals.
+- Security: imperative = Turing-complete execution surface (ClawHavoc: 341 malicious skills). Declarative = bounded text transformation (worst case: wrong JSON).
+- Halting guarantee: single LLM call always terminates. ReAct loop may loop indefinitely (OpenClaw caps at N iterations).
+- Agentura's "agent" is the **learning loop** (corrections → tests → reflexion), not the LLM execution.
+
+**Constraint**: Pydantic AI Agent MUST have zero tool registrations. Skills produce text only. Actions go through MCP layer (separate security boundary governed by mcp-guard).
+**Date**: 2026-02-23
+**Source**: IBM Prompt Declaration Language research, OpenClaw system prompt docs, Agentura local_runner.py L152-158

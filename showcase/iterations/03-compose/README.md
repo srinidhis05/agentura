@@ -1,7 +1,7 @@
 # Iteration 3: Compose
 
 > **Docker parallel:** `docker-compose.yaml` → `docker-compose up`
-> **Aspora parallel:** `aspora.config.yaml` → `aspora up wealth`
+> **Agentura parallel:** `agentura.config.yaml` → `agentura up wealth`
 
 ## What This Proves
 
@@ -9,10 +9,10 @@ Multiple skills can be orchestrated declaratively. No code. Just config.
 
 ## The Compose File
 
-`aspora.config.yaml` is to skills what `docker-compose.yaml` is to containers:
+`agentura.config.yaml` is to skills what `docker-compose.yaml` is to containers:
 
 ```yaml
-# docker-compose.yaml          # aspora.config.yaml
+# docker-compose.yaml          # agentura.config.yaml
 services:                       domain: wealth
   web:                          skills:
     image: nginx                  - name: risk-assess
@@ -44,10 +44,10 @@ User asks: "Assess my risk and suggest investments"
 
 ```bash
 # Run the full domain (executes skill chain)
-aspora up wealth --input showcase/iterations/03-compose/wealth/fixtures/input.json
+agentura up wealth --input showcase/iterations/03-compose/wealth/fixtures/input.json
 
 # Or run skills individually
-aspora run wealth/risk-assess --input fixtures/nri_profile.json
+agentura run wealth/risk-assess --input fixtures/nri_profile.json
 # Output feeds into next skill automatically via routing rules
 ```
 
@@ -55,7 +55,7 @@ aspora run wealth/risk-assess --input fixtures/nri_profile.json
 
 ```
 03-compose/wealth/
-├── aspora.config.yaml          # Domain orchestration (THE compose file)
+├── agentura.config.yaml          # Domain orchestration (THE compose file)
 ├── risk-assess/
 │   ├── SKILL.md
 │   └── fixtures/nri_profile.json
@@ -78,6 +78,6 @@ guardrails:
     - "withdraw_funds"                # Hard block
 ```
 
-Docker doesn't care what your container does. Aspora does — because these are financial agents.
+Docker doesn't care what your container does. Agentura does — because these are financial agents.
 
 ## Next: [Iteration 4 — Test →](../04-test/)

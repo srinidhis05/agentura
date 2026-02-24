@@ -1,36 +1,36 @@
-# Aspora SDK
+# Agentura SDK
 
-Developer tooling for the Aspora skill platform. Create, run, and test skills locally.
+Developer tooling for the Agentura skill platform. Create, run, and test skills locally.
 
 ## Quick Start
 
 ```bash
 # Install
-cd wealth-copilot
+cd agentura
 pip install -e "sdk[test]"
 
 # Create your first skill
-aspora create skill wealth/suggest-allocation --lang python --role specialist
+agentura create skill wealth/suggest-allocation --lang python --role specialist
 
 # Edit the skill definition
 # skills/wealth/suggest-allocation/SKILL.md    — task, tools, output format
-# skills/wealth/suggest-allocation/aspora.config.yaml — routing, guardrails, observability
+# skills/wealth/suggest-allocation/agentura.config.yaml — routing, guardrails, observability
 
 # Validate
-aspora validate wealth/suggest-allocation
+agentura validate wealth/suggest-allocation
 
 # Run (dry-run, no API key needed)
-aspora run wealth/suggest-allocation --dry-run
+agentura run wealth/suggest-allocation --dry-run
 
 # Run with model (requires ANTHROPIC_API_KEY)
 export ANTHROPIC_API_KEY=your-key
-aspora run wealth/suggest-allocation --input skills/wealth/suggest-allocation/fixtures/sample_input.json
+agentura run wealth/suggest-allocation --input skills/wealth/suggest-allocation/fixtures/sample_input.json
 
 # Test
-aspora test wealth/suggest-allocation
+agentura test wealth/suggest-allocation
 
 # List all skills
-aspora list
+agentura list
 ```
 
 ## Skill Structure
@@ -38,7 +38,7 @@ aspora list
 ```
 skills/{domain}/{skill-name}/
 ├── SKILL.md              # Skill definition (prompt + metadata)
-├── aspora.config.yaml    # Domain config (routing, guardrails, observability)
+├── agentura.config.yaml  # Domain config (routing, guardrails, observability)
 ├── DECISIONS.md          # Decision record for this skill
 ├── GUARDRAILS.md         # Anti-patterns to avoid
 ├── code/
@@ -60,20 +60,20 @@ Add a `handler.py` only when you need custom pre/post-processing logic beyond wh
 
 | Command | Description |
 |---------|-------------|
-| `aspora create skill <domain>/<name>` | Scaffold a new skill |
-| `aspora run <domain>/<name>` | Execute skill locally |
-| `aspora test <domain>/<name>` | Run DeepEval + Promptfoo tests |
-| `aspora validate <domain>/<name>` | Validate structure + config |
-| `aspora list` | List all skills in workspace |
-| `aspora get skills` | List skills from gateway |
-| `aspora get domains` | List domains (namespaces) |
-| `aspora get executions` | List execution history |
-| `aspora get events` | List platform events |
-| `aspora get threads` | Group executions by session/thread |
-| `aspora memory status` | Memory store status |
-| `aspora memory search "query"` | Search shared memory |
-| `aspora memory prompt <domain>/<name>` | Assembled prompt |
-| `aspora replay <execution-id>` | Re-run a past execution |
+| `agentura create skill <domain>/<name>` | Scaffold a new skill |
+| `agentura run <domain>/<name>` | Execute skill locally |
+| `agentura test <domain>/<name>` | Run DeepEval + Promptfoo tests |
+| `agentura validate <domain>/<name>` | Validate structure + config |
+| `agentura list` | List all skills in workspace |
+| `agentura get skills` | List skills from gateway |
+| `agentura get domains` | List domains (namespaces) |
+| `agentura get executions` | List execution history |
+| `agentura get events` | List platform events |
+| `agentura get threads` | Group executions by session/thread |
+| `agentura memory status` | Memory store status |
+| `agentura memory search "query"` | Search shared memory |
+| `agentura memory prompt <domain>/<name>` | Assembled prompt |
+| `agentura replay <execution-id>` | Re-run a past execution |
 
 ## Architecture Decisions
 

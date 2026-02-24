@@ -238,6 +238,6 @@ scoring:
 
 # Teams reference
 teams:
-  Ops: { slack: "#ops-ecm", escalation: "ops-lead@aspora.com" }
-  KYC_ops: { slack: "#kyc-ops", escalation: "kyc-lead@aspora.com" }
-  VDA_ops: { slack: "#vda-ops", escalation: "vda-lead@aspora.com" }
+  Ops: { slack: "#ops-ecm", escalation: "ops-lead@agentura.com" }
+  KYC_ops: { slack: "#kyc-ops", escalation: "kyc-lead@agentura.com" }
+  VDA_ops: { slack: "#vda-ops", escalation: "vda-lead@agentura.com" }

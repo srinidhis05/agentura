@@ -1,7 +1,7 @@
 # Iteration 2: Write Your Own
 
 > **Docker parallel:** Write a `Dockerfile`, then `docker build && docker run`
-> **Aspora parallel:** Write a `SKILL.md`, then `aspora validate && aspora run`
+> **Agentura parallel:** Write a `SKILL.md`, then `agentura validate && agentura run`
 
 ## What This Proves
 
@@ -11,18 +11,18 @@ Anyone can create an AI agent in 5 minutes. No Python. No framework. Just markdo
 
 ```bash
 # 1. Scaffold (like `docker init`)
-aspora create skill demo/my-first --lang python --role specialist
+agentura create skill demo/my-first --lang python --role specialist
 
 # 2. Edit the skill definition (like editing a Dockerfile)
 #    Open skills/demo/my-first/SKILL.md in your editor
 #    Change the Task, Output Format, and Guardrails sections
 
 # 3. Validate (like `docker build`)
-aspora validate demo/my-first
+agentura validate demo/my-first
 
 # 4. Run (like `docker run`)
-aspora run demo/my-first --dry-run
-aspora run demo/my-first --input skills/demo/my-first/fixtures/sample_input.json
+agentura run demo/my-first --dry-run
+agentura run demo/my-first --input skills/demo/my-first/fixtures/sample_input.json
 ```
 
 ## What Gets Scaffolded
@@ -30,7 +30,7 @@ aspora run demo/my-first --input skills/demo/my-first/fixtures/sample_input.json
 ```
 skills/demo/my-first/
 ├── SKILL.md              ← The agent (edit this)
-├── aspora.config.yaml    ← Orchestration config
+├── agentura.config.yaml    ← Orchestration config
 ├── DECISIONS.md          ← Track decisions
 ├── GUARDRAILS.md         ← Track anti-patterns
 ├── code/handler.py       ← Optional custom logic (most skills don't need this)

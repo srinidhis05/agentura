@@ -3,7 +3,7 @@ name: my-tickets
 role: field
 domain: ecm
 trigger: manual
-model: anthropic/claude-sonnet-4-5-20250929
+model: anthropic/claude-sonnet-4.5
 cost_budget_per_execution: "$0.10"
 timeout: "30s"
 ---

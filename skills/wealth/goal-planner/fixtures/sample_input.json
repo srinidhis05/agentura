@@ -1,0 +1,19 @@
+{
+  "goal": {
+    "name": "Child's University Education",
+    "target_amount_usd": 200000,
+    "target_currency": "USD",
+    "timeline_years": 12,
+    "priority": "high",
+    "flexibility": "low"
+  },
+  "investor": {
+    "age": 35,
+    "residence": "UAE",
+    "citizenship": "Indian",
+    "monthly_savings_available_usd": 3000,
+    "risk_tolerance": "moderate",
+    "existing_corpus_for_goal_usd": 15000,
+    "account_types": ["NRE", "NRO"]
+  }
+}

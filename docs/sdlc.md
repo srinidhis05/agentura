@@ -3,8 +3,8 @@
 ```
 IDEATE (5 min)  →  DEFINE (30 min)  →  BUILD (1-4h)  →  VALIDATE (30 min)
      ↓                   ↓                  ↓                   ↓
-aspora create      Edit SKILL.md       Write handler      aspora validate
-                   Edit config         aspora run          aspora test
+agentura create      Edit SKILL.md       Write handler      agentura validate
+                   Edit config         agentura run          agentura test
                    Add fixtures        Write tests         Peer review
                                                                ↓
                                                    STAGE → PRODUCTION → LEARN
@@ -19,7 +19,7 @@ Decide what skill to build. Answer:
 - What trigger? (manual, alert, cron, routed)
 
 ```bash
-aspora create skill {domain}/{name} --lang python --role specialist
+agentura create skill {domain}/{name} --lang python --role specialist
 ```
 
 ## Phase 2: DEFINE (30 min)
@@ -31,7 +31,7 @@ Edit `SKILL.md`:
 - Add 1-2 example executions
 - Write guardrails (what the skill must NEVER do)
 
-Edit `aspora.config.yaml`:
+Edit `agentura.config.yaml`:
 - Set model and cost budget
 - Define triggers
 - Add routing rules (if manager skill)
@@ -46,7 +46,7 @@ Most skills are prompt-only (SKILL.md does everything). For custom logic:
 ```bash
 # Edit code/handler.py
 # Run to test
-aspora run {domain}/{name} --input fixtures/sample_input.json
+agentura run {domain}/{name} --input fixtures/sample_input.json
 ```
 
 Iterate: edit → run → check output → edit again.
@@ -55,16 +55,16 @@ Iterate: edit → run → check output → edit again.
 
 ```bash
 # Structure check
-aspora validate {domain}/{name}
+agentura validate {domain}/{name}
 
 # Run tests
-aspora test {domain}/{name}
+agentura test {domain}/{name}
 
 # Quality metrics (DeepEval)
-aspora test {domain}/{name} --framework deepeval
+agentura test {domain}/{name} --framework deepeval
 
 # Regression tests (Promptfoo)
-aspora test {domain}/{name} --framework promptfoo
+agentura test {domain}/{name} --framework promptfoo
 ```
 
 Record decisions in `DECISIONS.md`. Record anti-patterns in `GUARDRAILS.md`.
@@ -78,16 +78,16 @@ Platform deployment via skill registry. Requires:
 
 ## Phase 6: PRODUCTION (Phase 2)
 
-Canary deployment (DEC-010):
+Canary deployment (ADR-017, planned):
 - 10% traffic → monitor success rate
 - Auto-rollback if < 95% of previous version
-- Shadow mode for batch/cron skills (DEC-012)
+- Shadow mode for batch/cron skills
 
 ## Phase 7: LEARN
 
-Feedback loop (DEC-006):
+Feedback loop:
 1. User corrects skill output
 2. Correction captured in `skill_executions.user_correction`
-3. DeepEval regression test auto-generated
-4. Reflexion entry stored in episodic memory (DEC-013)
+3. Regression test auto-generated
+4. Reflexion entry stored in episodic memory
 5. Skill improves from corrections over time

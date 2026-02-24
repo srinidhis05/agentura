@@ -1,4 +1,4 @@
-# Aspora Platform — Guardrails (Anti-Patterns)
+# Agentura Platform — Guardrails (Anti-Patterns)
 
 > **Purpose**: Record mistakes and anti-patterns to prevent repetition.
 > **Format**: `Mistake → Impact → Rule → Detection`
@@ -49,7 +49,7 @@
 
 **Mistake**: Built a `PlatformRouter` Python class with pattern matching and `DomainAdapter` classes for domain routing.
 **Impact**: Created Python code that contradicts the "everything is a skill" architecture. The routing logic should live in SKILL.md and plugin.yaml, not Python classes.
-**Rule**: Python/Pydantic AI is ONLY the execution engine. Routing, domain logic, business rules, knowledge — ALL live in skills (SKILL.md) and config (plugin.yaml, aspora.config.yaml). If you're writing Python that decides WHERE to route, STOP — make it a skill.
+**Rule**: Python/Pydantic AI is ONLY the execution engine. Routing, domain logic, business rules, knowledge — ALL live in skills (SKILL.md) and config (plugin.yaml, agentura.config.yaml). If you're writing Python that decides WHERE to route, STOP — make it a skill.
 **Detection**: If a Python file contains routing logic, domain classification, or business rules → it should be a SKILL.md or config file instead.
 **Date**: 2026-02-18
 
@@ -92,3 +92,23 @@ Keep entries actionable. Every guardrail MUST have a Detection rule.
 **Rule**: Identify the gap, then BUILD THE FIX in the same response. Never list more than 3 problems without immediately solving the first one. If you can build it tonight, don't say "Week 1/Week 2/Week 3".
 **Detection**: If response contains timeline estimates (days/weeks) without tool calls that write code — STOP and start building.
 **Date**: 2026-02-20
+
+---
+
+## GRD-009: Web Searching When User Gave Specific Instructions
+
+**Mistake**: User gave two Figma URLs with clear descriptions ("agent topology from design 1, trends from design 2"). When Figma returned 403, instead of waiting for the user to publish or asking for screenshots, launched irrelevant web searches for "AI dashboard trends."
+**Impact**: Wasted a full turn on hallucinated research. Zero progress on the actual task. User had to call it out.
+**Rule**: When you can't access a specific resource the user provided, say so and wait — or ask for an alternative format (screenshot, export). NEVER substitute the user's specific reference with generic web research. The user's design IS the spec, not "industry trends."
+**Detection**: If a URL returns 403/401 and the next action is WebSearch for the same topic — STOP. Ask the user for access instead.
+**Date**: 2026-02-21
+
+---
+
+## GRD-010: Never Ask for API Keys or Secrets
+
+**Mistake**: Asked the user "What's your OpenRouter API key?" when they said they had one.
+**Impact**: Security anti-pattern. Secrets should never be pasted into chat. The key would end up in conversation logs.
+**Rule**: NEVER ask for API keys, passwords, tokens, or secrets. Tell the user WHERE to add it (which file, which env var name) and let them add it themselves.
+**Detection**: If about to ask for a value that looks like a secret (API key, token, password, connection string) — STOP. Instead say "Add `VAR_NAME=your-key` to `.env`."
+**Date**: 2026-02-22

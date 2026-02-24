@@ -34,5 +34,5 @@
 
 ## When to Add New Guardrails
 
-- Analyst corrects a classification → guardrail added automatically via `aspora correct`
+- Analyst corrects a classification → guardrail added automatically via `agentura correct`
 - Compliance review flags pattern → add manually here

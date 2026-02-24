@@ -10,7 +10,7 @@ from deepeval.test_case import LLMTestCase
 def test_correction_1():
     """Verify corrected behavior is preserved."""
     input_data = {
-    "resume_text": "Srinidhi Kulkarni \u2014 Senior Software Engineer. 5+ years building distributed systems at scale. Led a team of 8 engineers at a fintech startup building real-time payment processing (3M txns/day). Expert in Go, Python, Kubernetes, and event-driven architectures. Previously at Amazon (SDE2) working on DynamoDB internals. MS Computer Science from IIIT Hyderabad. Open source contributor to Apache Kafka.",
+    "resume_text": "Alex Chen \u2014 Senior Software Engineer. 5+ years building distributed systems at scale. Led a team of 8 engineers at a fintech startup building real-time payment processing (3M txns/day). Expert in Go, Python, Kubernetes, and event-driven architectures. Previously at a major cloud provider (SDE2) working on database internals. MS Computer Science. Open source contributor to Apache Kafka.",
     "job_description": "Senior Backend Engineer \u2014 Fintech. Required: 5+ years backend experience, distributed systems, Go or Python, Kubernetes. Preferred: Fintech domain, payment systems, team leadership.",
     "role_title": "Senior Backend Engineer",
     "department": "Engineering"

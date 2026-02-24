@@ -3,7 +3,7 @@
 Classifies incoming fraud alerts and queries, routes to specialists.
 """
 
-from aspora_sdk.types import SkillContext, SkillResult
+from agentura_sdk.types import SkillContext, SkillResult
 
 
 async def handle(ctx: SkillContext) -> SkillResult:

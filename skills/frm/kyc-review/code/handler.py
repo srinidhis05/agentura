@@ -3,7 +3,7 @@
 Checks document completeness, watchlists, and generates RFIs.
 """
 
-from aspora_sdk.types import SkillContext, SkillResult
+from agentura_sdk.types import SkillContext, SkillResult
 
 
 async def handle(ctx: SkillContext) -> SkillResult:

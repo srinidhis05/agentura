@@ -1,19 +1,19 @@
-# Aspora: Docker for AI Agents
+# Agentura: Docker for AI Agents
 
 > SKILL.md is the new Dockerfile.
-> aspora.config.yaml is the new docker-compose.yaml.
-> `aspora run` is the new `docker run`.
+> agentura.config.yaml is the new docker-compose.yaml.
+> `agentura run` is the new `docker run`.
 
 ## The Analogy
 
-| Docker | Aspora | What it does |
+| Docker | Agentura | What it does |
 |--------|--------|-------------|
 | `Dockerfile` | `SKILL.md` | Declares what to build |
-| `docker build` | `aspora validate` | Validates the definition |
-| `docker run` | `aspora run` | Executes it |
-| `docker-compose.yaml` | `aspora.config.yaml` | Orchestrates multiple units |
-| `docker-compose up` | `aspora up` | Runs a full domain |
-| `docker test` / CI | `aspora test` | Regression + quality tests |
+| `docker build` | `agentura validate` | Validates the definition |
+| `docker run` | `agentura run` | Executes it |
+| `docker-compose.yaml` | `agentura.config.yaml` | Orchestrates multiple units |
+| `docker-compose up` | `agentura up` | Runs a full domain |
+| `docker test` / CI | `agentura test` | Regression + quality tests |
 | `Docker Hub` | Skill Registry | Publish / discover / install |
 | Kubernetes Operators | Knowledge Layer | Self-healing, self-improving |
 
@@ -23,7 +23,7 @@ Docker didn't invent containers. It invented **Dockerfile** — a format so simp
 
 Kubernetes didn't invent orchestration. It invented **declarative YAML manifests** — describe desired state, the system makes it happen.
 
-Aspora doesn't invent AI agents. It invents **a declarative format for agent skills** — describe what the agent does in SKILL.md, how it's orchestrated in aspora.config.yaml, and the runtime handles execution, testing, observability, and self-improvement.
+Agentura doesn't invent AI agents. It invents **a declarative format for agent skills** — describe what the agent does in SKILL.md, how it's orchestrated in agentura.config.yaml, and the runtime handles execution, testing, observability, and self-improvement.
 
 ## Build Iterations
 
@@ -45,20 +45,20 @@ Each iteration adds one Docker concept. Each one is working and demo-able.
 pip install -e "sdk[test]"
 
 # Iteration 1: Hello World
-aspora run showcase/hello --dry-run
+agentura run showcase/hello --dry-run
 
 # Iteration 2: Write your own
-aspora create skill demo/my-first --lang python --role specialist
+agentura create skill demo/my-first --lang python --role specialist
 # Edit skills/demo/my-first/SKILL.md
-aspora validate demo/my-first
-aspora run demo/my-first --dry-run
+agentura validate demo/my-first
+agentura run demo/my-first --dry-run
 
 # Iteration 3: Compose (multi-skill domain)
-aspora up showcase/wealth    # runs risk-assess → routes to suggest-allocation
+agentura up showcase/wealth    # runs risk-assess → routes to suggest-allocation
 
 # Iteration 4: Test
-aspora test showcase/wealth  # corrections become regression tests
+agentura test showcase/wealth  # corrections become regression tests
 
 # Iteration 5: Knowledge
-aspora run showcase/wealth --with-memory  # agent remembers past executions
+agentura run showcase/wealth --with-memory  # agent remembers past executions
 ```

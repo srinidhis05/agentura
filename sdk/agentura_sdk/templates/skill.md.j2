@@ -1,0 +1,122 @@
+---
+name: {{ skill_name }}
+description: >
+  [What this skill does in one sentence]. Use when [trigger phrases].
+  Do NOT use for [exclusions].
+role: {{ role }}
+domain: {{ domain }}
+trigger: manual
+model: anthropic/claude-sonnet-4-5-20250929
+cost_budget_per_execution: "$0.10"
+timeout: "60s"
+---
+
+# {{ skill_name | replace("-", " ") | title }}
+
+## Domain Model
+<!-- LAYER 1: WHAT — Define the domain this skill operates in.
+     The LLM already knows your domain. Your job is to ACTIVATE that knowledge,
+     not replace it with generic abstractions. Use your domain's actual vocabulary. -->
+
+**Key entities:**
+- [Entity 1]: [what it is and why it matters]
+- [Entity 2]: [what it is and why it matters]
+
+**Invariants** (things that must ALWAYS be true):
+- [Invariant 1 — e.g., "Every risk score must be traceable to input factors"]
+- [Invariant 2 — e.g., "Output currency must match the user's base currency"]
+
+## Why This Matters
+<!-- LAYER 2: WHY — Explain reasoning so the LLM makes JUDGMENTS, not just follows rules.
+     Most skills skip this layer. Adding it is what separates good skills from great ones.
+     "If you find yourself writing ALWAYS/NEVER in all caps, explain the reasoning instead." -->
+
+- [Why we do X instead of Y — e.g., "We separate risk scoring from allocation because
+  a wrong risk score cascades into wrong investment advice"]
+- [What goes wrong without this skill — e.g., "Without per-market analysis, a UAE
+  resident gets India-only tax advice, missing DTAA benefits"]
+- [What the user expects — e.g., "Compliance analysts expect reasoning they can audit,
+  not just a pass/fail score"]
+
+## Task
+<!-- LAYER 3: HOW — Execution steps informed by Layers 1 and 2.
+     Declare INTENT for judgment work. Be PRECISE for mechanical work.
+     Keep to 3-7 steps. If more, the skill is doing too much (split it). -->
+
+Given the input context, this skill must:
+
+1. **Validate** input against the domain model invariants
+2. **Analyze** [what specifically to analyze]
+3. **Reason** about [what judgment to apply, referencing the WHY layer]
+4. **Return** structured output with reasoning trace
+
+## Context You'll Receive
+
+```json
+{
+  "field_1": "type — what this field represents",
+  "field_2": "type — what this field represents"
+}
+```
+
+<!-- For complex context, describe which fields are required vs optional,
+     and what the skill should do when optional fields are missing. -->
+
+## Output Format
+
+```json
+{
+  "result": "the primary output",
+  "confidence": "high | medium | low",
+  "reasoning_trace": "step-by-step explanation of how you reached this conclusion",
+  "evidence": ["list of input factors that support the conclusion"]
+}
+```
+
+<!-- reasoning_trace is REQUIRED. Without it, corrections and debugging are impossible.
+     evidence links conclusions back to input — essential for audit trails. -->
+
+## Example Execution
+
+**Input:**
+```json
+{
+  "field_1": "example value",
+  "field_2": "example value"
+}
+```
+
+**Output:**
+```json
+{
+  "result": "example output",
+  "confidence": "high",
+  "reasoning_trace": "I determined X because the input shows Y, and given the domain constraint Z, the appropriate conclusion is X.",
+  "evidence": ["field_1 indicates A", "field_2 confirms B"]
+}
+```
+
+## Guardrails
+
+<!-- Explain WHY, not just rules. Adaptive > rigid.
+     Bad:  "NEVER give investment advice"
+     Good: "Avoid specific investment advice because regulatory requirements
+            vary by jurisdiction and the skill lacks the user's full financial picture." -->
+
+1. [Guardrail with reasoning — e.g., "Validate input completeness before analysis
+   because partial data produces confidently wrong answers"]
+2. [Guardrail with reasoning — e.g., "Include uncertainty when data is ambiguous
+   because downstream skills may amplify a false-confident signal"]
+3. [Guardrail with reasoning — e.g., "Never hardcode thresholds — reference them
+   from config because they change per jurisdiction and per client"]
+
+## References
+<!-- Progressive disclosure: keep SKILL.md under 500 lines.
+     Complex logic, lookup tables, and jurisdiction-specific rules
+     go in references/ and are loaded ONLY when the execution path needs them.
+
+     Example:
+     - For UAE-specific tax rules → read references/uae-dtaa.md
+     - For sanctions list matching → read references/ofac-matching.md
+     - For edge cases in [X] → read references/edge-cases.md
+-->

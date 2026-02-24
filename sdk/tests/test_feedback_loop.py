@@ -40,7 +40,7 @@ def workspace(tmp_path):
     (domain_dir / "DOMAIN.md").write_text("# Test Domain\nThis is a test domain.\n")
 
     # Create knowledge layer
-    knowledge_dir = tmp_path / ".aspora"
+    knowledge_dir = tmp_path / ".agentura"
     knowledge_dir.mkdir()
 
     # Seed with one execution
@@ -92,7 +92,7 @@ class TestFeedbackLoopEndToEnd:
 
     def test_correction_creates_reflexion(self, workspace):
         """Step 1: Submitting a correction creates a reflexion entry."""
-        from aspora_sdk.cli.correct import _store_correction, _generate_reflexion
+        from agentura_sdk.cli.correct import _store_correction, _generate_reflexion
 
         correction_id = _store_correction(
             skill_path="test-domain/test-skill",
@@ -128,8 +128,8 @@ class TestFeedbackLoopEndToEnd:
 
     def test_reflexion_injected_into_system_prompt(self, workspace):
         """Step 2: Loading the skill after correction includes the reflexion."""
-        from aspora_sdk.cli.correct import _store_correction, _generate_reflexion
-        from aspora_sdk.runner.skill_loader import load_skill_md
+        from agentura_sdk.cli.correct import _store_correction, _generate_reflexion
+        from agentura_sdk.runner.skill_loader import load_skill_md
 
         # First, create correction + reflexion
         correction_id = _store_correction(
@@ -156,8 +156,8 @@ class TestFeedbackLoopEndToEnd:
 
     def test_composed_prompt_contains_reflexion(self, workspace):
         """Step 3: The final composed prompt (domain + reflexion + skill) includes the rule."""
-        from aspora_sdk.cli.correct import _store_correction, _generate_reflexion
-        from aspora_sdk.runner.skill_loader import load_skill_md
+        from agentura_sdk.cli.correct import _store_correction, _generate_reflexion
+        from agentura_sdk.runner.skill_loader import load_skill_md
 
         # Create correction + reflexion
         correction_id = _store_correction(
@@ -191,8 +191,8 @@ class TestFeedbackLoopEndToEnd:
 
     def test_multiple_corrections_accumulate(self, workspace):
         """Multiple corrections create multiple reflexion rules, all injected."""
-        from aspora_sdk.cli.correct import _store_correction, _generate_reflexion
-        from aspora_sdk.runner.skill_loader import load_skill_md
+        from agentura_sdk.cli.correct import _store_correction, _generate_reflexion
+        from agentura_sdk.runner.skill_loader import load_skill_md
 
         corrections = [
             "Rule one: always validate input",
@@ -226,7 +226,7 @@ class TestFeedbackLoopEndToEnd:
 
     def test_correction_stored_correctly(self, workspace):
         """Correction metadata is complete and linked."""
-        from aspora_sdk.cli.correct import _store_correction
+        from agentura_sdk.cli.correct import _store_correction
 
         cid = _store_correction(
             skill_path="test-domain/test-skill",
@@ -254,7 +254,7 @@ class TestReflexionQuality:
 
     def test_confidence_high_for_major_correction(self, workspace):
         """Major correction (completely different) = high confidence."""
-        from aspora_sdk.cli.correct import _generate_reflexion
+        from agentura_sdk.cli.correct import _generate_reflexion
 
         _generate_reflexion(
             skill_path="test-domain/test-skill",
@@ -272,7 +272,7 @@ class TestReflexionQuality:
 
     def test_confidence_lower_for_minor_correction(self, workspace):
         """Minor correction (similar words) = lower confidence."""
-        from aspora_sdk.cli.correct import _generate_reflexion
+        from agentura_sdk.cli.correct import _generate_reflexion
 
         _generate_reflexion(
             skill_path="test-domain/test-skill",
@@ -290,7 +290,7 @@ class TestReflexionQuality:
 
     def test_applies_when_includes_input_keys(self, workspace):
         """applies_when should reference input data keys."""
-        from aspora_sdk.cli.correct import _generate_reflexion
+        from agentura_sdk.cli.correct import _generate_reflexion
 
         _generate_reflexion(
             skill_path="test-domain/test-skill",
@@ -309,7 +309,7 @@ class TestReflexionQuality:
 
     def test_root_cause_categorization(self, workspace):
         """Root cause should be derived from correction text patterns."""
-        from aspora_sdk.cli.correct import _generate_reflexion
+        from agentura_sdk.cli.correct import _generate_reflexion
 
         # Test "missing" pattern
         _generate_reflexion(
@@ -331,7 +331,7 @@ class TestSkillLoader:
 
     def test_load_skill_without_reflexions(self, workspace):
         """Skill loads cleanly with no reflexions."""
-        from aspora_sdk.runner.skill_loader import load_skill_md
+        from agentura_sdk.runner.skill_loader import load_skill_md
 
         loaded = load_skill_md(workspace["skill_md"])
 
@@ -343,14 +343,14 @@ class TestSkillLoader:
 
     def test_load_skill_with_domain_context(self, workspace):
         """DOMAIN.md is loaded from parent directory."""
-        from aspora_sdk.runner.skill_loader import load_skill_md
+        from agentura_sdk.runner.skill_loader import load_skill_md
 
         loaded = load_skill_md(workspace["skill_md"])
         assert "Test Domain" in loaded.domain_context
 
     def test_skill_name_matching(self, workspace):
         """Reflexion matching works with domain/skill format."""
-        from aspora_sdk.runner.skill_loader import load_reflexion_entries
+        from agentura_sdk.runner.skill_loader import load_reflexion_entries
 
         # Write a reflexion entry
         refl_data = {
@@ -376,7 +376,7 @@ class TestSkillLoader:
 
     def test_unrelated_skill_reflexions_excluded(self, workspace):
         """Reflexions for other skills are not injected."""
-        from aspora_sdk.runner.skill_loader import load_reflexion_entries
+        from agentura_sdk.runner.skill_loader import load_reflexion_entries
 
         refl_data = {
             "entries": [
@@ -403,7 +403,7 @@ class TestTestGeneration:
 
     def test_deepeval_test_generated(self, workspace):
         """DeepEval test file is created from correction."""
-        from aspora_sdk.testing.deepeval_runner import generate_test_from_correction
+        from agentura_sdk.testing.deepeval_runner import generate_test_from_correction
 
         test_file = generate_test_from_correction(
             skill_dir=workspace["skill_dir"],
@@ -420,7 +420,7 @@ class TestTestGeneration:
 
     def test_promptfoo_test_generated(self, workspace):
         """Promptfoo YAML test is created from correction."""
-        from aspora_sdk.testing.test_generator import generate_promptfoo_test
+        from agentura_sdk.testing.test_generator import generate_promptfoo_test
 
         test_file = generate_promptfoo_test(
             skill_dir=workspace["skill_dir"],

@@ -1,24 +1,24 @@
-# Aspora vs OpenClaw: Honest Comparison
+# Agentura vs OpenClaw: Honest Comparison
 
 ## TL;DR
 
 **OpenClaw** = Personal AI assistant (like Jarvis). Chat-first, 50+ integrations, runs on your laptop.
-**Aspora** = Enterprise skill platform (like Kubernetes for AI agents). Config-first, compliance-ready, self-improving.
+**Agentura** = Enterprise skill platform (like Kubernetes for AI agents). Config-first, compliance-ready, self-improving.
 
-They solve different problems. OpenClaw automates your personal life. Aspora automates enterprise operations.
+They solve different problems. OpenClaw automates your personal life. Agentura automates enterprise operations.
 
 ---
 
 ## Side-by-Side
 
-| Dimension | OpenClaw | Aspora |
+| Dimension | OpenClaw | Agentura |
 |-----------|----------|--------|
 | **Purpose** | Personal assistant (email, calendar, smart home) | Enterprise operations (finance, compliance, fraud) |
 | **Architecture** | WebSocket gateway + LLM + tools | Skill runtime + domain orchestration + feedback loop |
-| **Agent definition** | SOUL.md (personality) + AGENTS.md (routing) | SKILL.md (task) + aspora.config.yaml (orchestration) |
+| **Agent definition** | SOUL.md (personality) + AGENTS.md (routing) | SKILL.md (task) + agentura.config.yaml (orchestration) |
 | **Unit of work** | Chat message → response | Skill execution → typed result |
 | **Multi-agent** | @mention handoff (conversational) | Manager→Specialist→Field (deterministic routing) |
-| **Config format** | Markdown files (SOUL.md, AGENTS.md) | YAML + Markdown (aspora.config.yaml + SKILL.md) |
+| **Config format** | Markdown files (SOUL.md, AGENTS.md) | YAML + Markdown (agentura.config.yaml + SKILL.md) |
 | **Language** | TypeScript (Node.js) | Python (Pydantic AI) |
 | **LLM providers** | 10+ (Anthropic, OpenAI, Google, Ollama, Bedrock) | OpenRouter (access to all models via single API) |
 | **Integrations** | 50+ (WhatsApp, Slack, Spotify, Hue, Obsidian) | MCP tools (Redshift, Google Sheets, broker APIs) |
@@ -36,15 +36,15 @@ They solve different problems. OpenClaw automates your personal life. Aspora aut
 
 ## What OpenClaw Gets Right (Learn From)
 
-1. **Gateway pattern** — WebSocket gateway decoupling channels from agent logic. Aspora's Communication Gateway (DEC-002) follows the same principle.
+1. **Gateway pattern** — WebSocket gateway decoupling channels from agent logic. Agentura's Communication Gateway (DEC-002) follows the same principle.
 
-2. **Markdown-driven config** — SOUL.md + AGENTS.md is elegant. Aspora's SKILL.md + aspora.config.yaml is the enterprise equivalent.
+2. **Markdown-driven config** — SOUL.md + AGENTS.md is elegant. Agentura's SKILL.md + agentura.config.yaml is the enterprise equivalent.
 
-3. **Skill marketplace (ClawHub)** — 4,000+ community skills. Network effect is real. Aspora needs this eventually.
+3. **Skill marketplace (ClawHub)** — 4,000+ community skills. Network effect is real. Agentura needs this eventually.
 
-4. **Companion apps** — iOS, Android, macOS apps for interaction. Aspora uses Slack/WhatsApp (sufficient for enterprise).
+4. **Companion apps** — iOS, Android, macOS apps for interaction. Agentura uses Slack/WhatsApp (sufficient for enterprise).
 
-5. **Local-first** — No cloud required. Aspora follows the same principle (DEC: local-first SDK).
+5. **Local-first** — No cloud required. Agentura follows the same principle (DEC: local-first SDK).
 
 ---
 
@@ -62,7 +62,7 @@ They solve different problems. OpenClaw automates your personal life. Aspora aut
 
 Sources: Kaspersky ("unsafe for use"), Cisco ("security nightmare"), Aikido Security ("ridiculous to try to secure"), VirusTotal (published analysis of weaponized skills).
 
-**Aspora's answer:** Role isolation (DEC-011), budget caps, HITL gates for financial actions, typed contracts (SkillContext→SkillResult), no arbitrary code execution.
+**Agentura's answer:** Role isolation (DEC-011), budget caps, HITL gates for financial actions, typed contracts (SkillContext→SkillResult), no arbitrary code execution.
 
 ### 2. No LLM Quality Testing
 
@@ -73,13 +73,13 @@ OpenClaw has Vitest for code tests. Zero framework for:
 - Red teaming
 - Production trace analysis
 
-**Aspora's answer:** DeepEval (60+ metrics), Promptfoo (A/B + regression), Opik (production tracing), Langfuse (compliance audit). Testing is a first-class citizen, not an afterthought.
+**Agentura's answer:** DeepEval (60+ metrics), Promptfoo (A/B + regression), Opik (production tracing), Langfuse (compliance audit). Testing is a first-class citizen, not an afterthought.
 
 ### 3. No Learning Loop
 
 OpenClaw's "memory" is append-only markdown files. The agent doesn't learn from mistakes — it just remembers conversations.
 
-**Aspora's answer:**
+**Agentura's answer:**
 ```
 User correction → Stored in episodic memory
                 → DeepEval test auto-generated
@@ -97,7 +97,7 @@ OpenClaw tracks token usage after the fact. There's no way to:
 - Require human approval for expensive actions
 - Audit cost per domain/team/skill
 
-**Aspora's answer:** `cost_budget_per_execution` in config. Budget enforcement as a guardrail. Cost tracked in observability. Per-domain rollup.
+**Agentura's answer:** `cost_budget_per_execution` in config. Budget enforcement as a guardrail. Cost tracked in observability. Per-domain rollup.
 
 ### 5. No Deterministic Orchestration
 
@@ -106,7 +106,7 @@ OpenClaw's @mention routing is conversational — Agent A says "@coder fix this"
 - Unauditable (no routing rules to inspect)
 - Fragile (agent might mention wrong agent)
 
-**Aspora's answer:** Config-driven routing with explicit rules:
+**Agentura's answer:** Config-driven routing with explicit rules:
 ```yaml
 routing:
   - from: risk-assess
@@ -122,7 +122,7 @@ OpenClaw proved the market: people want AI agents that do things, not just chat.
 
 But OpenClaw is a **consumer product** — it's WhatsApp for AI. Fast, fun, personal.
 
-Aspora is an **enterprise platform** — it's Salesforce for AI agents. Compliant, auditable, self-improving.
+Agentura is an **enterprise platform** — it's Salesforce for AI agents. Compliant, auditable, self-improving.
 
 The bet: enterprises will pay for agents that:
 1. Learn from corrections (not just memory)

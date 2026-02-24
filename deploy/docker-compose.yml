@@ -1,0 +1,94 @@
+services:
+  executor:
+    build:
+      context: ../sdk
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../skills:/skills:rw
+      - agentura-knowledge:/data/.agentura
+    environment:
+      SKILLS_DIR: /skills
+      AGENTURA_KNOWLEDGE_DIR: /data/.agentura
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DATABASE_URL: postgresql://agentura:${DB_PASSWORD:-agentura_dev}@postgres:5432/agentura
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: agentura
+      DB_PASSWORD: ${DB_PASSWORD:-agentura_dev}
+      DB_NAME: agentura
+      EXECUTOR_URL: http://executor:8000
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      JWKS_URL: ${JWKS_URL:-}
+      JWT_ISSUER: ${JWT_ISSUER:-}
+    depends_on:
+      executor:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3000"
+    environment:
+      API_TARGET: http://gateway:3001
+    depends_on:
+      - gateway
+
+  slack:
+    build:
+      context: ../services/agentura-slack
+      dockerfile: Dockerfile
+    environment:
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      AGENTURA_EXECUTOR_URL: http://executor:8000
+      AGENTURA_GATEWAY_URL: http://gateway:8080
+    depends_on:
+      executor:
+        condition: service_healthy
+    profiles:
+      - slack
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: agentura
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-agentura_dev}
+      POSTGRES_DB: agentura
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentura"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
+  agentura-knowledge:

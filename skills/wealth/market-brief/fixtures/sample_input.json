@@ -1,0 +1,7 @@
+{
+  "date": "2026-02-21",
+  "focus": "all",
+  "investor_residence": "UAE",
+  "portfolio_currencies": ["INR", "AED", "USD"],
+  "watchlist": ["NIFTY50", "SENSEX", "USDINR", "AEDINR", "GOLD", "CRUDE"]
+}

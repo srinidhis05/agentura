@@ -68,6 +68,32 @@ Used by: `examples/auto-rca/*.md`
 5. **Example Execution** — Input/output pairs
 6. **Guardrails** — Hard rules (NEVER/ALWAYS)
 
-## Relationship to aspora.config.yaml
+## 4-Layer Prompt Hierarchy
 
-`SKILL.md` defines **what** a single skill does. `aspora.config.yaml` defines **how** skills are orchestrated at the domain level (routing, guardrails, observability, feedback).
+When a skill executes, its system prompt is assembled from up to 4 layers, separated by `\n\n---\n\n`:
+
+```
+Layer 0: WORKSPACE.md  — Organization-wide context (policies, conventions, shared rules)
+Layer 1: DOMAIN.md     — Domain identity & voice (ecm, wealth, frm, hr)
+Layer 2: Reflexions    — Learned rules from past corrections (auto-generated)
+Layer 3: SKILL.md      — Task-specific prompt
+```
+
+| Layer | File | Owner | Scope |
+|-------|------|-------|-------|
+| 0 | `skills/WORKSPACE.md` | Platform admin | All skills, all domains |
+| 1 | `skills/{domain}/DOMAIN.md` | Domain lead | All skills in one domain |
+| 2 | `reflexion_entries.json` / mem0 | Auto-generated | Per-skill |
+| 3 | `skills/{domain}/{skill}/SKILL.md` | Skill author | One task |
+
+Each layer is optional except Layer 3 (SKILL.md). Missing layers are silently skipped.
+
+### File discovery
+
+- **WORKSPACE.md**: Walks up from the skill directory (max 5 levels) looking for `WORKSPACE.md`. Typically at `skills/WORKSPACE.md`.
+- **DOMAIN.md**: Walks up from the skill directory (max 3 levels) looking for `DOMAIN.md`. Typically at `skills/{domain}/DOMAIN.md`.
+- **Reflexions**: Loaded from mem0 semantic memory or `.agentura/reflexion_entries.json`.
+
+## Relationship to agentura.config.yaml
+
+`SKILL.md` defines **what** a single skill does. `agentura.config.yaml` defines **how** skills are orchestrated at the domain level (routing, guardrails, observability, feedback).

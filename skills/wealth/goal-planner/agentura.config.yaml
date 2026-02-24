@@ -1,0 +1,47 @@
+# Wealth Goal Planner Configuration
+# Skill: wealth/goal-planner
+
+domain:
+  name: wealth
+  description: "Wealth domain skills"
+  owner: team-wealth
+
+skills:
+  - name: goal-planner
+    path: ./SKILL.md
+    role: specialist
+    model: anthropic/claude-sonnet-4.5
+    cost_budget: "$0.10"
+    triggers:
+      - type: manual
+      - type: api
+        description: "Goal planning requests via API"
+      - type: slack
+        description: "On-demand via Slack"
+
+routing: []
+
+guardrails:
+  budget:
+    max_cost_per_execution: "$0.50"
+  rate_limits:
+    max_executions_per_minute: 5
+
+observability:
+  metrics:
+    - name: wealth_goal_planner_executions_total
+      type: counter
+      labels: [skill, domain, outcome]
+  logs:
+    destination: langfuse
+    capture:
+      - skill_input
+      - skill_output
+      - reasoning_trace
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval
+
+mcp_tools: []
