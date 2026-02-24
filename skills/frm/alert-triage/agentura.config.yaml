@@ -1,0 +1,47 @@
+domain:
+  name: frm
+  description: "Fraud & Risk Management"
+  owner: "frm-team"
+
+skills:
+  - name: alert-triage
+    path: alert-triage
+    role: manager
+    model: anthropic/claude-haiku-4.5
+    cost_budget: "$0.02"
+    triggers:
+      - type: always
+        description: "All incoming FRM queries and alerts pass through triage"
+      - type: cron
+        schedule: "*/5 9-17 * * 1-5"
+        description: "Triage fraud alerts every 5 min during business hours"
+      - type: slack
+        command: "/agentura run frm/alert-triage"
+      - type: api
+        description: "Webhook from fraud detection system"
+
+routing:
+  - when:
+      classification: rule_simulation
+    then:
+      forward_to: frm/rule-simulation
+  - when:
+      classification: alert_investigation
+    then:
+      forward_to: frm/rule-simulation
+  - when:
+      classification: kyc_review
+    then:
+      forward_to: frm/kyc-review
+
+guardrails:
+  budget:
+    max_per_execution: "$0.02"
+    alert_at: "$0.015"
+  rate_limits:
+    requests_per_minute: 50
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval

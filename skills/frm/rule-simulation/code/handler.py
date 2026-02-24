@@ -6,7 +6,7 @@ Validates rule parameters and returns simulation results with impact analysis.
 Contract: SkillContext → SkillResult (DEC-005)
 """
 
-from aspora_sdk.types import SkillContext, SkillResult
+from agentura_sdk.types import SkillContext, SkillResult
 
 
 async def handle(ctx: SkillContext) -> SkillResult:

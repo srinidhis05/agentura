@@ -3,7 +3,7 @@ name: triage-and-assign
 role: manager
 domain: ecm
 trigger: always
-model: anthropic/claude-haiku-4-5-20251001
+model: anthropic/claude-haiku-4.5
 cost_budget_per_execution: "$0.05"
 timeout: "30s"
 ---

@@ -53,3 +53,16 @@ tests:
   vars:
     input: '{"order_id": "SG445T789", "query": "Singapore corridor order stuck in
       MAS_REVIEW for 6 hours"}'
+- assert:
+  - type: is-json
+  - threshold: 0.8
+    type: similar
+    value: '{"correction": "Singapore PEP orders in SANCTIONS_HOLD must go through
+      the MAS Compliance desk, NOT generic sanctions review. Always route Singapore
+      PEP cases to mas-compliance@ops.internal with priority P1. Standard AlphaDesk
+      flow is wrong for Singapore corridor."}'
+  description: 'Correction CORR-008: Singapore PEP orders in SANCTIONS_HOLD must go
+    through the MAS Compliance desk, '
+  vars:
+    input: '{"order_id": "DEMO-SGP-001", "query": "Singapore corridor order stuck
+      in SANCTIONS_HOLD for 6 hours, client is a PEP"}'

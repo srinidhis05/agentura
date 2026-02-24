@@ -9,7 +9,7 @@ cost_budget_per_execution: "$0.01"
 
 # Hello World Skill
 
-> Minimal skill to verify the Aspora SDK is working.
+> Minimal skill to verify the Agentura SDK is working.
 
 ## Task
 
@@ -41,7 +41,7 @@ Return JSON:
 **Output:**
 ```json
 {
-  "response": "Hello! I'm a skill running on the Aspora platform. I can process structured inputs and return helpful responses. This is a demo skill to verify the SDK is working correctly.",
+  "response": "Hello! I'm a skill running on the Agentura platform. I can process structured inputs and return helpful responses. This is a demo skill to verify the SDK is working correctly.",
   "confidence": "high"
 }
 ```

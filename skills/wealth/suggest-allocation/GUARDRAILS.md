@@ -12,7 +12,7 @@ These apply to all skills. Add skill-specific guardrails as you learn from produ
 
 **Mistake**: Allowing skill execution beyond cost_budget
 **Impact**: Runaway LLM costs
-**Rule**: ALWAYS enforce cost_budget from aspora.config.yaml
+**Rule**: ALWAYS enforce cost_budget from agentura.config.yaml
 **Detection**: Observability metric: cost_dollars counter
 
 ### GR-002: Always Log Reasoning Trace
