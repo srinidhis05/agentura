@@ -21,7 +21,7 @@ VOLUME /skills
 VOLUME /data/.agentura
 
 ENV SKILLS_DIR=/skills \
-    ASPORA_KNOWLEDGE_DIR=/data/.agentura \
+    AGENTURA_KNOWLEDGE_DIR=/data/.agentura \
     HOST=0.0.0.0 \
     PORT=8000
 

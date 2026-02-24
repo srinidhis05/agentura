@@ -1,6 +1,6 @@
 # Agentura — Kubernetes for AI Agent Swarms
 
-[![CI](https://github.com/agentura/agentura/actions/workflows/ci.yml/badge.svg)](https://github.com/agentura/agentura/actions/workflows/ci.yml)
+[![CI](https://github.com/agentura-ai/agentura/actions/workflows/ci.yml/badge.svg)](https://github.com/agentura-ai/agentura/actions/workflows/ci.yml)
 
 > Deploy, orchestrate, and improve AI agent skills across your entire organization. Config-driven. Self-improving. Observable.
 
@@ -34,7 +34,7 @@ Agentura is an **agentic AI platform** that treats AI skills like Kubernetes tre
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
-│              Go API Gateway (8080)                           │
+│              Go API Gateway (3001)                           │
 │  Auth · CORS · Rate Limit · Metrics · JSON passthrough      │
 └──────────────────────────┬──────────────────────────────────┘
                            │
@@ -54,7 +54,7 @@ Agentura is an **agentic AI platform** that treats AI skills like Kubernetes tre
 
 ```bash
 # 1. Clone
-git clone https://github.com/agentura/agentura.git
+git clone https://github.com/agentura-ai/agentura.git
 cd agentura
 
 # 2. Set your API key
@@ -63,8 +63,9 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 # 3. Start everything
 docker compose up
 
-# Dashboard: http://localhost:3000
-# API Gateway: http://localhost:8080
+# Chat UI: http://localhost:3002
+# Dashboard: http://localhost:3002/dashboard
+# API Gateway: http://localhost:3001
 # Executor: http://localhost:8000
 ```
 
@@ -159,15 +160,12 @@ agentura/
 │       ├── adapter/executor/     # Python executor client
 │       └── middleware/           # Auth, CORS, rate limit, metrics
 │
-├── web/                          # Next.js Dashboard
-│   └── src/app/
-│       ├── page.tsx              # Platform overview
-│       ├── domains/              # Domain-as-namespace pages
-│       ├── skills/               # Skill browser + detail
-│       ├── executions/           # Execution history
-│       ├── knowledge/            # Reflexions, corrections, tests
-│       ├── events/               # Unified event stream
-│       └── analytics/            # Platform metrics
+├── web/                          # Next.js Chat UI + Dashboard
+│   └── src/
+│       ├── app/(chat)/           # Chat-first interface (/)
+│       ├── app/(dashboard)/      # Admin dashboard (/dashboard/*)
+│       ├── components/chat/      # Chat components (sidebar, messages, input)
+│       └── lib/                  # API client, chat state, command router
 │
 ├── skills/                       # Skill definitions (the workloads)
 │   ├── platform/classifier/      # Routes to correct domain

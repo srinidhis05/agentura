@@ -16,5 +16,5 @@ WORKDIR /app
 COPY --from=builder /bin/agentura-gateway .
 COPY config/ config/
 
-EXPOSE 8080
+EXPOSE 3001
 ENTRYPOINT ["./agentura-gateway"]
