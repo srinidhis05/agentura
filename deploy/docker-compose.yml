@@ -40,6 +40,11 @@ services:
       AUTH_ENABLED: ${AUTH_ENABLED:-false}
       JWKS_URL: ${JWKS_URL:-}
       JWT_ISSUER: ${JWT_ISSUER:-}
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     depends_on:
       executor:
         condition: service_healthy
@@ -50,10 +55,10 @@ services:
     build:
       context: ../web
       dockerfile: Dockerfile
+      args:
+        API_TARGET: http://gateway:3001
     ports:
       - "3002:3000"
-    environment:
-      API_TARGET: http://gateway:3001
     depends_on:
       - gateway
 
@@ -66,7 +71,7 @@ services:
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       AGENTURA_EXECUTOR_URL: http://executor:8000
-      AGENTURA_GATEWAY_URL: http://gateway:8080
+      AGENTURA_GATEWAY_URL: http://gateway:3001
     depends_on:
       executor:
         condition: service_healthy
