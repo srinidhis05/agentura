@@ -1,0 +1,42 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+sdk/.venv/
+dist/
+build/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Local data (learning loop state)
+.agentura/
+.aspora/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Docker
+*.log
+
+# Legacy
+_legacy/
