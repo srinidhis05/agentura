@@ -2,6 +2,7 @@
 name = "agentura-sdk"
 version = "0.1.0"
 description = "Agentura Platform SDK — Create, run, and test skills locally"
+license = {text = "Apache-2.0"}
 requires-python = ">=3.11"
 dependencies = [
     "click>=8.1.0",
