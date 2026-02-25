@@ -19,7 +19,6 @@ out/
 
 # Local data (learning loop state)
 .agentura/
-.aspora/
 
 # IDE
 .idea/
@@ -41,5 +40,11 @@ docs/internal/
 # Docker
 *.log
 
+# Go binaries
+gateway/bin/
+gateway/server
+
 # Legacy
 _legacy/
+apps/
+showcase/

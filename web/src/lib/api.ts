@@ -28,9 +28,9 @@ import type {
 // In dev mode, Next.js rewrites /api/* to the executor. In production, use the gateway.
 const BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, timeoutMs = 15000): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${BASE}${path}`, {
       headers: { "Content-Type": "application/json" },
@@ -78,7 +78,7 @@ export function executeSkill(
   return request<SkillResult>(`/api/v1/skills/${domain}/${skill}/execute`, {
     method: "POST",
     body: JSON.stringify(req),
-  });
+  }, 60000);
 }
 
 export function correctSkill(

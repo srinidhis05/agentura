@@ -1,0 +1,32 @@
+domain:
+  name: productivity
+  description: "Productivity and information management tools"
+  owner: "platform-team"
+
+skills:
+  - name: triage
+    path: triage
+    role: manager
+    model: anthropic/claude-haiku-4.5
+    cost_budget: "$0.01"
+    triggers:
+      - type: always
+        description: "All productivity domain queries pass through triage first"
+
+routing:
+  - from: triage
+    to: web-researcher
+    condition: "query involves research, comparison, or information gathering"
+  - from: triage
+    to: morning-briefing
+    condition: "query involves daily briefing or status summary"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.01"
+    alert_at: "$0.008"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval

@@ -23,10 +23,10 @@ def test_cortex_help():
 
 def test_cortex_existing_skill(tmp_path):
     """Cortex should fail if skill already exists."""
-    (tmp_path / "ecm" / "existing").mkdir(parents=True)
+    (tmp_path / "hr" / "existing").mkdir(parents=True)
     runner = CliRunner()
     result = runner.invoke(
-        cortex, ["--skills-dir", str(tmp_path), "--quick"], input="ecm\nexisting\n",
+        cortex, ["--skills-dir", str(tmp_path), "--quick"], input="hr\nexisting\n",
     )
     assert result.exit_code == 1
 
@@ -50,20 +50,20 @@ def test_gather_skills_context_empty(tmp_path):
 
 def test_gather_skills_context_with_skills(tmp_path):
     """Finds domains and skills from directory structure."""
-    # Create ecm/order-details with a minimal SKILL.md
-    skill_dir = tmp_path / "ecm" / "order-details"
+    # Create hr/interview-questions with a minimal SKILL.md
+    skill_dir = tmp_path / "hr" / "interview-questions"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
-        "---\nname: order-details\nrole: field\ndomain: ecm\n---\n# Order Details\n"
+        "---\nname: interview-questions\nrole: specialist\ndomain: hr\n---\n# Interview Questions\n"
     )
 
-    # Create ecm/DOMAIN.md
-    (tmp_path / "ecm" / "DOMAIN.md").write_text("# ECM Domain\nOperations.")
+    # Create hr/DOMAIN.md
+    (tmp_path / "hr" / "DOMAIN.md").write_text("# HR Domain\nHuman resources.")
 
     result = _gather_skills_context(tmp_path)
-    assert "ecm" in result
-    assert "order-details" in result
-    assert "field" in result
+    assert "hr" in result
+    assert "interview-questions" in result
+    assert "specialist" in result
 
 
 def test_gather_skills_context_nonexistent_dir():
@@ -91,7 +91,7 @@ def test_gather_skills_context_collects_examples(tmp_path):
 
 def test_extract_frontmatter_field(tmp_path):
     skill_md = tmp_path / "SKILL.md"
-    skill_md.write_text("---\nname: test\nrole: specialist\ndomain: ecm\n---\n# Test\n")
+    skill_md.write_text("---\nname: test\nrole: specialist\ndomain: hr\n---\n# Test\n")
 
     assert _extract_frontmatter_field(skill_md, "role") == "specialist"
     assert _extract_frontmatter_field(skill_md, "name") == "test"
@@ -118,7 +118,7 @@ def test_parse_interview_spec_valid():
 
 ```json
 {
-  "domain": "ecm",
+  "domain": "hr",
   "skill_name": "refund-checker",
   "role": "field",
   "description": "Checks refund eligibility for stuck orders",
@@ -129,11 +129,11 @@ def test_parse_interview_spec_valid():
 }
 ```
 
-This should fit well in the ecm domain."""
+This should fit well in the hr domain."""
 
     spec = _parse_interview_spec(response)
     assert spec is not None
-    assert spec["domain"] == "ecm"
+    assert spec["domain"] == "hr"
     assert spec["skill_name"] == "refund-checker"
     assert spec["role"] == "field"
     assert "order_id" in spec["input_fields"]
@@ -148,7 +148,7 @@ def test_parse_interview_spec_no_json():
 def test_parse_interview_spec_incomplete_json():
     """Returns None when JSON is missing required fields."""
     response = """```json
-{"domain": "ecm"}
+{"domain": "hr"}
 ```"""
     assert _parse_interview_spec(response) is None
 

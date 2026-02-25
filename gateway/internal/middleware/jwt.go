@@ -46,7 +46,7 @@ type JWTConfig struct {
 // JWTAuth validates JWT tokens and extracts user identity + domain claims.
 // Claims expected in the JWT:
 //   - sub: user ID
-//   - domain_scope: comma-separated domains (e.g., "ecm,frm") or "*" for all
+//   - domain_scope: comma-separated domains (e.g., "hr,finance") or "*" for all
 //   - workspace_id: organization/workspace identifier
 func JWTAuth(cfg JWTConfig) Middleware {
 	keyCache := &jwksCache{url: cfg.JWKSURL}

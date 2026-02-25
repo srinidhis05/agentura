@@ -20,6 +20,24 @@ type Config struct {
 	Logging    LoggingConfig    `yaml:"logging"`
 	Metrics    MetricsConfig    `yaml:"metrics"`
 	Executor   ExecutorConfig   `yaml:"executor"`
+	Triggers   TriggersConfig   `yaml:"triggers"`
+}
+
+type TriggersConfig struct {
+	Enabled  bool          `yaml:"enabled"`
+	Timezone string        `yaml:"timezone"`
+	Cron     CronConfig    `yaml:"cron"`
+	Webhook  WebhookConfig `yaml:"webhook"`
+}
+
+type CronConfig struct {
+	Enabled      bool `yaml:"enabled"`
+	PollInterval int  `yaml:"poll_interval"` // seconds
+}
+
+type WebhookConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Secret  string `yaml:"secret"`
 }
 
 type ExecutorConfig struct {
@@ -149,6 +167,14 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Executor.Timeout == 0 {
 		cfg.Executor.Timeout = 120
+	}
+
+	// Triggers defaults
+	if cfg.Triggers.Timezone == "" {
+		cfg.Triggers.Timezone = "UTC"
+	}
+	if cfg.Triggers.Cron.PollInterval == 0 {
+		cfg.Triggers.Cron.PollInterval = 300
 	}
 }
 

@@ -1,0 +1,28 @@
+domain:
+  name: finance
+  description: "General finance operations and analysis"
+  owner: "finance-team"
+
+skills:
+  - name: expense-analyzer
+    path: expense-analyzer
+    role: specialist
+    model: anthropic/claude-sonnet-4.5
+    cost_budget: "$0.10"
+    triggers:
+      - type: command
+        pattern: "analyze expenses"
+      - type: command
+        pattern: "expense report {period}"
+      - type: command
+        pattern: "spending breakdown"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.10"
+    alert_at: "$0.08"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval

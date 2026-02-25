@@ -10,13 +10,13 @@ import httpx
 
 def get_gateway_url() -> str:
     """Resolve gateway URL from env or default."""
-    return os.environ.get("AGENTURA_GATEWAY_URL", os.environ.get("ASPORA_GATEWAY_URL", "http://localhost:3001"))
+    return os.environ.get("AGENTURA_GATEWAY_URL", "http://localhost:3001")
 
 
 def _client() -> httpx.Client:
     """Build a reusable HTTP client with auth if configured."""
     headers = {"Content-Type": "application/json"}
-    api_key = os.environ.get("AGENTURA_API_KEY", os.environ.get("ASPORA_API_KEY"))
+    api_key = os.environ.get("AGENTURA_API_KEY")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     return httpx.Client(base_url=get_gateway_url(), headers=headers, timeout=30.0)

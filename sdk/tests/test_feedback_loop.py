@@ -70,8 +70,8 @@ def workspace(tmp_path):
     (knowledge_dir / "reflexion_entries.json").write_text(json.dumps({"entries": []}))
 
     # Set env var so SDK finds the knowledge layer
-    old_env = os.environ.get("ASPORA_KNOWLEDGE_DIR")
-    os.environ["ASPORA_KNOWLEDGE_DIR"] = str(knowledge_dir)
+    old_env = os.environ.get("AGENTURA_KNOWLEDGE_DIR")
+    os.environ["AGENTURA_KNOWLEDGE_DIR"] = str(knowledge_dir)
 
     yield {
         "root": tmp_path,
@@ -82,9 +82,9 @@ def workspace(tmp_path):
 
     # Cleanup
     if old_env is not None:
-        os.environ["ASPORA_KNOWLEDGE_DIR"] = old_env
+        os.environ["AGENTURA_KNOWLEDGE_DIR"] = old_env
     else:
-        os.environ.pop("ASPORA_KNOWLEDGE_DIR", None)
+        os.environ.pop("AGENTURA_KNOWLEDGE_DIR", None)
 
 
 class TestFeedbackLoopEndToEnd:

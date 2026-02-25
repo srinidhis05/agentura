@@ -27,7 +27,7 @@ class LoadedSkill:
 def load_workspace_md(skill_path: Path) -> str:
     """Find WORKSPACE.md at the skills root directory.
 
-    Walks up from skill dir (skills/ecm/order-details/SKILL.md) to find
+    Walks up from skill dir (skills/hr/interview-questions/SKILL.md) to find
     WORKSPACE.md at skills root (skills/WORKSPACE.md).
 
     Returns empty string if no WORKSPACE.md exists (graceful degradation).
@@ -46,8 +46,8 @@ def load_workspace_md(skill_path: Path) -> str:
 def load_domain_md(skill_path: Path) -> str:
     """Find and load DOMAIN.md from the domain directory (parent of skill dir).
 
-    Walks up from the skill directory (e.g., skills/ecm/order-details/) to find
-    DOMAIN.md at the domain level (skills/ecm/DOMAIN.md). Stops when it reaches
+    Walks up from the skill directory (e.g., skills/hr/interview-questions/) to find
+    DOMAIN.md at the domain level (skills/hr/DOMAIN.md). Stops when it reaches
     the skills root (parent of domain directories).
 
     Returns empty string if no DOMAIN.md exists (graceful degradation).
@@ -74,10 +74,10 @@ def load_reflexion_entries(skill_path: Path) -> str:
     Returns formatted Markdown section for injection into system prompt,
     or empty string if no entries exist.
     """
-    # skill_path is e.g. skills/ecm/order-details/SKILL.md
-    # We need domain/skill-name = ecm/order-details
-    skill_dir = skill_path.parent        # skills/ecm/order-details
-    domain_dir = skill_dir.parent        # skills/ecm
+    # skill_path is e.g. skills/hr/interview-questions/SKILL.md
+    # We need domain/skill-name = hr/interview-questions
+    skill_dir = skill_path.parent        # skills/hr/interview-questions
+    domain_dir = skill_dir.parent        # skills/hr
     skill_name_full = f"{domain_dir.name}/{skill_dir.name}"
     # Also match just the skill directory name
     skill_dir_name = skill_dir.name
@@ -126,7 +126,7 @@ def _load_reflexions_from_json(
 ) -> list[dict]:
     """Fall back to loading reflexions from JSON files."""
     candidates = [
-        Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or os.environ.get("ASPORA_KNOWLEDGE_DIR") or str("")) / "reflexion_entries.json",
+        Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str("")) / "reflexion_entries.json",
         Path.cwd() / ".agentura" / "reflexion_entries.json",
         skill_path.parent.parent / "reflexion_entries.json",
     ]

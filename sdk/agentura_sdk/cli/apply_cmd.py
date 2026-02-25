@@ -16,8 +16,8 @@ def apply(path: str, dry_run: bool):
     and registers them with the running gateway.
 
     Examples:
-      agentura apply -f skills/ecm/order-details/    # Single skill
-      agentura apply -f skills/ecm/                   # Entire domain
+      agentura apply -f skills/hr/interview-questions/  # Single skill
+      agentura apply -f skills/hr/                     # Entire domain
       agentura apply -f skills/                        # Everything
     """
     console = Console()

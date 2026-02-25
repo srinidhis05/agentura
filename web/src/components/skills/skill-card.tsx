@@ -4,9 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import type { SkillInfo } from "@/lib/types";
 
 const domainColors: Record<string, string> = {
-  wealth: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  ecm: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  frm: "bg-amber-500/10 text-amber-400 border-amber-500/20",
   platform: "bg-violet-500/10 text-violet-400 border-violet-500/20",
 };
 

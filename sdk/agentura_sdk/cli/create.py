@@ -46,13 +46,13 @@ def create_skill(skill_path: str, lang: str, role: str, skills_dir: str | None):
         skills_dir = _find_skills_dir()
     """Create a new skill scaffold.
 
-    SKILL_PATH should be domain/skill-name, e.g. wealth/suggest-allocation.
+    SKILL_PATH should be domain/skill-name, e.g. hr/interview-questions.
     """
     console = Console()
 
     parts = skill_path.strip("/").split("/")
     if len(parts) != 2:
-        console.print("[red]Error: skill path must be domain/name (e.g. wealth/suggest-allocation)[/]")
+        console.print("[red]Error: skill path must be domain/name (e.g. hr/interview-questions)[/]")
         raise SystemExit(1)
 
     domain, skill_name = parts

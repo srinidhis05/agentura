@@ -10,24 +10,24 @@ cd agentura
 pip install -e "sdk[test]"
 
 # Create your first skill
-agentura create skill wealth/suggest-allocation --lang python --role specialist
+agentura create skill hr/interview-questions --lang python --role specialist
 
 # Edit the skill definition
-# skills/wealth/suggest-allocation/SKILL.md    — task, tools, output format
-# skills/wealth/suggest-allocation/agentura.config.yaml — routing, guardrails, observability
+# skills/hr/interview-questions/SKILL.md    — task, tools, output format
+# skills/hr/interview-questions/agentura.config.yaml — routing, guardrails, observability
 
 # Validate
-agentura validate wealth/suggest-allocation
+agentura validate hr/interview-questions
 
 # Run (dry-run, no API key needed)
-agentura run wealth/suggest-allocation --dry-run
+agentura run hr/interview-questions --dry-run
 
 # Run with model (requires ANTHROPIC_API_KEY)
 export ANTHROPIC_API_KEY=your-key
-agentura run wealth/suggest-allocation --input skills/wealth/suggest-allocation/fixtures/sample_input.json
+agentura run hr/interview-questions --input skills/hr/interview-questions/fixtures/sample_input.json
 
 # Test
-agentura test wealth/suggest-allocation
+agentura test hr/interview-questions
 
 # List all skills
 agentura list

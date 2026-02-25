@@ -1,9 +1,12 @@
 """Agentura CLI — Create, run, test, and manage skills (like kubectl for AI agents)."""
 
+import sys
+
 import click
 
 from agentura_sdk.cli.apply_cmd import apply
 from agentura_sdk.cli.approve_cmd import approve
+from agentura_sdk.cli.ask_cmd import ask
 from agentura_sdk.cli.correct import correct
 from agentura_sdk.cli.cortex_cmd import cortex
 from agentura_sdk.cli.create import create
@@ -25,6 +28,11 @@ def cli():
     """Agentura — Kubernetes for AI Agents.
 
     Create, deploy, and manage AI skills across your organization.
+
+    \b
+    Ask anything (auto-routes to the right skill):
+      agentura ask "order UK131K is stuck"     Natural language → skill
+      agentura "my tickets"                    Bare invocation (implicit ask)
 
     \b
     Local operations:
@@ -113,6 +121,9 @@ def list_skills(skills_dir: str | None):
         console.print("[yellow]No skills found. Create one with: agentura create skill <domain>/<name>[/]")
 
 
+# Primary command
+cli.add_command(ask)
+
 # Local operations
 cli.add_command(apply)
 cli.add_command(correct)
@@ -133,5 +144,26 @@ cli.add_command(memory)
 cli.add_command(watch)
 
 
-if __name__ == "__main__":
+def _maybe_rewrite_bare_invocation():
+    """If first arg isn't a known subcommand or flag, prepend 'ask'.
+
+    Enables: agentura "order UK131K is stuck" → agentura ask "order UK131K is stuck"
+    """
+    if len(sys.argv) < 2:
+        return
+    first_arg = sys.argv[1]
+    if first_arg.startswith("-"):
+        return
+    known = set(cli.commands.keys()) | {"list"}
+    if first_arg not in known:
+        sys.argv.insert(1, "ask")
+
+
+def main():
+    """Entrypoint that supports bare invocation before Click parsing."""
+    _maybe_rewrite_bare_invocation()
     cli()
+
+
+if __name__ == "__main__":
+    main()

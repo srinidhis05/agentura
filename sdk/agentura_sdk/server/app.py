@@ -21,7 +21,7 @@ from agentura_sdk.runner.skill_loader import load_skill_md
 from agentura_sdk.types import SkillContext, SkillResult
 
 SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", "/skills"))
-KNOWLEDGE_DIR = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or os.environ.get("ASPORA_KNOWLEDGE_DIR") or str(".agentura"))
+KNOWLEDGE_DIR = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(".agentura"))
 
 # Directories to skip when scanning for skills
 SKIP_DIRS = {"shared", "__pycache__", "node_modules", ".git"}
@@ -132,6 +132,7 @@ class SkillDetail(BaseModel):
     task_description: str = ""
     input_schema: str = ""
     output_schema: str = ""
+    skill_body: str = ""
     skill_guardrails: list[str] = Field(default_factory=list)
     triggers: list[dict[str, Any]] = Field(default_factory=list)
     feedback_enabled: bool = False
@@ -290,6 +291,37 @@ def healthz():
     return {"status": "ok"}
 
 
+@app.get("/api/v1/triggers")
+def list_triggers():
+    """Return all skill trigger definitions for the gateway cron scheduler."""
+    results: list[dict[str, Any]] = []
+    if not SKILLS_DIR.exists():
+        return results
+
+    for domain_dir in sorted(SKILLS_DIR.iterdir()):
+        if not domain_dir.is_dir() or domain_dir.name.startswith("."):
+            continue
+        for skill_dir in sorted(domain_dir.iterdir()):
+            if not skill_dir.is_dir() or skill_dir.name.startswith(".") or skill_dir.name in SKIP_DIRS:
+                continue
+            cfg_path = skill_dir / "agentura.config.yaml"
+            if not cfg_path.exists():
+                continue
+            try:
+                cfg = yaml.safe_load(cfg_path.read_text()) or {}
+            except Exception:
+                continue
+            for s in cfg.get("skills", []):
+                triggers = s.get("triggers", [])
+                if triggers:
+                    results.append({
+                        "domain": domain_dir.name,
+                        "skill": s.get("name", skill_dir.name),
+                        "triggers": triggers,
+                    })
+    return results
+
+
 @app.get("/api/v1/skills", response_model=list[SkillInfo])
 def list_skills():
     """List all available skills by scanning SKILLS_DIR."""
@@ -371,8 +403,9 @@ def get_skill(domain: str, skill_name: str):
         executions_total=lifecycle["executions_total"],
         accept_rate=lifecycle["accept_rate"],
         task_description=_extract_section(body, "Task"),
-        input_schema=_extract_section(body, "Context You'll Receive"),
+        input_schema=_extract_section(body, "Input Format") or _extract_section(body, "Context You'll Receive"),
         output_schema=_extract_section(body, "Output Format"),
+        skill_body=loaded.system_prompt,
         skill_guardrails=_extract_guardrail_bullets(body),
         triggers=triggers,
         feedback_enabled=feedback_cfg.get("capture_corrections", False),
@@ -908,17 +941,9 @@ def _scan_generated_tests() -> list[dict]:
 @app.get("/api/v1/knowledge/reflexions", response_model=list[KnowledgeReflexionEntry])
 def list_reflexions(skill: str | None = None, domains: set[str] | None = Depends(_get_domain_scope)):
     """List all reflexion entries across all skills (domain-scoped)."""
-    entries = []
-    try:
-        from agentura_sdk.memory import get_memory_store
-        store = get_memory_store()
-        if skill:
-            entries = store.get_reflexions(skill)
-        else:
-            entries = store.get_all_reflexions()
-    except Exception:
-        data = _load_knowledge_file("reflexion_entries.json")
-        entries = data.get("entries", [])
+    # JSON files are source of truth (CLI writes here directly)
+    data = _load_knowledge_file("reflexion_entries.json")
+    entries = data.get("entries", [])
 
     entries = _filter_by_domain(entries, domains)
     if skill:
@@ -942,18 +967,11 @@ def list_reflexions(skill: str | None = None, domains: set[str] | None = Depends
 @app.get("/api/v1/knowledge/corrections", response_model=list[KnowledgeCorrectionEntry])
 def list_corrections(skill: str | None = None, domains: set[str] | None = Depends(_get_domain_scope)):
     """List all corrections across all skills (domain-scoped)."""
-    corrections = []
-    refl_entries = []
-    try:
-        from agentura_sdk.memory import get_memory_store
-        store = get_memory_store()
-        corrections = store.get_corrections(skill)
-        refl_entries = store.get_all_reflexions()
-    except Exception:
-        data = _load_knowledge_file("corrections.json")
-        corrections = data.get("corrections", [])
-        refl_data = _load_knowledge_file("reflexion_entries.json")
-        refl_entries = refl_data.get("entries", [])
+    # JSON files are source of truth (CLI writes here directly)
+    data = _load_knowledge_file("corrections.json")
+    corrections = data.get("corrections", [])
+    refl_data = _load_knowledge_file("reflexion_entries.json")
+    refl_entries = refl_data.get("entries", [])
 
     corrections = _filter_by_domain(corrections, domains)
     if skill:

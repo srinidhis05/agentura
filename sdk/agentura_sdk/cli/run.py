@@ -47,7 +47,7 @@ def run(skill_path: str, input_file: str | None, dry_run: bool, skills_dir: str 
             raise SystemExit(1)
     """Run a skill locally.
 
-    SKILL_PATH should be domain/skill-name, e.g. wealth/suggest-allocation.
+    SKILL_PATH should be domain/skill-name, e.g. hr/interview-questions.
     """
     console = Console()
 

@@ -1,0 +1,28 @@
+domain:
+  name: hr
+  description: "Human Resources operations"
+  owner: "hr-team"
+
+skills:
+  - name: interview-questions
+    path: interview-questions
+    role: specialist
+    model: anthropic/claude-sonnet-4.5
+    cost_budget: "$0.08"
+    triggers:
+      - type: command
+        pattern: "interview questions for {role}"
+      - type: command
+        pattern: "prepare interview {role}"
+      - type: command
+        pattern: "generate questions for {role}"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.08"
+    alert_at: "$0.06"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval

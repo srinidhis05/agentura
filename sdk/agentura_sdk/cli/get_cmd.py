@@ -365,7 +365,7 @@ def get_reflexions(skill: str | None, fmt: str):
     from pathlib import Path
     import os
 
-    knowledge_dir = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or os.environ.get("ASPORA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura"))
+    knowledge_dir = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura"))
     reflexion_file = knowledge_dir / "reflexion_entries.json"
 
     if not reflexion_file.exists():

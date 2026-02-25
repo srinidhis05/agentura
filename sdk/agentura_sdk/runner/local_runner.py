@@ -24,7 +24,7 @@ if _dotenv_path:
     load_dotenv(_dotenv_path)
 
 # Default knowledge layer directory (overridable via AGENTURA_KNOWLEDGE_DIR)
-_KNOWLEDGE_DIR = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or os.environ.get("ASPORA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura"))
+_KNOWLEDGE_DIR = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura"))
 
 
 def _get_knowledge_dir() -> Path:
@@ -35,16 +35,17 @@ def _get_knowledge_dir() -> Path:
 
 
 def log_execution(ctx: SkillContext, result: SkillResult) -> str:
-    """Log execution to memory store (mem0 or JSON fallback). Returns execution_id."""
+    """Log execution to the memory store (JSON fallback or mem0)."""
     execution_id = f"EXEC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
     skill_path = f"{ctx.domain}/{ctx.skill_name}"
+    outcome = "accepted" if result.success else "error"
     entry = {
         "execution_id": execution_id,
         "skill": skill_path,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "input_summary": ctx.input_data,
         "output_summary": result.output,
-        "outcome": "pending_review",
+        "outcome": outcome,
         "cost_usd": result.cost_usd,
         "latency_ms": result.latency_ms,
         "model_used": result.model_used,
@@ -53,19 +54,17 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
     try:
         from agentura_sdk.memory import get_memory_store
         store = get_memory_store()
-        return store.log_execution(skill_path, entry)
+        store.log_execution(skill_path, entry)
     except Exception:
-        pass
+        # Fallback: write directly to JSON
+        memory_file = _get_knowledge_dir() / "episodic_memory.json"
+        if memory_file.exists():
+            data = json.loads(memory_file.read_text())
+        else:
+            data = {"entries": []}
+        data["entries"].append(entry)
+        memory_file.write_text(json.dumps(data, indent=2))
 
-    # Fallback: write directly to JSON
-    memory_file = _get_knowledge_dir() / "episodic_memory.json"
-    if memory_file.exists():
-        data = json.loads(memory_file.read_text())
-    else:
-        data = {"entries": []}
-
-    data["entries"].append(entry)
-    memory_file.write_text(json.dumps(data, indent=2))
     return execution_id
 
 

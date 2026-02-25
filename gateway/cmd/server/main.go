@@ -13,6 +13,7 @@ import (
 	"github.com/agentura-ai/agentura/gateway/internal/adapter/postgres"
 	"github.com/agentura-ai/agentura/gateway/internal/config"
 	"github.com/agentura-ai/agentura/gateway/internal/handler"
+	"github.com/agentura-ai/agentura/gateway/internal/service"
 )
 
 func main() {
@@ -51,6 +52,9 @@ func main() {
 	// Adapters
 	executorClient := executor.NewClient(cfg.Executor.URL, time.Duration(cfg.Executor.Timeout)*time.Second)
 
+	// Cron scheduler
+	scheduler := service.NewScheduler(executorClient, cfg.Triggers)
+
 	// Handlers
 	handlers := handler.Handlers{
 		Health:    handler.NewHealthHandler(dbCheck),
@@ -61,6 +65,8 @@ func main() {
 		Platform:  handler.NewPlatformHandler(executorClient),
 		Events:    handler.NewEventsHandler(executorClient),
 		Memory:    handler.NewMemoryHandler(executorClient),
+		Webhook:   handler.NewWebhookHandler(executorClient, cfg.Triggers.Webhook),
+		Trigger:   handler.NewTriggerHandler(scheduler),
 	}
 
 	mwCfg := handler.MiddlewareConfig{
@@ -72,11 +78,14 @@ func main() {
 
 	router := handler.NewRouter(handlers, mwCfg)
 
+	// Start cron scheduler before HTTP server
+	scheduler.Start(context.Background())
+
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),
 		Handler:      router,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: time.Duration(cfg.Executor.Timeout) * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
@@ -86,6 +95,8 @@ func main() {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 		slog.Info("shutting down server")
+
+		scheduler.Stop()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

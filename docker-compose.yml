@@ -40,6 +40,7 @@ services:
       AUTH_ENABLED: ${AUTH_ENABLED:-false}
       JWKS_URL: ${JWKS_URL:-}
       JWT_ISSUER: ${JWT_ISSUER:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/healthz"]
       interval: 10s
@@ -57,6 +58,7 @@ services:
       dockerfile: Dockerfile
       args:
         API_TARGET: http://gateway:3001
+        NEXT_PUBLIC_API_URL: http://localhost:3001
     ports:
       - "3002:3000"
     depends_on:
@@ -70,10 +72,10 @@ services:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
-      AGENTURA_EXECUTOR_URL: http://executor:8000
+      AGENTURA_EXECUTOR_URL: http://gateway:3001
       AGENTURA_GATEWAY_URL: http://gateway:3001
     depends_on:
-      executor:
+      gateway:
         condition: service_healthy
     profiles:
       - slack

@@ -7,14 +7,14 @@ model: anthropic/claude-haiku-4.5
 cost_budget_per_execution: "$0.01"
 timeout: "5s"
 routes_to:
-  - domain: ecm
-    when: "operations, order, stuck, ticket, escalation, triage"
-  - domain: frm
-    when: "fraud, rule, simulation, transaction, risk score, TRM, alert, KYC"
-  - domain: wealth
-    when: "allocation, portfolio, invest, risk profile, SIP, NRI, mutual fund"
+  - domain: dev
+    when: "PR, pull request, review, test, e2e, CI, build, code"
+  - domain: finance
+    when: "expense, invoice, budget, spending, cost, payment, reimbursement"
   - domain: hr
-    when: "resume, screen, candidate, leave, policy, onboarding, hiring, interview, KYC employee"
+    when: "resume, screen, candidate, leave, policy, onboarding, hiring, interview, new hire"
+  - domain: productivity
+    when: "briefing, research, summarize, morning, daily, catch up, what's happening"
 ---
 
 # Platform Classifier
@@ -27,28 +27,29 @@ Classify the incoming message into one of the registered business domains. Retur
 
 | Domain | Handles | Example Triggers |
 |--------|---------|-----------------|
-| `ecm` | Operations, order management, ticket triage, escalation | "order UK131K456 is stuck", "my open tickets", "escalate to LULU" |
-| `frm` | Fraud detection, rule simulation, TRM alerts, KYC | "simulate rule SameAmountMultiTxn", "triage today's alerts", "false positive rate" |
-| `wealth` | Investment advice, portfolio management, risk assessment | "suggest allocation for moderate profile", "check my portfolio drift", "NRI tax implications" |
-| `hr` | Resume screening, leave policy, onboarding, hiring | "screen this resume", "how many leave days", "interview prep for backend role" |
+| `dev` | Code review, test generation, CI/CD, PR review | "review this PR", "generate e2e tests for login", "check build status" |
+| `finance` | Expense analysis, invoice review, budget tracking | "analyze expenses for January", "check invoice INV-2026-42", "spending breakdown" |
+| `hr` | Resume screening, leave policy, onboarding, interview prep | "screen this resume", "how many leave days", "interview questions for PM role" |
+| `productivity` | Daily briefings, research, information aggregation | "morning briefing", "research playwright vs cypress", "catch me up" |
 
 ## Classification Logic
 
 1. **Keyword match first**: Check if the message contains domain-specific keywords from the routes_to triggers above. If a clear match exists with high confidence, return immediately.
-2. **Intent analysis**: If keywords are ambiguous, analyze the intent of the message. "What's the status of order X?" → ecm. "Is this transaction suspicious?" → frm.
+2. **Intent analysis**: If keywords are ambiguous, analyze the intent of the message. "Review this code" → dev. "How much did we spend?" → finance.
 3. **Ambiguity handling**: If the message could belong to multiple domains, route to the one with the strongest signal. Include reasoning.
 
 ## Output Format
 
 ```json
 {
-  "domain": "ecm | frm | wealth | hr | unknown",
+  "domain": "dev | finance | hr | productivity | unknown",
   "confidence": 0.95,
-  "reasoning": "Message references order ID pattern (UK/AE prefix + alphanumeric) and 'stuck' keyword → ECM operations",
+  "reasoning": "Message references pull request review → dev domain",
   "extracted_entities": {
-    "order_id": "string (if found)",
-    "user_id": "string (if found)",
-    "rule_name": "string (if found)"
+    "pr_url": "string (if found)",
+    "invoice_id": "string (if found)",
+    "role": "string (if found)",
+    "topic": "string (if found)"
   }
 }
 ```

@@ -1,0 +1,29 @@
+{
+  "invoice": {
+    "invoice_id": "INV-2026-0042",
+    "vendor": "Acme Cloud Services",
+    "vendor_tax_id": "XX-1234567",
+    "date": "2026-01-20",
+    "due_date": "2026-02-19",
+    "currency": "USD",
+    "line_items": [
+      {"description": "Cloud hosting - January 2026", "quantity": 1, "unit_price": 3500.00, "total": 3500.00},
+      {"description": "Premium support add-on", "quantity": 1, "unit_price": 500.00, "total": 500.00}
+    ],
+    "subtotal": 4000.00,
+    "tax_rate": 0.08,
+    "tax_amount": 280.00,
+    "total": 4280.00,
+    "bank_details": {
+      "bank_name": "First National Bank",
+      "account": "****4567",
+      "routing": "021000021"
+    }
+  },
+  "purchase_order": {
+    "po_number": "PO-2025-118",
+    "agreed_amount": 3500.00,
+    "vendor": "Acme Cloud Services",
+    "terms": "Net 30"
+  }
+}

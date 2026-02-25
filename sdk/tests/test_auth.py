@@ -5,19 +5,19 @@ from agentura_sdk.server.auth import _extract_domain_from_path, get_auth_require
 
 class TestDomainExtraction:
     def test_skills_path(self):
-        assert _extract_domain_from_path("/api/v1/skills/ecm/triage") == "ecm"
+        assert _extract_domain_from_path("/api/v1/skills/hr/triage") == "hr"
 
     def test_domains_path(self):
-        assert _extract_domain_from_path("/api/v1/domains/frm") == "frm"
+        assert _extract_domain_from_path("/api/v1/domains/finance") == "finance"
 
     def test_knowledge_search_path(self):
-        assert _extract_domain_from_path("/api/v1/knowledge/search/ecm/triage") == "ecm"
+        assert _extract_domain_from_path("/api/v1/knowledge/search/hr/triage") == "hr"
 
     def test_knowledge_validate_path(self):
-        assert _extract_domain_from_path("/api/v1/knowledge/validate/ecm/triage") == "ecm"
+        assert _extract_domain_from_path("/api/v1/knowledge/validate/hr/triage") == "hr"
 
     def test_memory_prompt_assembly_path(self):
-        assert _extract_domain_from_path("/api/v1/memory/prompt-assembly/ecm/triage") == "ecm"
+        assert _extract_domain_from_path("/api/v1/memory/prompt-assembly/hr/triage") == "hr"
 
     def test_non_domain_path(self):
         assert _extract_domain_from_path("/api/v1/executions") is None

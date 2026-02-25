@@ -21,21 +21,21 @@ skills:
 
 routing:
   - when:
-      domain: ecm
+      domain: dev
     then:
-      forward_to: ecm/manager
+      forward_to: dev/triage
   - when:
-      domain: frm
+      domain: finance
     then:
-      forward_to: frm/manager
-  - when:
-      domain: wealth
-    then:
-      forward_to: wealth/manager
+      forward_to: finance/triage
   - when:
       domain: hr
     then:
-      forward_to: hr/resume-screen
+      forward_to: hr/triage
+  - when:
+      domain: productivity
+    then:
+      forward_to: productivity/triage
 
 guardrails:
   budget:

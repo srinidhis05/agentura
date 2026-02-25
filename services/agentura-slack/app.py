@@ -305,7 +305,7 @@ def _format_skill_output(skill_path: str, raw: str) -> list[dict] | None:
 
 def _handle_run(say, args: str):
     if not args:
-        say("Usage: `run <domain/skill>` (e.g., `run wealth/market-brief`)")
+        say("Usage: `run <domain/skill>` (e.g., `run hr/interview-questions`)")
         return
 
     skill_path = args.strip()

@@ -30,7 +30,7 @@ def correct(skill_path: str, execution_id: str, correction: str, skills_dir: str
     This is the learning loop (DEC-006): every correction becomes a test,
     a guardrail, and a reflexion entry that improves future executions.
 
-    SKILL_PATH should be domain/skill-name, e.g. ecm/order-details.
+    SKILL_PATH should be domain/skill-name, e.g. hr/interview-questions.
     """
     console = Console()
 
@@ -110,7 +110,7 @@ def correct(skill_path: str, execution_id: str, correction: str, skills_dir: str
 def _load_execution(execution_id: str) -> dict | None:
     """Load an execution from episodic memory."""
     import os
-    knowledge_dir = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or os.environ.get("ASPORA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura"))
+    knowledge_dir = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura"))
     memory_file = knowledge_dir / "episodic_memory.json"
 
     if not memory_file.exists():
@@ -124,8 +124,26 @@ def _load_execution(execution_id: str) -> dict | None:
 
 
 def _store_correction(skill_path: str, execution_id: str, correction: str, original_output: dict) -> str:
-    """Store a correction in the knowledge layer. Returns correction_id."""
+    """Store a correction in the knowledge layer. Returns correction_id.
+
+    Idempotent: if a correction already exists for the same (skill, execution_id),
+    returns the existing correction_id instead of creating a duplicate.
+    """
     import os
+
+    knowledge_dir = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura"))
+    knowledge_dir.mkdir(parents=True, exist_ok=True)
+    corrections_file = knowledge_dir / "corrections.json"
+
+    if corrections_file.exists():
+        file_data = json.loads(corrections_file.read_text())
+    else:
+        file_data = {"corrections": []}
+
+    # Idempotency: check for existing correction on same (skill, execution_id)
+    for existing in file_data["corrections"]:
+        if existing.get("skill") == skill_path and existing.get("execution_id") == execution_id:
+            return existing["correction_id"]
 
     data = {
         "execution_id": execution_id,
@@ -135,26 +153,15 @@ def _store_correction(skill_path: str, execution_id: str, correction: str, origi
         "user_correction": correction,
     }
 
-    # Try mem0 store first
-    try:
-        from agentura_sdk.memory import get_memory_store
-        store = get_memory_store()
-        return store.add_correction(skill_path, data)
-    except Exception:
-        pass
-
-    # Fallback: JSON files
-    knowledge_dir = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or os.environ.get("ASPORA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura"))
-    knowledge_dir.mkdir(parents=True, exist_ok=True)
-    corrections_file = knowledge_dir / "corrections.json"
-
-    if corrections_file.exists():
-        file_data = json.loads(corrections_file.read_text())
-    else:
-        file_data = {"corrections": []}
-
-    idx = len(file_data["corrections"]) + 1
-    correction_id = f"CORR-{idx:03d}"
+    # Generate next correction ID based on max existing
+    existing_ids = [c.get("correction_id", "") for c in file_data["corrections"]]
+    max_idx = 0
+    for cid in existing_ids:
+        try:
+            max_idx = max(max_idx, int(cid.split("-")[1]))
+        except (IndexError, ValueError):
+            pass
+    correction_id = f"CORR-{max_idx + 1:03d}"
     data["correction_id"] = correction_id
 
     file_data["corrections"].append(data)
@@ -182,6 +189,22 @@ def _generate_reflexion(
     applies_when = _derive_applies_when(skill_path, input_data)
     root_cause = _derive_root_cause(original_output, correction)
 
+    # Fallback: JSON files
+    import os
+    knowledge_dir = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura"))
+    knowledge_dir.mkdir(parents=True, exist_ok=True)
+    reflexion_file = knowledge_dir / "reflexion_entries.json"
+
+    if reflexion_file.exists():
+        data = json.loads(reflexion_file.read_text())
+    else:
+        data = {"entries": []}
+
+    # Idempotency: check for existing reflexion with same rule for same skill
+    for existing in data.get("entries", []):
+        if existing.get("skill") == skill_path and existing.get("rule") == correction:
+            return existing["reflexion_id"]
+
     entry = {
         "correction_id": correction_id,
         "skill": skill_path,
@@ -195,27 +218,15 @@ def _generate_reflexion(
         "generated_test_ids": [],
     }
 
-    # Try mem0 store first
-    try:
-        from agentura_sdk.memory import get_memory_store
-        store = get_memory_store()
-        return store.add_reflexion(skill_path, entry)
-    except Exception:
-        pass
-
-    # Fallback: JSON files
-    import os
-    knowledge_dir = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or os.environ.get("ASPORA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura"))
-    knowledge_dir.mkdir(parents=True, exist_ok=True)
-    reflexion_file = knowledge_dir / "reflexion_entries.json"
-
-    if reflexion_file.exists():
-        data = json.loads(reflexion_file.read_text())
-    else:
-        data = {"entries": []}
-
-    idx = len(data["entries"]) + 1
-    reflexion_id = f"REFL-{idx:03d}"
+    # Generate next reflexion ID based on max existing
+    existing_ids = [e.get("reflexion_id", "") for e in data["entries"]]
+    max_idx = 0
+    for rid in existing_ids:
+        try:
+            max_idx = max(max_idx, int(rid.split("-")[1]))
+        except (IndexError, ValueError):
+            pass
+    reflexion_id = f"REFL-{max_idx + 1:03d}"
     entry["reflexion_id"] = reflexion_id
 
     data["entries"].append(entry)

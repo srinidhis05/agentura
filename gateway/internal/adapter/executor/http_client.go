@@ -202,6 +202,39 @@ func (c *Client) ListEvents(ctx context.Context, query string) (json.RawMessage,
 	return c.getJSON(ctx, path)
 }
 
+// TriggerDetail is a single trigger definition from the executor.
+type TriggerDetail struct {
+	Type        string `json:"type"`
+	Schedule    string `json:"schedule,omitempty"`
+	Pattern     string `json:"pattern,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// TriggerInfo groups all triggers for a skill, returned by GET /api/v1/triggers.
+type TriggerInfo struct {
+	Domain   string          `json:"domain"`
+	Skill    string          `json:"skill"`
+	Triggers []TriggerDetail `json:"triggers"`
+}
+
+// FetchTriggers returns all skill trigger definitions from the executor.
+func (c *Client) FetchTriggers(ctx context.Context) ([]TriggerInfo, error) {
+	raw, err := c.getJSON(ctx, "/api/v1/triggers")
+	if err != nil {
+		return nil, fmt.Errorf("fetching triggers: %w", err)
+	}
+	var triggers []TriggerInfo
+	if err := json.Unmarshal(raw, &triggers); err != nil {
+		return nil, fmt.Errorf("parsing triggers response: %w", err)
+	}
+	return triggers, nil
+}
+
+// BaseURL returns the executor base URL (used by webhook handler for routing).
+func (c *Client) BaseURL() string {
+	return c.baseURL
+}
+
 func (c *Client) postJSON(ctx context.Context, path string, body any) (json.RawMessage, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {

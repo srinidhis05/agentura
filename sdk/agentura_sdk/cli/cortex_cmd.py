@@ -348,8 +348,8 @@ def _guess_domain_from_messages(messages: list[dict]) -> str | None:
     for msg in reversed(messages):
         if msg["role"] != "assistant":
             continue
-        # Look for domain mentions like "ecm", "frm", "hr", "wealth", "platform"
-        for domain in ("ecm", "frm", "hr", "wealth", "platform"):
+        # Look for domain mentions like "hr", "finance", "dev", "productivity", "platform"
+        for domain in ("hr", "finance", "dev", "productivity", "platform"):
             if domain in msg["content"].lower():
                 return domain
     return None
@@ -623,7 +623,7 @@ def _legacy_wizard(skills_dir: str):
 
     # Step 1: Domain and name
     console.print("\n[bold]Step 1:[/] Identity")
-    domain = Prompt.ask("  Domain", default="ecm")
+    domain = Prompt.ask("  Domain", default="hr")
     skill_name = Prompt.ask("  Skill name", default="new-skill")
 
     skill_path = f"{domain}/{skill_name}"

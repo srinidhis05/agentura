@@ -38,8 +38,8 @@ _store_instance: MemoryStore | None = None
 def get_scoped_store(allowed_domains: set[str] | None = None) -> MemoryStore:
     """Return a domain-scoped memory store.
 
-    Wraps the base store with domain isolation. ECM agent only sees ECM memories.
-    Pass allowed_domains={"ecm"} to restrict, or None / {"*"} for unrestricted.
+    Wraps the base store with domain isolation. Each domain agent only sees its own memories.
+    Pass allowed_domains={"hr"} to restrict, or None / {"*"} for unrestricted.
     """
     from agentura_sdk.memory.scoped_store import DomainScopedStore
 

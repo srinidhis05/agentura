@@ -1,5 +1,0 @@
-{
-  "message": "Simulate rule R-017 with threshold 5000 on last 30 days of UAE corridor transactions",
-  "alert_source": "manual",
-  "user_id": "fraud-analyst-1"
-}

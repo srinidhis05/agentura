@@ -1,0 +1,20 @@
+{
+  "date": "2026-02-24",
+  "user_role": "engineering-manager",
+  "focus_areas": ["team-updates", "metrics", "blockers"],
+  "calendar_events": [
+    {"time": "09:00", "title": "Sprint Planning", "attendees": 8},
+    {"time": "11:30", "title": "1:1 with Sarah", "attendees": 2},
+    {"time": "15:00", "title": "Architecture Review", "attendees": 5}
+  ],
+  "pending_tasks": [
+    {"title": "Review Q1 roadmap", "priority": "high", "due": "2026-02-25"},
+    {"title": "Approve team PTO requests", "priority": "medium", "due": "2026-02-26"}
+  ],
+  "metrics_snapshot": {
+    "open_prs": 12,
+    "failing_builds": 2,
+    "sprint_velocity": "82%",
+    "team_availability": "90%"
+  }
+}

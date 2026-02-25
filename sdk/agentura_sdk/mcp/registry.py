@@ -7,7 +7,7 @@ Usage:
     registry = get_registry()
     registry.register("redshift", MCPServerConfig(url="stdio://mcp-redshift", tools=["query"]))
     server = registry.get("redshift")
-    tools = registry.tools_for_skill("ecm/order-details")
+    tools = registry.tools_for_skill("hr/interview-questions")
 """
 
 from __future__ import annotations
