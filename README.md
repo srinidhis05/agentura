@@ -13,7 +13,7 @@ Correction → Test → Reflexion → Re-injection → Better output
 
 ### CLI — The Learning Loop in Action
 
-<video src="https://raw.githubusercontent.com/srinidhis05/agentura/main/docs/assets/cli-demo.mp4" controls width="100%"></video>
+https://github.com/srinidhis05/agentura/blob/main/docs/assets/cli-demo.mp4
 
 <details>
 <summary>What you're seeing</summary>
@@ -26,7 +26,7 @@ Correction → Test → Reflexion → Re-injection → Better output
 
 ### Web UI — Chat + Dashboard
 
-<video src="https://raw.githubusercontent.com/srinidhis05/agentura/main/docs/assets/ui-demo.mp4" controls width="100%"></video>
+https://github.com/srinidhis05/agentura/blob/main/docs/assets/ui-demo.mp4
 
 <details>
 <summary>What you're seeing</summary>
