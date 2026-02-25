@@ -24,7 +24,7 @@ You are the Platform Router on the Agentura AI Platform. You classify incoming m
 ## Data Context
 
 - No external data sources — classification is based on message content and trigger patterns.
-- Domain registry: ecm, frm, wealth (active). hr, cx, data-quality (onboarding).
+- Domain registry: dev, finance, hr, productivity (active). platform (internal).
 
 ## Domain-Specific Knowledge
 

@@ -16,6 +16,8 @@ type Handlers struct {
 	Platform  *PlatformHandler
 	Events    *EventsHandler
 	Memory    *MemoryHandler
+	Webhook   *WebhookHandler
+	Trigger   *TriggerHandler
 }
 
 func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
@@ -78,6 +80,17 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 	// Events (proxied to Python executor)
 	if h.Events != nil {
 		api.HandleFunc("GET /api/v1/events", h.Events.ListEvents)
+	}
+
+	// Webhook inbound — external channels POST here
+	if h.Webhook != nil {
+		api.HandleFunc("POST /api/v1/channels/{channel}/inbound", h.Webhook.Inbound)
+	}
+
+	// Trigger status — cron scheduler info
+	if h.Trigger != nil {
+		api.HandleFunc("GET /api/v1/triggers", h.Trigger.ListTriggers)
+		api.HandleFunc("GET /api/v1/triggers/status", h.Trigger.Status)
 	}
 
 	// Apply auth middleware to API routes

@@ -2,27 +2,17 @@
 # Format: standard crontab (minute hour day month weekday)
 
 schedules:
-  # FRM: Triage fraud alerts every 5 minutes during business hours
-  - skill: frm/alert-triage
-    cron: "*/5 9-17 * * 1-5"
-    description: "Triage fraud alerts (business hours)"
+  # Productivity: Morning briefing on weekdays at 7am
+  - skill: productivity/morning-briefing
+    cron: "0 7 * * 1-5"
+    description: "Daily morning briefing"
 
-  # ECM: Check for unassigned tickets every 10 minutes
-  - skill: ecm/triage-and-assign
-    cron: "*/10 * * * *"
-    description: "Auto-triage unassigned ECM tickets"
-
-  # FRM: KYC batch review daily at 8am
-  - skill: frm/kyc-review
-    cron: "0 8 * * 1-5"
-    description: "Daily KYC batch review"
-
-  # HR: Screen new resumes every hour
+  # HR: Screen new resumes every hour during business hours
   - skill: hr/resume-screen
-    cron: "0 * * * 1-5"
+    cron: "0 9-17 * * 1-5"
     description: "Hourly resume screening"
 
-  # Wealth: Rebalance check daily at market close
-  - skill: wealth/suggest-allocation
-    cron: "0 16 * * 1-5"
-    description: "Daily rebalance suggestions"
+  # Finance: Review pending invoices daily at 9am
+  - skill: finance/invoice-reviewer
+    cron: "0 9 * * 1-5"
+    description: "Daily invoice review"

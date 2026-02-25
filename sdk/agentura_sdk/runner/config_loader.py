@@ -27,7 +27,7 @@ def _normalize_config(raw: dict) -> dict:
     1. Original: domain: {name: "x", description: "y"}
     2. Showcase: domain: "x" (string shorthand)
     """
-    # domain: "wealth" → domain: {name: "wealth"}
+    # domain: "hr" → domain: {name: "hr"}
     if isinstance(raw.get("domain"), str):
         raw["domain"] = {
             "name": raw["domain"],

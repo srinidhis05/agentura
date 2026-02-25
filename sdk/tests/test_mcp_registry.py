@@ -37,11 +37,11 @@ def test_to_dict():
 def test_discover_from_skills(tmp_path):
     """Discover MCP servers from skill config files."""
     # Create a minimal skill config
-    domain_dir = tmp_path / "ecm" / "order-details"
+    domain_dir = tmp_path / "hr" / "interview-questions"
     domain_dir.mkdir(parents=True)
     (domain_dir / "agentura.config.yaml").write_text("""
 domain:
-  name: ecm
+  name: hr
 mcp_tools:
   - server: redshift
     tools: ["query"]
@@ -54,7 +54,7 @@ mcp_tools:
 
     assert reg.get("redshift") is not None
     assert reg.get("google-sheets") is not None
-    assert "ecm" in reg.get("redshift").domains_using
+    assert "hr" in reg.get("redshift").domains_using
     assert "query" in reg.get("redshift").tools
 
 

@@ -13,7 +13,7 @@ class TestPgStore:
         self.store = PgStore(workspace_id="test-workspace")
 
     def test_log_execution(self):
-        eid = self.store.log_execution("ecm/triage", {
+        eid = self.store.log_execution("hr/triage", {
             "execution_id": "EXEC-TEST-001",
             "input_summary": {"case_id": "123"},
             "output_summary": {"assigned_to": "ops-team"},
@@ -24,11 +24,11 @@ class TestPgStore:
         })
         assert eid == "EXEC-TEST-001"
 
-        execs = self.store.get_executions("ecm/triage")
+        execs = self.store.get_executions("hr/triage")
         assert any(e["execution_id"] == "EXEC-TEST-001" for e in execs)
 
     def test_add_correction(self):
-        cid = self.store.add_correction("ecm/triage", {
+        cid = self.store.add_correction("hr/triage", {
             "execution_id": "EXEC-TEST-001",
             "original_output": {"assigned_to": "ops-team"},
             "user_correction": "Should be assigned to compliance",
@@ -36,7 +36,7 @@ class TestPgStore:
         assert cid.startswith("CORR-")
 
     def test_add_reflexion(self):
-        rid = self.store.add_reflexion("ecm/triage", {
+        rid = self.store.add_reflexion("hr/triage", {
             "correction_id": "CORR-001",
             "rule": "Route compliance cases to compliance team",
             "applies_when": "case_type == compliance",
@@ -45,13 +45,13 @@ class TestPgStore:
         assert rid.startswith("REFL-")
 
     def test_domain_isolation(self):
-        """ECM data shouldn't leak into FRM queries."""
-        self.store.log_execution("frm/risk-check", {
-            "execution_id": "EXEC-FRM-001",
+        """HR data shouldn't leak into finance queries."""
+        self.store.log_execution("finance/expense-analyzer", {
+            "execution_id": "EXEC-FIN-001",
             "outcome": "accepted",
         })
-        ecm_execs = self.store.get_executions("ecm/triage")
-        assert not any(e["execution_id"] == "EXEC-FRM-001" for e in ecm_execs)
+        hr_execs = self.store.get_executions("hr/triage")
+        assert not any(e["execution_id"] == "EXEC-FIN-001" for e in hr_execs)
 
 
 class TestPgStoreImport:

@@ -20,7 +20,7 @@ def validate(skill_path: str, skills_dir: str | None):
         skills_dir = _find_skills_dir()
     """Validate a skill's structure and configuration.
 
-    SKILL_PATH should be domain/skill-name, e.g. wealth/suggest-allocation.
+    SKILL_PATH should be domain/skill-name, e.g. hr/interview-questions.
     """
     console = Console()
 
@@ -40,15 +40,15 @@ def validate(skill_path: str, skills_dir: str | None):
     warnings: list[str] = []
 
     # Required files
-    required = [
-        "SKILL.md",
-        "agentura.config.yaml",
-        "DECISIONS.md",
-        "GUARDRAILS.md",
-    ]
+    required = ["SKILL.md", "agentura.config.yaml"]
     for f in required:
         if not (root / f).exists():
             errors.append(f"Missing required file: {f}")
+
+    # Recommended files
+    for f in ["DECISIONS.md", "GUARDRAILS.md"]:
+        if not (root / f).exists():
+            warnings.append(f"Missing recommended file: {f}")
 
     # Required directories
     for d in ["code", "tests", "fixtures"]:

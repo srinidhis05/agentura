@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   {
-    href: "/",
+    href: "/chat",
     label: "Chat",
     icon: (
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -66,9 +66,7 @@ export function Sidebar() {
         <div className="space-y-0.5">
           {navItems.map((item) => {
             const active =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname === item.href || pathname.startsWith(item.href + "/");
+              pathname === item.href || pathname.startsWith(item.href + "/");
             return (
               <Link
                 key={item.href}

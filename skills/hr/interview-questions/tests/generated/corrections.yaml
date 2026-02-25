@@ -1,0 +1,44 @@
+description: Generated regression tests for interview-questions
+tests:
+- assert:
+  - type: is-json
+  - threshold: 0.8
+    type: similar
+    value: '{"correction": "For senior backend roles, include at least 2 system design
+      questions that test distributed systems knowledge. Ask about CAP theorem trade-offs
+      and data partitioning strategies, not just generic architecture questions."}'
+  description: 'Correction CORR-001: For senior backend roles, include at least 2
+    system design questions that test d'
+  vars:
+    input: '{"role": "Senior Backend Engineer", "seniority": "senior", "department":
+      "engineering", "focus_areas": ["system-design", "leadership", "problem-solving"],
+      "interview_duration_minutes": 45, "company_values": ["ownership", "customer-focus",
+      "collaboration"]}'
+- assert:
+  - type: is-json
+  - threshold: 0.8
+    type: similar
+    value: '{"correction": "For senior backend roles, include at least 2 system design
+      questions that test distributed systems knowledge. Ask about CAP theorem trade-offs
+      and data partitioning strategies, not just generic architecture questions."}'
+  description: 'Correction CORR-002: For senior backend roles, include at least 2
+    system design questions that test d'
+  vars:
+    input: '{"role": "Senior Backend Engineer", "seniority": "senior", "department":
+      "engineering", "focus_areas": ["system-design", "leadership", "problem-solving"],
+      "interview_duration_minutes": 45, "company_values": ["ownership", "customer-focus",
+      "collaboration"]}'
+- assert:
+  - type: is-json
+  - threshold: 0.8
+    type: similar
+    value: '{"correction": "For senior backend roles, include at least 2 system design
+      questions that test distributed systems knowledge. Ask about CAP theorem trade-offs
+      and data partitioning strategies, not just generic architecture questions."}'
+  description: 'Correction CORR-003: For senior backend roles, include at least 2
+    system design questions that test d'
+  vars:
+    input: '{"role": "Senior Backend Engineer", "seniority": "senior", "department":
+      "engineering", "focus_areas": ["system-design", "leadership", "problem-solving"],
+      "interview_duration_minutes": 45, "company_values": ["ownership", "customer-focus",
+      "collaboration"]}'

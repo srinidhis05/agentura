@@ -7,10 +7,6 @@ import type { SkillInfo, PlatformEvent } from "@/lib/types";
 import { useEffect, useState } from "react";
 
 const domainColors: Record<string, string> = {
-  ecm: "#10b981",
-  wealth: "#3b82f6",
-  frm: "#f59e0b",
-  fincrime: "#ef4444",
   hr: "#ec4899",
   platform: "#6b7280",
 };

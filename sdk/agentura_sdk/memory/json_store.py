@@ -16,7 +16,7 @@ class JSONStore:
 
     def __init__(self, knowledge_dir: Path | None = None):
         self._dir = knowledge_dir or Path(
-            os.environ.get("AGENTURA_KNOWLEDGE_DIR") or os.environ.get("ASPORA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura")
+            os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(Path.cwd() / ".agentura")
         )
         self._dir.mkdir(parents=True, exist_ok=True)
 

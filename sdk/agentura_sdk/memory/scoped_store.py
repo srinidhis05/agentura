@@ -5,9 +5,9 @@ to the allowed domains. Write operations tag data with the correct domain.
 
 Usage:
     base_store = get_memory_store()
-    scoped = DomainScopedStore(base_store, allowed_domains={"ecm"})
-    scoped.get_executions()  # only returns ecm/* executions
-    scoped.get_all_reflexions()  # only returns ecm/* reflexions
+    scoped = DomainScopedStore(base_store, allowed_domains={"hr"})
+    scoped.get_executions()  # only returns hr/* executions
+    scoped.get_all_reflexions()  # only returns hr/* reflexions
 """
 
 from __future__ import annotations

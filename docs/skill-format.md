@@ -1,6 +1,6 @@
 # SKILL.md Format Specification
 
-Skills are defined as markdown files with YAML frontmatter. The LLM executes the skill based on this prompt.
+> **Purpose**: Reference for the SKILL.md file format — frontmatter fields, recommended sections, and the 4-layer prompt hierarchy.
 
 ## Two Supported Formats
 
@@ -74,7 +74,7 @@ When a skill executes, its system prompt is assembled from up to 4 layers, separ
 
 ```
 Layer 0: WORKSPACE.md  — Organization-wide context (policies, conventions, shared rules)
-Layer 1: DOMAIN.md     — Domain identity & voice (ecm, wealth, frm, hr)
+Layer 1: DOMAIN.md     — Domain identity & voice (dev, finance, hr, productivity)
 Layer 2: Reflexions    — Learned rules from past corrections (auto-generated)
 Layer 3: SKILL.md      — Task-specific prompt
 ```

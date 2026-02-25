@@ -25,7 +25,7 @@ def mem0_fallback(tmp_path, monkeypatch):
     """Ensure get_memory_store returns JSONStore when no API key."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setenv("ASPORA_KNOWLEDGE_DIR", str(tmp_path / ".agentura"))
+    monkeypatch.setenv("AGENTURA_KNOWLEDGE_DIR", str(tmp_path / ".agentura"))
 
     from agentura_sdk.memory.store import get_memory_store
     return get_memory_store()
@@ -33,7 +33,7 @@ def mem0_fallback(tmp_path, monkeypatch):
 
 class TestJSONStore:
     def test_log_execution(self, json_store):
-        eid = json_store.log_execution("ecm/order-details", {
+        eid = json_store.log_execution("hr/interview-questions", {
             "input_summary": {"query": "test"},
             "output_summary": {"answer": "ok"},
             "cost_usd": 0.01,
@@ -41,24 +41,24 @@ class TestJSONStore:
         })
         assert eid.startswith("EXEC-")
 
-        executions = json_store.get_executions("ecm/order-details")
+        executions = json_store.get_executions("hr/interview-questions")
         assert len(executions) == 1
-        assert executions[0]["skill"] == "ecm/order-details"
+        assert executions[0]["skill"] == "hr/interview-questions"
 
     def test_add_correction(self, json_store):
-        cid = json_store.add_correction("ecm/order-details", {
+        cid = json_store.add_correction("hr/interview-questions", {
             "execution_id": "EXEC-001",
             "user_correction": "Fix this",
             "original_output": {"answer": "wrong"},
         })
         assert cid.startswith("CORR-")
 
-        corrections = json_store.get_corrections("ecm/order-details")
+        corrections = json_store.get_corrections("hr/interview-questions")
         assert len(corrections) == 1
         assert corrections[0]["user_correction"] == "Fix this"
 
     def test_add_and_get_reflexion(self, json_store):
-        rid = json_store.add_reflexion("ecm/order-details", {
+        rid = json_store.add_reflexion("hr/interview-questions", {
             "correction_id": "CORR-001",
             "rule": "Always check compliance",
             "applies_when": "When processing orders",
@@ -67,56 +67,56 @@ class TestJSONStore:
         })
         assert rid.startswith("REFL-")
 
-        reflexions = json_store.get_reflexions("ecm/order-details")
+        reflexions = json_store.get_reflexions("hr/interview-questions")
         assert len(reflexions) == 1
         assert reflexions[0]["rule"] == "Always check compliance"
 
     def test_reflexions_scoped_by_skill(self, json_store):
-        json_store.add_reflexion("ecm/order-details", {"rule": "ECM rule"})
-        json_store.add_reflexion("wealth/suggest-allocation", {"rule": "Wealth rule"})
+        json_store.add_reflexion("hr/interview-questions", {"rule": "HR rule"})
+        json_store.add_reflexion("finance/expense-analyzer", {"rule": "Finance rule"})
 
-        ecm = json_store.get_reflexions("ecm/order-details")
-        wealth = json_store.get_reflexions("wealth/suggest-allocation")
+        hr = json_store.get_reflexions("hr/interview-questions")
+        finance = json_store.get_reflexions("finance/expense-analyzer")
 
-        assert len(ecm) == 1
-        assert ecm[0]["rule"] == "ECM rule"
-        assert len(wealth) == 1
-        assert wealth[0]["rule"] == "Wealth rule"
+        assert len(hr) == 1
+        assert hr[0]["rule"] == "HR rule"
+        assert len(finance) == 1
+        assert finance[0]["rule"] == "Finance rule"
 
     def test_get_all_reflexions(self, json_store):
-        json_store.add_reflexion("ecm/order-details", {"rule": "Rule 1"})
-        json_store.add_reflexion("wealth/suggest-allocation", {"rule": "Rule 2"})
+        json_store.add_reflexion("hr/interview-questions", {"rule": "Rule 1"})
+        json_store.add_reflexion("finance/expense-analyzer", {"rule": "Rule 2"})
 
         all_refl = json_store.get_all_reflexions()
         assert len(all_refl) == 2
 
     def test_update_reflexion(self, json_store):
-        rid = json_store.add_reflexion("ecm/order-details", {
+        rid = json_store.add_reflexion("hr/interview-questions", {
             "rule": "Test rule",
             "validated_by_test": False,
         })
 
         json_store.update_reflexion(rid, {"validated_by_test": True})
 
-        reflexions = json_store.get_reflexions("ecm/order-details")
+        reflexions = json_store.get_reflexions("hr/interview-questions")
         assert reflexions[0]["validated_by_test"] is True
 
     def test_search_similar_returns_skill_matches(self, json_store):
-        json_store.add_reflexion("ecm/order-details", {"rule": "Check compliance"})
-        json_store.add_reflexion("ecm/order-details", {"rule": "Validate region"})
-        json_store.add_reflexion("wealth/suggest-allocation", {"rule": "Other rule"})
+        json_store.add_reflexion("hr/interview-questions", {"rule": "Check compliance"})
+        json_store.add_reflexion("hr/interview-questions", {"rule": "Validate region"})
+        json_store.add_reflexion("finance/expense-analyzer", {"rule": "Other rule"})
 
-        results = json_store.search_similar("ecm/order-details", "compliance check")
-        assert len(results) == 2  # Only ecm skills, not wealth
+        results = json_store.search_similar("hr/interview-questions", "compliance check")
+        assert len(results) == 2  # Only hr skills, not finance
 
     def test_executions_filtered_by_skill(self, json_store):
-        json_store.log_execution("ecm/order-details", {"cost_usd": 0.01})
-        json_store.log_execution("wealth/suggest-allocation", {"cost_usd": 0.02})
+        json_store.log_execution("hr/interview-questions", {"cost_usd": 0.01})
+        json_store.log_execution("finance/expense-analyzer", {"cost_usd": 0.02})
 
-        ecm = json_store.get_executions("ecm/order-details")
+        hr = json_store.get_executions("hr/interview-questions")
         all_execs = json_store.get_executions()
 
-        assert len(ecm) == 1
+        assert len(hr) == 1
         assert len(all_execs) == 2
 
 
