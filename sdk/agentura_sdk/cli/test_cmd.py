@@ -28,7 +28,7 @@ def test(skill_path: str, framework: str, skills_dir: str | None):
         skills_dir = _find_skills_dir()
     """Run tests for a skill.
 
-    SKILL_PATH should be domain/skill-name, e.g. wealth/suggest-allocation.
+    SKILL_PATH should be domain/skill-name, e.g. hr/interview-questions.
     """
     console = Console()
 

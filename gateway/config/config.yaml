@@ -34,3 +34,13 @@ metrics:
 executor:
   url: "${EXECUTOR_URL}"
   timeout: 120
+
+triggers:
+  enabled: true
+  timezone: UTC
+  cron:
+    enabled: true
+    poll_interval: 300
+  webhook:
+    enabled: true
+    secret: "${WEBHOOK_SECRET}"

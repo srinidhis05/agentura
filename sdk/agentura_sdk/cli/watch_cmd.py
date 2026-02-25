@@ -57,7 +57,7 @@ def watch(skill: str | None, limit: int, interval: float):
     \b
     Examples:
       agentura watch                      # all executions
-      agentura watch --skill ecm/triage   # filtered
+      agentura watch --skill hr/triage     # filtered
       agentura watch --interval 5         # slower polling
     """
     from agentura_sdk.cli.gateway import list_executions

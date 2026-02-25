@@ -9,13 +9,40 @@ Correction → Test → Reflexion → Re-injection → Better output
                  (the loop that compounds)
 ```
 
+## Demo
+
+### CLI — The Learning Loop in Action
+
+<video src="https://raw.githubusercontent.com/srinidhis05/agentura/main/docs/assets/cli-demo.mp4" controls width="100%"></video>
+
+<details>
+<summary>What you're seeing</summary>
+
+1. **List skills** — 18 skills across 4 domains, deployed as config
+2. **Run a skill** — HR interview questions generated via Claude Sonnet
+3. **Correct a mistake** — "Need more system design depth" → reflexion rule + test auto-generated
+4. **Re-run** — Same skill now includes the learned rule in its prompt
+</details>
+
+### Web UI — Chat + Dashboard
+
+<video src="https://raw.githubusercontent.com/srinidhis05/agentura/main/docs/assets/ui-demo.mp4" controls width="100%"></video>
+
+<details>
+<summary>What you're seeing</summary>
+
+1. **Chat interface** — Natural language routing to the right skill
+2. **Dashboard** — Domain topology, execution history, knowledge layer
+3. **Skill detail** — Full SKILL.md rendered with config, guardrails, and metrics
+</details>
+
 ## What Is This?
 
 Agentura is an **agentic AI platform** that treats AI skills like Kubernetes treats workloads:
 
 | Kubernetes | Agentura |
 |------------|--------|
-| Namespace | Domain (ECM, Wealth, FRM, HR, DevOps) |
+| Namespace | Domain (Dev, Finance, HR, Productivity) |
 | Pod/Deployment | Skill (SKILL.md + config YAML) |
 | Service/Ingress | Routing (LLM classifier → manager → specialist → field) |
 | ConfigMap | DOMAIN.md, plugin.yaml, agentura.config.yaml |
@@ -71,38 +98,27 @@ docker compose up
 
 ## The Learning Loop (Core Differentiator)
 
-This is the moat. Every correction makes the system smarter:
+Every correction makes the system smarter:
 
 ```
-1. USER RUNS SKILL
-   $ agentura run ecm/order-details --input order.json
-   → Model generates output
-   → Logged to .agentura/episodic_memory.json
-
-2. USER CORRECTS MISTAKE
-   $ agentura correct ecm/order-details \
-       --execution-id EXEC-20260219 \
-       --correction "UAE corridor orders need LULU escalation, not standard path"
-   → Stored in .agentura/corrections.json
-   → Reflexion rule generated in .agentura/reflexion_entries.json
-   → DeepEval regression test auto-generated
-   → Promptfoo regression test auto-generated
-   → GUARDRAILS.md updated
-
-3. NEXT EXECUTION — SKILL IS SMARTER
-   System prompt now includes:
-   ## Learned Rules (from past corrections)
-   - **REFL-001**: UAE corridor orders need LULU escalation...
-     _Applies when_: ecm/order-details with order_id, query inputs.
-   → Model sees the learned rule and applies it
-   → Accept rate improves over time
-
-4. TEST VALIDATION CLOSES THE LOOP
-   POST /api/v1/knowledge/validate/ecm/order-details
-   → Runs generated tests
-   → Marks reflexion as validated (backed by passing test)
-   → Confidence increases
+Run skill → User corrects output → Reflexion rule generated → Test auto-created
+    ↑                                                              ↓
+    └──────────── Rule injected into next execution ←──────────────┘
 ```
+
+```bash
+# 1. Run a skill
+agentura run hr/interview-questions --input role.json
+
+# 2. Correct a mistake
+agentura correct hr/interview-questions \
+    --execution-id EXEC-20260219 \
+    --correction "Senior roles need system design questions, not just behavioral"
+
+# 3. Next execution automatically includes the learned rule
+```
+
+See [docs/memory-system.md](docs/memory-system.md) for the full feedback loop, data schemas, and CLI reference.
 
 ## Create a Skill in 5 Minutes
 
@@ -162,16 +178,16 @@ agentura/
 │
 ├── web/                          # Next.js Chat UI + Dashboard
 │   └── src/
-│       ├── app/(chat)/           # Chat-first interface (/)
+│       ├── app/(chat)/           # Chat interface (/chat)
 │       ├── app/(dashboard)/      # Admin dashboard (/dashboard/*)
 │       ├── components/chat/      # Chat components (sidebar, messages, input)
 │       └── lib/                  # API client, chat state, command router
 │
 ├── skills/                       # Skill definitions (the workloads)
 │   ├── platform/classifier/      # Routes to correct domain
-│   ├── ecm/order-details/        # ECM order diagnosis
-│   ├── wealth/suggest-allocation/ # Portfolio allocation
-│   └── frm/rule-simulation/      # Fraud rule simulation
+│   ├── dev/github-pr-reviewer/   # Code review
+│   ├── finance/expense-analyzer/ # Expense analysis
+│   └── hr/interview-questions/   # Interview prep
 │
 ├── .agentura/                      # Knowledge layer (learning state)
 │   ├── episodic_memory.json      # Execution history
@@ -182,6 +198,19 @@ agentura/
 ├── DECISIONS.md                  # Architecture Decision Records (25 ADRs)
 └── GUARDRAILS.md                 # Anti-patterns and detection rules
 ```
+
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [Skill Format](docs/skill-format.md) | SKILL.md specification — frontmatter, sections, 4-layer prompt hierarchy |
+| [SDLC](docs/sdlc.md) | Skill development lifecycle — ideate, define, build, validate, learn |
+| [Memory System](docs/memory-system.md) | Feedback loop, data schemas, memory store backends, CLI commands |
+| [Architecture](docs/architecture.md) | Core design principles — choreography, isolation, reconciliation |
+| [CLI Reference](docs/cli-reference.md) | kubectl-style CLI commands and operational workflows |
+| [Triggers & Channels](docs/triggers-and-channels.md) | Cron scheduling, Slack integration, webhook channels |
+| [Comparisons](docs/comparisons.md) | How Agentura compares to CrewAI, LangGraph, AutoGen, and others |
+| [Decisions](docs/decisions.md) | Architecture Decision Records (ADRs) |
 
 ## API Endpoints
 

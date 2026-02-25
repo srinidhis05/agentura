@@ -1,0 +1,28 @@
+domain:
+  name: productivity
+  description: "Productivity and information management tools"
+  owner: "platform-team"
+
+skills:
+  - name: web-researcher
+    path: web-researcher
+    role: specialist
+    model: anthropic/claude-sonnet-4.5
+    cost_budget: "$0.15"
+    triggers:
+      - type: command
+        pattern: "research {topic}"
+      - type: command
+        pattern: "summarize {topic}"
+      - type: command
+        pattern: "what is {topic}"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.15"
+    alert_at: "$0.12"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval

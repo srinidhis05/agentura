@@ -32,7 +32,7 @@ server = [
 ]
 
 [project.scripts]
-agentura = "agentura_sdk.cli.main:cli"
+agentura = "agentura_sdk.cli.main:main"
 agentura-server = "agentura_sdk.server.app:main"
 
 [build-system]

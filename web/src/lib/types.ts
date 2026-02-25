@@ -26,6 +26,7 @@ export interface SkillDetail extends SkillInfo {
   task_description: string;
   input_schema: string;
   output_schema: string;
+  skill_body: string;
   skill_guardrails: string[];
   triggers: Record<string, unknown>[];
   feedback_enabled: boolean;

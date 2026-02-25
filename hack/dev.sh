@@ -36,7 +36,7 @@ done
 
 # Start frontend (Next.js)
 echo "Starting frontend on :${FRONTEND_PORT}..."
-cd "$ROOT/apps/web"
+cd "$ROOT/web"
 API_TARGET="http://localhost:${BACKEND_PORT}" npx next dev -p "$FRONTEND_PORT" &
 FRONTEND_PID=$!
 

@@ -19,6 +19,7 @@ function generateId(): string {
 }
 
 const HELP_TEXT = `Available commands:
+  <natural language>      Ask anything — auto-routes to the right skill
   get skills              List all deployed agents
   get executions          List recent executions
   get domains             List domains
@@ -33,7 +34,38 @@ const HELP_TEXT = `Available commands:
   correct <exec-id> "text"  Submit a correction
   approve <exec-id>       Approve a pending execution
   reject <exec-id>        Reject a pending execution
-  help                    Show this help`;
+  help                    Show this help
+
+Examples:
+  "interview questions for a product manager"
+  "review my pull request"
+  "analyze expenses for January"
+  "how many sick days do I get"`;
+
+const KNOWN_VERBS = new Set([
+  "help", "get", "list", "describe", "status", "memory",
+  "run", "exec", "correct", "approve", "reject", "ask",
+]);
+
+/**
+ * Unwrap LLM output that may be wrapped as {raw_output: "```json\n{...}\n```"}.
+ * Strips markdown code fences and parses the inner JSON.
+ */
+function unwrapOutput(output: Record<string, unknown>): Record<string, unknown> {
+  if (typeof output.raw_output === "string" && Object.keys(output).length === 1) {
+    const raw = output.raw_output;
+    // Strip ```json ... ``` code fences
+    const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    const jsonStr = fenceMatch ? fenceMatch[1].trim() : raw.trim();
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (typeof parsed === "object" && parsed !== null) return parsed;
+    } catch {
+      // Fall through to return original
+    }
+  }
+  return output;
+}
 
 export async function routeCommand(input: string): Promise<ChatMessage> {
   const cmd = input.trim().replace(/^agentura\s+/, "");
@@ -78,6 +110,15 @@ export async function routeCommand(input: string): Promise<ChatMessage> {
 
     if (verb === "approve" || verb === "reject") {
       return await handleApprove(base, parts[1], verb === "approve");
+    }
+
+    if (verb === "ask") {
+      return await handleAsk(base, parts.slice(1).join(" "));
+    }
+
+    // Natural language fallback — route through classifier → execute skill
+    if (!KNOWN_VERBS.has(verb)) {
+      return await handleAsk(base, cmd);
     }
 
     return {
@@ -355,6 +396,88 @@ async function handleCorrect(
       .filter(Boolean)
       .join("\n"),
     metadata: { command: `correct ${execId}`, correctionResult: result },
+  };
+}
+
+async function handleAsk(
+  base: Omit<ChatMessage, "content" | "metadata">,
+  query: string,
+): Promise<ChatMessage> {
+  if (!query.trim()) {
+    return { ...base, content: 'Usage: ask "your question"\nOr just type naturally: "interview questions for a PM"' };
+  }
+
+  // Step 1: Route through classifier
+  const routing = await executeSkill("platform", "classifier", {
+    input_data: { query },
+    dry_run: false,
+  });
+
+  const output = unwrapOutput(routing.output || {});
+  const domain = output.domain as string | undefined;
+  const confidence = Number(output.confidence ?? 0);
+  const reasoning = (output.reasoning as string) || "";
+  const entities = (output.extracted_entities || {}) as Record<string, unknown>;
+
+  if (!domain || domain === "unknown" || confidence < 0.5) {
+    return {
+      ...base,
+      content: [
+        `I couldn't confidently route your query.`,
+        reasoning ? `Reasoning: ${reasoning}` : "",
+        ``,
+        `Try being more specific, or use: run <domain/skill>`,
+      ].filter(Boolean).join("\n"),
+      metadata: { command: "ask" },
+    };
+  }
+
+  // Step 2: Route through domain triage
+  const triage = await executeSkill(domain, "triage", {
+    input_data: { query, ...entities },
+    dry_run: false,
+  });
+
+  const triageOutput = unwrapOutput(triage.output || {});
+  const routeTo = (triageOutput.route_to as string) || "";
+  const triageReasoning = (triageOutput.reasoning as string) || "";
+
+  if (!routeTo) {
+    return {
+      ...base,
+      content: [
+        `Routed to **${domain}** domain, but triage couldn't pick a specific skill.`,
+        triageReasoning ? `Reasoning: ${triageReasoning}` : "",
+        ``,
+        `Available skills in ${domain}: use \`get skills\` to see options.`,
+      ].filter(Boolean).join("\n"),
+      metadata: { command: "ask" },
+    };
+  }
+
+  // Step 3: Execute the target skill
+  const [targetDomain, targetSkill] = routeTo.includes("/")
+    ? routeTo.split("/")
+    : [domain, routeTo];
+
+  const result = await executeSkill(targetDomain, targetSkill, {
+    input_data: { ...entities, query },
+    dry_run: false,
+  });
+
+  return {
+    ...base,
+    content: result.success
+      ? `Ran **${targetDomain}/${targetSkill}** successfully.`
+      : `**${targetDomain}/${targetSkill}** execution failed.`,
+    metadata: {
+      command: `ask → ${targetDomain}/${targetSkill}`,
+      skillResult: result,
+      routing: {
+        classifier: { domain, confidence, reasoning },
+        triage: { route_to: routeTo, reasoning: triageReasoning },
+      },
+    },
   };
 }
 

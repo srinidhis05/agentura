@@ -18,7 +18,7 @@ def describe():
 def describe_skill(skill_path: str):
     """Describe a skill in detail.
 
-    SKILL_PATH should be domain/skill-name, e.g. ecm/order-details.
+    SKILL_PATH should be domain/skill-name, e.g. hr/interview-questions.
     """
     from agentura_sdk.cli.gateway import get_skill_detail
 
