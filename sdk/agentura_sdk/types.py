@@ -36,12 +36,13 @@ class SkillMetadata(BaseModel):
 # --- Agent/sandbox config ---
 
 class SandboxConfig(BaseModel):
-    """E2B sandbox settings for agent-role skills."""
+    """Sandbox settings for agent-role skills."""
     template: str = "base"
     timeout: int = 300
     max_iterations: int = 50
     cpu: int = 2
     memory: int = 512
+    backend: str = ""
 
 
 class AgentIteration(BaseModel):
