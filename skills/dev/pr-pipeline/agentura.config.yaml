@@ -1,0 +1,45 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: pr-pipeline
+    path: pr-pipeline
+    role: manager
+    model: anthropic/claude-sonnet-4.5
+    cost_budget: "$3.00"
+    triggers:
+      - type: webhook
+        description: "GitHub pull_request webhook (opened, synchronize, review_requested)"
+      - type: webhook
+        description: "GitHub issue_comment webhook (developer feedback on bot comments)"
+
+pipeline:
+  steps:
+    - skill: dev/github-pr-reviewer
+      required: true
+    - skill: dev/pr-doc-generator
+      required: false
+    - skill: dev/e2e-test-generator
+      required: false
+    - skill: dev/service-agent
+      required: false
+    - skill: dev/pr-release-checks
+      required: false
+
+guardrails:
+  budget:
+    max_per_execution: "$3.00"
+    alert_at: "$2.50"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "PR Pipeline"
+  subtitle: "Automated PR Review Pipeline"
+  avatar: "PP"
+  color: "#8b5cf6"
+  tags: ["Pipeline", "PR Review", "GitHub"]

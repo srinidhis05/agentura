@@ -2181,6 +2181,16 @@ def get_skill_mcp_bindings(domain: str, skill_name: str):
     ]
 
 
+@app.post("/api/v1/pipelines/github-pr")
+async def github_pr_pipeline(request: Request):
+    """Run the full PR review pipeline triggered by a GitHub webhook."""
+    data = await request.json()
+    from agentura_sdk.pipelines.github_pr import run_pr_pipeline
+
+    result = await run_pr_pipeline(data)
+    return result
+
+
 def main():
     """Entry point for agentura-server command."""
     import uvicorn

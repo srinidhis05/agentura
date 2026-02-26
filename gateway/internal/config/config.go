@@ -24,10 +24,16 @@ type Config struct {
 }
 
 type TriggersConfig struct {
-	Enabled  bool          `yaml:"enabled"`
-	Timezone string        `yaml:"timezone"`
-	Cron     CronConfig    `yaml:"cron"`
-	Webhook  WebhookConfig `yaml:"webhook"`
+	Enabled  bool                `yaml:"enabled"`
+	Timezone string              `yaml:"timezone"`
+	Cron     CronConfig          `yaml:"cron"`
+	Webhook  WebhookConfig       `yaml:"webhook"`
+	GitHub   GitHubWebhookConfig `yaml:"github"`
+}
+
+type GitHubWebhookConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Secret  string `yaml:"secret"`
 }
 
 type CronConfig struct {

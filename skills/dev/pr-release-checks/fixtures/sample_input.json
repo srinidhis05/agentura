@@ -1,0 +1,9 @@
+{
+  "pr_title": "feat: add user authentication middleware",
+  "pr_body": "## Summary\nAdds JWT-based auth middleware.\n\n## Test plan\n- Unit tests for token validation\n- Integration test for protected routes",
+  "diff": "diff --git a/src/middleware/auth.py b/src/middleware/auth.py\nnew file mode 100644\n+class AuthMiddleware:\n+    def __init__(self, secret_key: str):\n+        self.secret_key = secret_key\n",
+  "changed_files": ["src/middleware/auth.py", "requirements.txt"],
+  "head_branch": "feat/user-auth",
+  "base_branch": "main",
+  "labels": ["feature"]
+}
