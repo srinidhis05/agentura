@@ -230,6 +230,29 @@ func (c *Client) FetchTriggers(ctx context.Context) ([]TriggerInfo, error) {
 	return triggers, nil
 }
 
+// StreamPost sends a POST and returns the raw *http.Response for SSE streaming.
+// The caller is responsible for closing resp.Body.
+func (c *Client) StreamPost(ctx context.Context, path string, payload []byte) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling executor: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("executor returned %d: %s", resp.StatusCode, body)
+	}
+
+	return resp, nil
+}
+
 // BaseURL returns the executor base URL (used by webhook handler for routing).
 func (c *Client) BaseURL() string {
 	return c.baseURL

@@ -19,6 +19,7 @@ type Handlers struct {
 	Webhook   *WebhookHandler
 	GitHub    *GitHubWebhookHandler
 	Trigger   *TriggerHandler
+	Pipeline  *PipelineHandler
 }
 
 func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
@@ -81,6 +82,12 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 	// Events (proxied to Python executor)
 	if h.Events != nil {
 		api.HandleFunc("GET /api/v1/events", h.Events.ListEvents)
+	}
+
+	// Pipelines (proxied to Python executor)
+	if h.Pipeline != nil {
+		api.HandleFunc("POST /api/v1/pipelines/build-deploy/execute", h.Pipeline.ExecuteBuildDeploy)
+		api.HandleFunc("POST /api/v1/pipelines/build-deploy/execute-stream", h.Pipeline.ExecuteBuildDeployStream)
 	}
 
 	// Webhook inbound — external channels POST here

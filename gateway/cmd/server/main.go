@@ -85,6 +85,7 @@ func main() {
 		Webhook:   handler.NewWebhookHandler(executorClient, cfg.Triggers.Webhook),
 		GitHub:    handler.NewGitHubWebhookHandler(executorClient, cfg.Triggers.GitHub),
 		Trigger:   handler.NewTriggerHandler(scheduler),
+		Pipeline:  handler.NewPipelineHandler(executorClient),
 	}
 
 	mwCfg := handler.MiddlewareConfig{
