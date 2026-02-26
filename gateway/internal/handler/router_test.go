@@ -41,7 +41,7 @@ func newTestMux(t *testing.T, mock *httptest.Server) http.Handler {
 	mux.HandleFunc("GET /healthz", health.Healthz)
 	mux.HandleFunc("GET /readyz", health.Readyz)
 
-	skill := NewSkillHandler(client)
+	skill := NewSkillHandler(client, nil)
 	mux.HandleFunc("POST /api/v1/skills", skill.CreateSkill)
 	mux.HandleFunc("GET /api/v1/skills", skill.ListSkills)
 	mux.HandleFunc("GET /api/v1/skills/{domain}/{skill}", skill.GetSkill)
