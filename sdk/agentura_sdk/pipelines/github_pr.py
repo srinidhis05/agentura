@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agentura_sdk.indexer.skill_mapper import map_skills_for_stage
 from agentura_sdk.pipelines import github_client
 from agentura_sdk.runner.local_runner import execute_skill, log_execution
 from agentura_sdk.runner.skill_loader import load_skill_md
@@ -30,6 +31,42 @@ PIPELINE_STEPS = [
     ("dev/service-agent", False),
     ("dev/pr-release-checks", False),
 ]
+
+# Map pipeline skill path → SDLC stage name from sdlc.yaml
+_STEP_STAGE_MAP: dict[str, str] = {
+    "dev/github-pr-reviewer": "review",
+    "dev/pr-doc-generator": "docs",
+    "dev/e2e-test-generator": "test",
+    "dev/pr-release-checks": "release",
+}
+
+# File extension → language name
+_EXT_LANG_MAP: dict[str, str] = {
+    ".go": "go",
+    ".java": "java",
+    ".py": "python",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".rs": "rust",
+    ".kt": "kotlin",
+    ".rb": "ruby",
+}
+
+
+def _detect_language(file_names: list[str]) -> str:
+    """Detect primary language from changed file extensions."""
+    counts: dict[str, int] = {}
+    for name in file_names:
+        ext = Path(name).suffix.lower()
+        lang = _EXT_LANG_MAP.get(ext)
+        if lang:
+            counts[lang] = counts.get(lang, 0) + 1
+
+    if not counts:
+        return ""
+    return max(counts, key=counts.get)  # type: ignore[arg-type]
 
 
 def _find_skills_dir() -> Path:
@@ -287,6 +324,9 @@ async def run_pr_pipeline(pr_event: dict) -> dict:
     skills_dir = _find_skills_dir()
     step_results: list[dict] = []
 
+    # Detect primary language from changed files for expertise loading
+    pr_language = _detect_language(file_names)
+
     # Track outputs for cross-step dependencies
     review_output: dict = {}
     doc_output: dict = {}
@@ -306,6 +346,21 @@ async def run_pr_pipeline(pr_event: dict) -> dict:
             step_input["test_suites"] = test_gen_output.get("test_suites", [])
         elif skill_path == "dev/pr-release-checks":
             step_input["labels"] = pr_event.get("labels", [])
+
+        # Inject expertise from sdlc.yaml (skip service-agent — gets its own)
+        stage = _STEP_STAGE_MAP.get(skill_path)
+        if stage:
+            expertise_skills = map_skills_for_stage(stage, pr_language)
+            if expertise_skills:
+                step_input["expertise"] = "\n\n---\n\n".join(
+                    s.content for s in expertise_skills
+                )
+                logger.info(
+                    "loaded %d expertise skill(s) for stage %s: %s",
+                    len(expertise_skills),
+                    stage,
+                    ", ".join(s.name for s in expertise_skills),
+                )
 
         try:
             ctx = _build_skill_context(skill_path, step_input, skills_dir)

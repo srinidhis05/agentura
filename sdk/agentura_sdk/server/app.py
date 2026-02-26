@@ -2191,6 +2191,32 @@ async def github_pr_pipeline(request: Request):
     return result
 
 
+@app.post("/api/v1/pipelines/build-deploy/execute")
+async def build_deploy_pipeline(req: ExecuteRequest):
+    """Run the build-deploy pipeline synchronously."""
+    from agentura_sdk.pipelines.build_deploy import run_build_deploy
+
+    result = await run_build_deploy(req.input_data)
+    return result
+
+
+@app.post("/api/v1/pipelines/build-deploy/execute-stream")
+async def build_deploy_pipeline_stream(req: ExecuteRequest):
+    """SSE streaming endpoint for the build-deploy pipeline.
+
+    Yields per-step and per-iteration events as the pipeline progresses.
+    """
+    from starlette.responses import StreamingResponse
+
+    from agentura_sdk.pipelines.build_deploy import run_build_deploy_stream
+
+    async def event_generator():
+        async for event in run_build_deploy_stream(req.input_data):
+            yield event
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 def main():
     """Entry point for agentura-server command."""
     import uvicorn

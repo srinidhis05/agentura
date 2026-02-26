@@ -1,7 +1,9 @@
 """Execute a skill locally via Pydantic AI + Anthropic API."""
 
 import json
+import logging
 import os
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,26 +70,54 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
     return execution_id
 
 
+logger = logging.getLogger(__name__)
+
+
+def _run_deploy(result: SkillResult) -> SkillResult:
+    """Post-processor: write Dockerfile and run deploy commands from skill output."""
+    artifacts_dir = result.output.get("artifacts_dir") or ""
+    dockerfile = result.output.get("dockerfile")
+    commands = result.output.get("deploy_commands", [])
+
+    if not commands:
+        return result
+
+    if dockerfile and artifacts_dir:
+        (Path(artifacts_dir) / "Dockerfile").write_text(dockerfile)
+
+    for cmd in commands:
+        logger.info("deploy: %s", cmd)
+        subprocess.run(cmd, shell=True, check=True, cwd=artifacts_dir or ".")
+
+    result.output["deployed"] = True
+    return result
+
+
 async def execute_skill(ctx: SkillContext) -> SkillResult:
     """Execute a skill using Pydantic AI (Anthropic) or OpenRouter."""
     if ctx.role == SkillRole.AGENT:
         from agentura_sdk.runner.agent_executor import execute_agent
-        return await execute_agent(ctx)
-
-    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-
-    if openrouter_key:
-        return await _execute_via_openrouter(ctx)
-
-    if not anthropic_key:
+        result = await execute_agent(ctx)
+    elif os.environ.get("OPENROUTER_API_KEY"):
+        result = await _execute_via_openrouter(ctx)
+    elif os.environ.get("ANTHROPIC_API_KEY"):
+        result = await _execute_via_pydantic_ai(ctx)
+    else:
         return SkillResult(
             skill_name=ctx.skill_name,
             success=False,
             output={"error": "Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY. Use --dry-run to skip."},
         )
 
-    return await _execute_via_pydantic_ai(ctx)
+    # Post-processor: run deploy commands if present in output
+    if result.success and result.output.get("deploy_commands"):
+        try:
+            result = _run_deploy(result)
+        except Exception as e:
+            logger.error("deploy post-processor failed: %s", e)
+            result.output["deploy_error"] = str(e)
+
+    return result
 
 
 async def _execute_via_openrouter(ctx: SkillContext) -> SkillResult:
