@@ -30,7 +30,7 @@ export function SkillOverview({ detail }: { detail: SkillDetail }) {
         </div>
 
         {/* Full SKILL.md rendered as markdown */}
-        <article className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-li:text-muted-foreground prose-strong:text-foreground prose-code:rounded prose-code:bg-accent/60 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-xs prose-code:before:content-none prose-code:after:content-none prose-pre:rounded-lg prose-pre:border prose-pre:border-border prose-pre:bg-accent/30 prose-a:text-primary">
+        <article className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-foreground/80 prose-li:text-foreground/80 prose-strong:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none prose-pre:rounded-lg prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-a:text-primary">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
         </article>
       </div>
@@ -53,7 +53,7 @@ export function SkillOverview({ detail }: { detail: SkillDetail }) {
         {detail.input_schema && (
           <div className="rounded-lg border border-border p-5">
             <h3 className="mb-2 text-sm font-semibold">Input Schema</h3>
-            <pre className="max-h-80 overflow-auto rounded-md bg-accent/30 p-3 text-xs">
+            <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-xs">
               {detail.input_schema}
             </pre>
           </div>
@@ -61,7 +61,7 @@ export function SkillOverview({ detail }: { detail: SkillDetail }) {
         {detail.output_schema && (
           <div className="rounded-lg border border-border p-5">
             <h3 className="mb-2 text-sm font-semibold">Output Schema</h3>
-            <pre className="max-h-80 overflow-auto rounded-md bg-accent/30 p-3 text-xs">
+            <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-xs">
               {detail.output_schema}
             </pre>
           </div>

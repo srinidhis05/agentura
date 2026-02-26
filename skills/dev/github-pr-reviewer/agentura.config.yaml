@@ -26,3 +26,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "Reviewer"
+  subtitle: "Code Review Specialist"
+  avatar: "PR"
+  color: "#3b82f6"
+  tags: ["Code Review", "Security Analysis"]

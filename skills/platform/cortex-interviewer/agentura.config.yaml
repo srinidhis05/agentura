@@ -14,3 +14,10 @@ guardrails:
   max_cost_per_execution: "$0.10"
   human_in_loop:
     require_approval: false
+
+display:
+  title: "Sage"
+  subtitle: "Skill Discovery PM"
+  avatar: "SI"
+  color: "#6366f1"
+  tags: ["PM Interview", "Skill Design"]

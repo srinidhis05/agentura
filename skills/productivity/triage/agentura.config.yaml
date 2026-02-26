@@ -30,3 +30,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "Productivity Manager"
+  subtitle: "Productivity Triage"
+  avatar: "PM"
+  color: "#8b5cf6"
+  tags: ["Routing", "Productivity Domain"]
