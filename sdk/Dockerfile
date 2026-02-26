@@ -4,7 +4,7 @@ WORKDIR /build
 COPY pyproject.toml .
 COPY agentura_sdk/ agentura_sdk/
 
-RUN pip install --no-cache-dir ".[server]"
+RUN pip install --no-cache-dir ".[server,sandbox]"
 
 FROM python:3.12-slim
 
