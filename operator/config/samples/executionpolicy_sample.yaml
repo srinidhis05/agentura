@@ -1,0 +1,23 @@
+apiVersion: agentura.io/v1alpha1
+kind: ExecutionPolicy
+metadata:
+  name: default-policy
+  namespace: agentura
+spec:
+  runtimeClassName: gvisor
+  maxConcurrentExecutions: 10
+  defaultTimeout: "5m"
+  resourceDefaults:
+    limits:
+      memory: "512Mi"
+      cpu: "1"
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+  networkPolicy:
+    allowEgress:
+      - to:
+          - api.anthropic.com
+          - api.openrouter.ai
+        ports:
+          - 443

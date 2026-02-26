@@ -1,0 +1,27 @@
+apiVersion: agentura.io/v1alpha1
+kind: SkillExecution
+metadata:
+  name: exec-sample-001
+  namespace: agentura
+spec:
+  skill:
+    domain: hr
+    name: onboarding-checklist
+    role: specialist
+  input:
+    message: "Generate onboarding checklist for new hire in engineering"
+    parameters: {}
+  runner:
+    image: agentura/skill-runner:latest
+    timeout: "5m"
+    resources:
+      limits:
+        memory: "512Mi"
+        cpu: "1"
+      requests:
+        memory: "256Mi"
+        cpu: "250m"
+  secrets:
+    envFrom:
+      - secretRef:
+          name: agentura-api-keys
