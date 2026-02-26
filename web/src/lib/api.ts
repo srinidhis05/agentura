@@ -168,7 +168,7 @@ export function getPlatformHealth(): Promise<PlatformHealth> {
   return request<PlatformHealth>("/api/v1/platform/health");
 }
 
-// Events API (kubectl get events equivalent)
+// Events API
 
 export function listEvents(params?: { domain?: string; event_type?: string; limit?: number }): Promise<PlatformEvent[]> {
   const searchParams = new URLSearchParams();

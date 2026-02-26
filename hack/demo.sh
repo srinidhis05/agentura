@@ -65,7 +65,7 @@ printf "\n"
 printf "${BOLD}${CYAN}"
 printf "   ╔═══════════════════════════════════════════╗\n"
 printf "   ║         Agentura Platform Demo            ║\n"
-printf "   ║   Kubernetes for AI Agent Swarms          ║\n"
+printf "   ║   Enterprise AI Plugin Marketplace         ║\n"
 printf "   ╚═══════════════════════════════════════════╝\n"
 printf "${RESET}"
 printf "  ${DIM}Config-driven skills · Self-improving · Observable${RESET}\n"
@@ -73,7 +73,7 @@ printf "\n"
 pause
 
 # ─────────────────────────────────────────────────────────
-banner "List all deployed skills (like kubectl get pods)"
+banner "List all deployed plugins"
 run_cmd "sdk/.venv/bin/agentura list"
 pause
 
@@ -146,7 +146,7 @@ pause
 
 # ─────────────────────────────────────────────────────────
 banner "Watch executions live (Ctrl+C to stop)"
-printf "  ${DIM}Real-time execution feed — like kubectl get pods --watch${RESET}\n\n"
+printf "  ${DIM}Real-time execution feed${RESET}\n\n"
 printf "${GREEN}  \$ agentura watch --limit 10${RESET}\n\n"
 # Run watch for 5 seconds then kill
 timeout 6 sdk/.venv/bin/agentura watch --limit 10 2>/dev/null || true

@@ -19,6 +19,12 @@ export interface SkillInfo {
   last_deployed: string;
   executions_total: number;
   accept_rate: number;
+  // Display metadata (for dashboard visualization)
+  display_title: string;
+  display_subtitle: string;
+  display_avatar: string;
+  display_color: string;
+  display_tags: string[];
 }
 
 export interface SkillDetail extends SkillInfo {
@@ -190,7 +196,7 @@ export interface TestValidationResult {
   reflexions_validated: string[];
 }
 
-// Events types (kubectl get events equivalent)
+// Events types
 
 export interface PlatformEvent {
   event_id: string;
