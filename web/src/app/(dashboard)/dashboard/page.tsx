@@ -4,11 +4,22 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { listSkills, listExecutions, listReflexions, listEvents } from "@/lib/api";
 import type { SkillInfo, PlatformEvent } from "@/lib/types";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const domainColors: Record<string, string> = {
+  dev: "#3b82f6",
+  finance: "#f59e0b",
   hr: "#ec4899",
-  platform: "#6b7280",
+  productivity: "#8b5cf6",
+  platform: "#6366f1",
+};
+
+const domainEmojis: Record<string, string> = {
+  dev: "\u{1F4BB}",
+  finance: "\u{1F4B0}",
+  hr: "\u{1F465}",
+  productivity: "\u26A1",
+  platform: "\u{1F310}",
 };
 
 export default function DashboardPage() {
@@ -34,19 +45,23 @@ export default function DashboardPage() {
     refetchInterval: 8_000,
   });
 
-  const allSkills = (skills ?? []).filter((s) => s.domain !== "platform");
+  const allSkills = skills ?? [];
   const allExecs = executions ?? [];
   const allEvents = events ?? [];
-
-  // Reflexion counts per skill
-  const reflexionsBySkill: Record<string, number> = {};
-  for (const r of reflexions ?? []) {
-    reflexionsBySkill[r.skill] = (reflexionsBySkill[r.skill] ?? 0) + 1;
-  }
 
   const runningCount = allSkills.filter(
     (s) => s.health === "healthy" || s.deploy_status === "active"
   ).length;
+
+  // Group skills by domain
+  const classifier = allSkills.find(
+    (s) => s.domain === "platform" && s.name === "classifier"
+  );
+  const domainSkills = groupByDomain(
+    allSkills.filter(
+      (s) => s.domain !== "platform"
+    )
+  );
 
   return (
     <div className="space-y-8">
@@ -64,11 +79,10 @@ export default function DashboardPage() {
         </span>
       </div>
 
-      {/* Agent Topology Graph */}
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="mb-1 text-sm font-semibold">Agent Topology</div>
-        <p className="mb-3 text-xs text-muted-foreground">Real-time agent network visualization</p>
-        <div className="mb-4 flex flex-wrap items-center gap-5 text-xs">
+      {/* Dark Agent Network */}
+      <div className="rounded-2xl bg-gray-950 p-6 md:p-8">
+        {/* Legend */}
+        <div className="mb-6 flex flex-wrap items-center gap-5 text-xs text-gray-400">
           <span className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> active
           </span>
@@ -76,20 +90,38 @@ export default function DashboardPage() {
             <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> processing
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-gray-400" /> idle
-          </span>
-          <span className="mx-2 h-3 w-px bg-border" />
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-4 rounded-full" style={{ background: "#E01E5A", opacity: 0.5 }} /> Slack
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-4 rounded-full" style={{ background: "#8B5CF6", opacity: 0.5 }} /> Cron
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-4 rounded-full" style={{ background: "#0EA5E9", opacity: 0.5 }} /> API
+            <span className="h-2.5 w-2.5 rounded-full bg-gray-500" /> idle
           </span>
         </div>
-        <TopologyGraph skills={allSkills} executions={allExecs} />
+
+        {/* Classifier — top center */}
+        {classifier && (
+          <div className="mb-8 flex justify-center">
+            <ClassifierCard skill={classifier} executions={allExecs} />
+          </div>
+        )}
+
+        {/* Connection line from classifier to domains */}
+        <div className="mb-6 flex justify-center">
+          <div className="h-8 w-px bg-gradient-to-b from-indigo-500/60 to-gray-700/30" />
+        </div>
+
+        {/* Horizontal distribution line */}
+        <div className="mx-auto mb-6 hidden max-w-4xl md:block">
+          <div className="h-px bg-gradient-to-r from-transparent via-gray-600/40 to-transparent" />
+        </div>
+
+        {/* Domain Department Cards */}
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          {Object.entries(domainSkills).map(([domain, skills]) => (
+            <DomainCard
+              key={domain}
+              domain={domain}
+              skills={skills}
+              executions={allExecs}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Live Activity */}
@@ -104,315 +136,23 @@ export default function DashboardPage() {
   );
 }
 
-/* ── Topology Graph (SVG DAG) — Gateway → Domain Managers → Agents ── */
+/* ── Helpers ── */
 
-interface GraphNode {
-  id: string;
-  name: string;
-  domain: string;
-  role: string;
-  x: number;
-  y: number;
-  status: "active" | "processing" | "idle";
-  isGateway?: boolean;
-  isChannel?: boolean;
-  channelType?: "slack" | "cron" | "api" | "manual";
-}
-
-interface GraphEdge {
-  from: string;
-  to: string;
-  dashed?: boolean;
-}
-
-const channelMeta: Record<string, { color: string; label: string; sublabel: string }> = {
-  slack: { color: "#E01E5A", label: "Slack", sublabel: "/agentura run" },
-  cron: { color: "#8B5CF6", label: "Cron", sublabel: "scheduled" },
-  api: { color: "#0EA5E9", label: "REST API", sublabel: "webhooks" },
-};
-
-function TopologyGraph({
-  skills,
-  executions,
-}: {
-  skills: SkillInfo[];
-  executions: { skill: string; outcome: string }[];
-}) {
-  if (skills.length === 0) {
-    return <p className="py-12 text-center text-sm text-muted-foreground">No agents deployed</p>;
+function groupByDomain(skills: SkillInfo[]): Record<string, SkillInfo[]> {
+  const groups: Record<string, SkillInfo[]> = {};
+  for (const s of skills) {
+    (groups[s.domain] ??= []).push(s);
   }
-
-  const nw = 160; // node width
-  const nh = 50;  // node height
-  const colGap = 70;
-  const rowGap = 16;
-  const channelW = 110; // channel node width
-  const channelH = 44;
-
-  const nodes: GraphNode[] = [];
-  const edges: GraphEdge[] = [];
-
-  // ─── Column layout offsets (channels → gateway → managers → skills) ──
-  const col0 = 20;                           // input channels
-  const col1 = col0 + channelW + colGap;     // gateway
-  const col2 = col1 + nw + colGap;           // domain managers
-  const col3 = col2 + nw + colGap;           // specialist/field skills
-
-  // ─── Compute domain layout first to know total height ───────────
-  const domains = [...new Set(skills.map((s) => s.domain))];
-  const domainSkillCounts = domains.map(
-    (d) => skills.filter((s) => s.domain === d).length
-  );
-  const totalRows = domainSkillCounts.reduce((a, b) => a + b, 0) + (domains.length - 1);
-  const gatewayY = ((totalRows - 1) * (nh + rowGap)) / 2;
-
-  // ─── Column -1: Input Channels ──────────────────────────────────
-  const channels = ["slack", "cron", "api"] as const;
-  const channelSpacing = 60;
-  const channelsBlockH = channels.length * channelH + (channels.length - 1) * (channelSpacing - channelH);
-  const channelsStartY = gatewayY + nh / 2 - channelsBlockH / 2;
-
-  for (let i = 0; i < channels.length; i++) {
-    const ch = channels[i];
-    nodes.push({
-      id: `channel/${ch}`,
-      name: channelMeta[ch].label,
-      domain: "channel",
-      role: "channel",
-      x: col0,
-      y: channelsStartY + i * channelSpacing,
-      status: "active",
-      isChannel: true,
-      channelType: ch,
-    });
-    edges.push({ from: `channel/${ch}`, to: "platform/classifier", dashed: true });
+  // Sort domains consistently
+  const sorted: Record<string, SkillInfo[]> = {};
+  for (const d of ["dev", "finance", "hr", "productivity"]) {
+    if (groups[d]) sorted[d] = groups[d];
   }
-
-  // ─── Column 0: Gateway ────────────────────────────────────────
-  nodes.push({
-    id: "platform/classifier",
-    name: "classifier",
-    domain: "gateway",
-    role: "gateway",
-    x: col1,
-    y: gatewayY,
-    status: "active",
-    isGateway: true,
-  });
-
-  // ─── Column 1+: Domain skills ─────────────────────────────────
-  let currentRow = 0;
-
-  for (const domain of domains) {
-    const domainSkills = skills.filter((s) => s.domain === domain);
-
-    const roleOrder: Record<string, number> = { manager: 0, specialist: 1, field: 2 };
-    domainSkills.sort(
-      (a, b) => (roleOrder[a.role] ?? 2) - (roleOrder[b.role] ?? 2)
-    );
-
-    const manager = domainSkills.find((s) => s.role === "manager");
-    const others = domainSkills.filter((s) => s.role !== "manager");
-
-    if (manager) {
-      const managerId = `${manager.domain}/${manager.name}`;
-      const managerY = currentRow * (nh + rowGap) + (others.length * (nh + rowGap)) / 2;
-
-      nodes.push({
-        id: managerId,
-        name: manager.name,
-        domain: manager.domain,
-        role: manager.role,
-        x: col2,
-        y: managerY,
-        status: getStatus(managerId, executions),
-      });
-
-      edges.push({ from: "platform/classifier", to: managerId });
-
-      for (let i = 0; i < others.length; i++) {
-        const skill = others[i];
-        const id = `${skill.domain}/${skill.name}`;
-        nodes.push({
-          id,
-          name: skill.name,
-          domain: skill.domain,
-          role: skill.role,
-          x: col3,
-          y: currentRow * (nh + rowGap),
-          status: getStatus(id, executions),
-        });
-        edges.push({ from: managerId, to: id });
-        currentRow++;
-      }
-
-      if (others.length === 0) currentRow++;
-    } else {
-      for (let i = 0; i < domainSkills.length; i++) {
-        const skill = domainSkills[i];
-        const id = `${skill.domain}/${skill.name}`;
-        nodes.push({
-          id,
-          name: skill.name,
-          domain: skill.domain,
-          role: skill.role,
-          x: col2,
-          y: currentRow * (nh + rowGap),
-          status: getStatus(id, executions),
-        });
-        edges.push({ from: "platform/classifier", to: id });
-        currentRow++;
-      }
-    }
-
-    currentRow++;
+  // Include any other domains not in the predefined list
+  for (const d of Object.keys(groups)) {
+    if (!sorted[d]) sorted[d] = groups[d];
   }
-
-  const svgWidth = Math.max(...nodes.map((n) => n.x + nw + 40), 800);
-  const svgHeight = Math.max(...nodes.map((n) => n.y + nh + 30), 300);
-  const nodeMap = Object.fromEntries(nodes.map((n) => [n.id, n]));
-
-  return (
-    <div className="overflow-x-auto">
-      <svg
-        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-        className="w-full"
-        style={{ minHeight: Math.min(svgHeight, 500), maxHeight: 650 }}
-      >
-        <defs>
-          <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-            <path d="M0,0 L8,3 L0,6" fill="oklch(0.65 0 0)" />
-          </marker>
-          <marker id="arrow-channel" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-            <path d="M0,0 L8,3 L0,6" fill="oklch(0.7 0 0)" />
-          </marker>
-        </defs>
-
-        {/* Edges */}
-        {edges.map((edge, i) => {
-          const from = nodeMap[edge.from];
-          const to = nodeMap[edge.to];
-          if (!from || !to) return null;
-
-          const fromW = from.isChannel ? channelW : nw;
-          const x1 = from.x + fromW;
-          const y1 = from.y + (from.isChannel ? channelH / 2 : nh / 2);
-          const x2 = to.x;
-          const y2 = to.y + nh / 2;
-
-          if (Math.abs(y1 - y2) < 5) {
-            return (
-              <line key={i} x1={x1} y1={y1} x2={x2 - 4} y2={y2}
-                stroke={edge.dashed ? "oklch(0.78 0 0)" : "oklch(0.75 0 0)"}
-                strokeWidth={edge.dashed ? 1.2 : 1.5}
-                strokeDasharray={edge.dashed ? "6 4" : undefined}
-                markerEnd={edge.dashed ? "url(#arrow-channel)" : "url(#arrow)"} />
-            );
-          }
-
-          const mx = x1 + (x2 - x1) * 0.4;
-          return (
-            <path key={i}
-              d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2 - 4},${y2}`}
-              fill="none"
-              stroke={edge.dashed ? "oklch(0.78 0 0)" : "oklch(0.75 0 0)"}
-              strokeWidth={edge.dashed ? 1.2 : 1.5}
-              strokeDasharray={edge.dashed ? "6 4" : undefined}
-              markerEnd={edge.dashed ? "url(#arrow-channel)" : "url(#arrow)"} />
-          );
-        })}
-
-        {/* Channel Nodes */}
-        {nodes.filter((n) => n.isChannel).map((node) => {
-          const meta = channelMeta[node.channelType!];
-          return (
-            <g key={node.id}>
-              <rect x={node.x} y={node.y} width={channelW} height={channelH} rx={22}
-                fill="white" stroke={meta.color} strokeWidth={1.5} strokeOpacity={0.4} />
-              <rect x={node.x} y={node.y} width={channelW} height={channelH} rx={22}
-                fill={meta.color} fillOpacity={0.06} />
-              {/* Channel icon */}
-              <ChannelIcon type={node.channelType!} x={node.x + 14} y={node.y + channelH / 2} color={meta.color} />
-              <text x={node.x + 32} y={node.y + channelH / 2 - 5} fontSize={11} fontWeight={600}
-                fontFamily="var(--font-geist-sans)" fill="oklch(0.25 0 0)" dominantBaseline="central">
-                {meta.label}
-              </text>
-              <text x={node.x + 32} y={node.y + channelH / 2 + 10} fontSize={9}
-                fontFamily="var(--font-geist-sans)" fill="oklch(0.55 0 0)" dominantBaseline="central">
-                {meta.sublabel}
-              </text>
-              {/* Pulsing dot */}
-              <circle cx={node.x + channelW - 14} cy={node.y + channelH / 2} r={4}
-                fill={meta.color} fillOpacity={0.6}>
-                <animate attributeName="r" values="3;5;3" dur="2s" repeatCount="indefinite" />
-                <animate attributeName="fill-opacity" values="0.6;0.2;0.6" dur="2s" repeatCount="indefinite" />
-              </circle>
-              {/* Connection point */}
-              <circle cx={node.x + channelW} cy={node.y + channelH / 2} r={3} fill={meta.color} fillOpacity={0.4} />
-            </g>
-          );
-        })}
-
-        {/* Agent Nodes */}
-        {nodes.filter((n) => !n.isChannel).map((node) => {
-          const color = node.isGateway ? "#6366f1" : domainColors[node.domain] ?? "#6b7280";
-          const dotColor =
-            node.status === "active" ? "#10b981"
-            : node.status === "processing" ? "#f59e0b"
-            : "#9ca3af";
-          const href = node.isGateway ? "#" : `/dashboard/skills/${node.domain}/${node.name}`;
-
-          return (
-            <Link key={node.id} href={href}>
-              <g className="cursor-pointer">
-                <rect x={node.x} y={node.y} width={nw} height={nh} rx={8}
-                  fill="white" stroke={color} strokeWidth={1.5} strokeOpacity={0.5} />
-                <rect x={node.x} y={node.y} width={nw} height={nh} rx={8}
-                  fill={color} fillOpacity={0.05} />
-                <circle cx={node.x + 16} cy={node.y + nh / 2 - 4} r={5} fill={dotColor} />
-                <text x={node.x + 28} y={node.y + nh / 2 - 4} fontSize={12} fontWeight={600}
-                  fontFamily="var(--font-geist-sans)" fill="oklch(0.2 0 0)" dominantBaseline="central">
-                  {node.name}
-                </text>
-                <text x={node.x + 28} y={node.y + nh / 2 + 12} fontSize={10}
-                  fontFamily="var(--font-geist-sans)" fill="oklch(0.55 0 0)" dominantBaseline="central">
-                  {node.isGateway ? "gateway" : node.domain}
-                </text>
-                <circle cx={node.x} cy={node.y + nh / 2} r={3} fill={color} fillOpacity={0.4} />
-                <circle cx={node.x + nw} cy={node.y + nh / 2} r={3} fill={color} fillOpacity={0.4} />
-              </g>
-            </Link>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
-
-/* SVG icons for input channels */
-function ChannelIcon({ type, x, y, color }: { type: string; x: number; y: number; color: string }) {
-  if (type === "slack") {
-    return (
-      <g transform={`translate(${x - 7}, ${y - 7})`}>
-        <path d="M6 2a2 2 0 012 2v1h1a2 2 0 010 4H8v1a2 2 0 01-4 0V8H3a2 2 0 010-4h1V3a2 2 0 012-2z"
-          fill={color} fillOpacity={0.8} transform="scale(1)" />
-      </g>
-    );
-  }
-  if (type === "cron") {
-    return (
-      <g transform={`translate(${x - 7}, ${y - 7})`}>
-        <circle cx="7" cy="7" r="6" fill="none" stroke={color} strokeWidth={1.5} strokeOpacity={0.8} />
-        <path d="M7 4v3.5l2.5 1.5" fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeOpacity={0.8} />
-      </g>
-    );
-  }
-  // api
-  return (
-    <g transform={`translate(${x - 7}, ${y - 7})`}>
-      <path d="M3 7h8M7 3v8M4 4l6 6M10 4l-6 6" fill="none" stroke={color} strokeWidth={1.2} strokeLinecap="round" strokeOpacity={0.7} />
-    </g>
-  );
+  return sorted;
 }
 
 function getStatus(
@@ -423,6 +163,199 @@ function getStatus(
   if (execs.some((e) => e.outcome === "pending_review" || e.outcome === "pending_approval"))
     return "processing";
   return execs.length > 0 ? "active" : "idle";
+}
+
+/* ── Classifier Card ── */
+
+function ClassifierCard({
+  skill,
+  executions,
+}: {
+  skill: SkillInfo;
+  executions: { skill: string; outcome: string }[];
+}) {
+  const status = getStatus(`${skill.domain}/${skill.name}`, executions);
+  const color = "#6366f1";
+  const dotColor =
+    status === "active" ? "#10b981" : status === "processing" ? "#f59e0b" : "#6b7280";
+
+  return (
+    <div
+      className="relative w-full max-w-md rounded-xl border border-indigo-500/30 bg-gray-900/80 p-5"
+      style={{ boxShadow: `0 0 30px ${color}20, 0 0 60px ${color}10` }}
+    >
+      <div className="flex items-center gap-4">
+        <div
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white"
+          style={{ backgroundColor: color }}
+        >
+          {skill.display_avatar || "CL"}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-base font-semibold text-white">
+              {skill.display_title || "Classifier"}
+            </span>
+            <span
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ backgroundColor: dotColor }}
+            />
+          </div>
+          <p className="text-sm text-gray-400">
+            {skill.display_subtitle || "Platform Router"}
+          </p>
+        </div>
+      </div>
+      {skill.display_tags?.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {skill.display_tags.map((tag) => (
+            <span
+              key={tag}
+              className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+              style={{
+                backgroundColor: `${color}20`,
+                color: `${color}`,
+                border: `1px solid ${color}30`,
+              }}
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Domain Department Card ── */
+
+function DomainCard({
+  domain,
+  skills,
+  executions,
+}: {
+  domain: string;
+  skills: SkillInfo[];
+  executions: { skill: string; outcome: string }[];
+}) {
+  const color = domainColors[domain] ?? "#6b7280";
+  const emoji = domainEmojis[domain] ?? "\u{1F4E6}";
+
+  // Triage/manager becomes the domain header, others are agent cards
+  const manager = skills.find((s) => s.role === "manager");
+  const agents = skills.filter((s) => s.role !== "manager");
+
+  return (
+    <div
+      className="rounded-xl border bg-gray-900/60"
+      style={{ borderColor: `${color}30` }}
+    >
+      {/* Domain header */}
+      <div
+        className="flex items-center gap-2.5 rounded-t-xl px-4 py-3"
+        style={{ backgroundColor: `${color}10` }}
+      >
+        <span className="text-lg">{emoji}</span>
+        <div className="min-w-0 flex-1">
+          <span className="text-sm font-semibold uppercase tracking-wide text-white">
+            {domain}
+          </span>
+          {manager && (
+            <p className="truncate text-[11px] text-gray-400">
+              {manager.display_subtitle || manager.description || `${domain} triage`}
+            </p>
+          )}
+        </div>
+        <span className="text-[10px] text-gray-500">
+          {agents.length} agent{agents.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {/* Agent cards */}
+      <div className="space-y-2 p-3">
+        {agents.length === 0 ? (
+          <p className="py-4 text-center text-xs text-gray-600">No agents</p>
+        ) : (
+          agents.map((agent) => (
+            <AgentCard
+              key={`${agent.domain}/${agent.name}`}
+              skill={agent}
+              domainColor={color}
+              executions={executions}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Individual Agent Card ── */
+
+function AgentCard({
+  skill,
+  domainColor,
+  executions,
+}: {
+  skill: SkillInfo;
+  domainColor: string;
+  executions: { skill: string; outcome: string }[];
+}) {
+  const skillId = `${skill.domain}/${skill.name}`;
+  const status = getStatus(skillId, executions);
+  const color = skill.display_color || domainColor;
+  const dotColor =
+    status === "active" ? "#10b981" : status === "processing" ? "#f59e0b" : "#6b7280";
+
+  return (
+    <Link href={`/dashboard/skills/${skill.domain}/${skill.name}`}>
+      <div className="group rounded-lg border border-gray-800 bg-gray-900/80 p-3 transition-all hover:border-gray-600 hover:bg-gray-800/80">
+        <div className="flex items-start gap-3">
+          {/* Avatar */}
+          <div
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
+            style={{ backgroundColor: color }}
+          >
+            {skill.display_avatar || skill.name.slice(0, 2).toUpperCase()}
+          </div>
+
+          {/* Info */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-medium text-gray-200 group-hover:text-white">
+                {skill.display_title || skill.name.replace(/-/g, " ")}
+              </span>
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: dotColor }}
+              />
+            </div>
+            <p className="mt-0.5 truncate text-[11px] text-gray-500">
+              {skill.display_subtitle || skill.role}
+            </p>
+          </div>
+        </div>
+
+        {/* Tags */}
+        {skill.display_tags?.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {skill.display_tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full px-1.5 py-0.5 text-[9px] font-medium"
+                style={{
+                  backgroundColor: `${color}15`,
+                  color: `${color}cc`,
+                }}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </Link>
+  );
 }
 
 /* ── Live Activity Feed ──────────────────────────────────────────── */
@@ -436,7 +369,6 @@ function LiveActivityFeed({
 }) {
   const [paused, setPaused] = useState(false);
 
-  // Build feed items from events + recent executions
   const feedItems = buildFeedItems(events, executions);
 
   return (
@@ -502,19 +434,17 @@ function buildFeedItems(
 ): FeedItem[] {
   const items: FeedItem[] = [];
 
-  // From events
   for (const evt of events.slice(0, 5)) {
     const [domain, agent] = (evt.skill || evt.domain || "").split("/");
     items.push({
       type: eventTypeToFeedType(evt.event_type),
-      message: evt.message || eventTypeToMessage(evt.event_type, evt.skill),
+      message: evt.message || eventTypeToMessage(evt.event_type),
       domain: evt.domain || domain || "",
       agent: agent || evt.skill || "",
       timeAgo: timeAgo(evt.timestamp),
     });
   }
 
-  // From recent executions (fill up to 8 items)
   for (const exec of executions.slice(0, 8 - items.length)) {
     const [domain, ...rest] = exec.skill.split("/");
     const agent = rest.join("/");
@@ -545,7 +475,7 @@ function eventTypeToFeedType(type: string): FeedItem["type"] {
   return "execution";
 }
 
-function eventTypeToMessage(type: string, skill?: string): string {
+function eventTypeToMessage(type: string): string {
   switch (type) {
     case "skill_executed":
       return "Completed execution successfully";

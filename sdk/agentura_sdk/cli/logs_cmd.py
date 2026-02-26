@@ -1,4 +1,4 @@
-"""agentura logs <execution-id> — View reasoning trace (like kubectl logs)."""
+"""agentura logs <execution-id> — View execution reasoning trace."""
 
 import json
 
@@ -31,7 +31,7 @@ def logs(execution_id: str, raw: bool):
         console.print_json(json.dumps(data, indent=2))
         return
 
-    # Header line (like kubectl logs prefix)
+    # Header line
     skill = exec_data.get("skill", "unknown")
     ts = exec_data.get("timestamp", "")[:19]
     model = (exec_data.get("model_used") or "").split("/")[-1]

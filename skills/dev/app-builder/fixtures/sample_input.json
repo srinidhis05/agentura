@@ -1,0 +1,5 @@
+{
+  "prd": "Build a simple todo app with a Python Flask backend and vanilla HTML/CSS/JS frontend. Features: add todos, mark as complete, delete todos. Use an in-memory list for storage. Serve the frontend from Flask's static files.",
+  "tech_stack": "python,flask",
+  "output_format": "files"
+}

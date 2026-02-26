@@ -1,4 +1,4 @@
-"""agentura get <resource> — Query resources from gateway (like kubectl get)."""
+"""agentura get <resource> — Query resources from gateway."""
 
 from __future__ import annotations
 
@@ -197,7 +197,7 @@ def get_executions(skill: str | None, limit: int, fmt: str):
 @click.option("-n", "--limit", type=int, default=25, help="Max results.")
 @click.option("-o", "--output", "fmt", type=click.Choice(["table", "json"]), default="table")
 def get_events(domain: str | None, event_type: str | None, limit: int, fmt: str):
-    """List platform events (kubectl get events equivalent)."""
+    """List platform events."""
     from agentura_sdk.cli.gateway import list_events
     import json
 

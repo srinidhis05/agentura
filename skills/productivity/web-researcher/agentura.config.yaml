@@ -26,3 +26,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "Atlas"
+  subtitle: "Research Analyst"
+  avatar: "WR"
+  color: "#8b5cf6"
+  tags: ["Deep Research", "Web Search"]

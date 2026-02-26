@@ -9,7 +9,7 @@
 - Memory: shared knowledge store (executions, corrections, reflexions, tests).
 - Replay: re-run a past execution with the same input.
 
-## CLI Surface (kubectl-style)
+## CLI Surface
 
 Operate everything from the CLI:
 

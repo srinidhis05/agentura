@@ -30,3 +30,10 @@ mcp_tools:
     tools: ["search", "read", "query_database"]
   - server: google-drive
     tools: ["search", "read"]
+
+display:
+  title: "Advisor"
+  subtitle: "Policy Specialist"
+  avatar: "LP"
+  color: "#ec4899"
+  tags: ["Leave Policy", "Compliance"]

@@ -1,8 +1,8 @@
-# Agentura — Kubernetes for AI Agent Swarms
+# Agentura — Enterprise AI Plugin Marketplace
 
 [![CI](https://github.com/agentura-ai/agentura/actions/workflows/ci.yml/badge.svg)](https://github.com/agentura-ai/agentura/actions/workflows/ci.yml)
 
-> Deploy, orchestrate, and improve AI agent skills across your entire organization. Config-driven. Self-improving. Observable.
+> Build and deploy domain-specific AI plugins (HR, finance, engineering, ops) with MCP integration and self-improving feedback loops.
 
 ```
 Correction → Test → Reflexion → Re-injection → Better output
@@ -38,17 +38,17 @@ https://github.com/user-attachments/assets/48519761-0369-4f5d-9d99-9e5bd9cfc146
 
 ## What Is This?
 
-Agentura is an **agentic AI platform** that treats AI skills like Kubernetes treats workloads:
+Agentura is an **enterprise AI plugin marketplace** — like an app store for AI agent skills across your organization:
 
-| Kubernetes | Agentura |
-|------------|--------|
-| Namespace | Domain (Dev, Finance, HR, Productivity) |
-| Pod/Deployment | Skill (SKILL.md + config YAML) |
-| Service/Ingress | Routing (LLM classifier → manager → specialist → field) |
-| ConfigMap | DOMAIN.md, plugin.yaml, agentura.config.yaml |
-| ResourceQuota | Cost budgets, rate limits, human approval thresholds |
-| Events | Unified event stream (executions, corrections, reflexions) |
-| kubectl | `agentura` CLI (verb-resource pattern) |
+| Concept | What It Means |
+|---------|--------------|
+| **Domain** | Plugin category (Dev, Finance, HR, Design, Ops) |
+| **Skill** | A plugin (SKILL.md + config YAML) — no code required |
+| **Routing** | Natural language → auto-routes to the right plugin |
+| **MCP Tools** | External integrations (Slack, Jira, databases, APIs) |
+| **Guardrails** | Cost budgets, rate limits, human approval thresholds |
+| **Events** | Unified stream (executions, corrections, reflexions) |
+| **CLI** | `agentura` — manage plugins from the terminal |
 
 **The difference**: Every execution feeds a learning loop. User corrections automatically generate regression tests, reflexion rules, and guardrails. After 6 months, your organization has 10,000+ test cases and measurable improvement trajectories — something no competitor offers.
 
@@ -207,7 +207,7 @@ agentura/
 | [SDLC](docs/sdlc.md) | Skill development lifecycle — ideate, define, build, validate, learn |
 | [Memory System](docs/memory-system.md) | Feedback loop, data schemas, memory store backends, CLI commands |
 | [Architecture](docs/architecture.md) | Core design principles — choreography, isolation, reconciliation |
-| [CLI Reference](docs/cli-reference.md) | kubectl-style CLI commands and operational workflows |
+| [CLI Reference](docs/cli-reference.md) | CLI commands and operational workflows |
 | [Triggers & Channels](docs/triggers-and-channels.md) | Cron scheduling, Slack integration, webhook channels |
 | [Comparisons](docs/comparisons.md) | How Agentura compares to CrewAI, LangGraph, AutoGen, and others |
 | [Decisions](docs/decisions.md) | Architecture Decision Records (ADRs) |
@@ -248,15 +248,15 @@ agentura/
 
 ## How It Compares
 
-| Feature | Agentura | Swarms | CrewAI | LangGraph |
+| Feature | Agentura | Claude Plugins | CrewAI | LangGraph |
 |---------|--------|--------|--------|-----------|
-| Skills as config (no code) | SKILL.md + YAML | Python classes (6K LOC agent.py) | Python (role/goal/backstory) | Python graphs |
+| Skills as config (no code) | SKILL.md + YAML | plugin.json + agents/ | Python (role/goal/backstory) | Python graphs |
 | Learning loop | Correction → Test → Reflexion | None | None | None |
 | Auto test generation | DeepEval + Promptfoo | None | None | None |
-| Domain isolation | Namespaces with quotas | None | None | None |
-| Operational dashboard | K8s-style control plane | None | Monitoring only | LangSmith |
+| Domain isolation | Domains with quotas | Per-plugin | None | None |
+| MCP integration | Registry + per-skill bindings | .mcp.json | None | None |
 | Role hierarchy | Manager → Specialist → Field | Single agent | Flat crew | Graph nodes |
-| Config-driven routing | LLM classifier + SKILL.md | Python if-else | Python | Python |
+| Config-driven routing | LLM classifier + SKILL.md | Slash commands | Python | Python |
 
 ## Tech Stack
 
@@ -288,4 +288,4 @@ Apache 2.0
 
 ---
 
-*Built by engineers who believe AI agents should get smarter with every interaction, not just execute prompts.*
+*Built by engineers who believe AI plugins should get smarter with every interaction, not just execute prompts.*

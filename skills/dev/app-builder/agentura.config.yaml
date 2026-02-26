@@ -1,0 +1,39 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: app-builder
+    path: app-builder
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$1.00"
+    triggers:
+      - type: command
+        pattern: "build app from {prd}"
+      - type: command
+        pattern: "build {description}"
+
+sandbox:
+  template: base
+  timeout: 300
+  max_iterations: 50
+  cpu: 2
+  memory: 1024
+
+guardrails:
+  budget:
+    max_per_execution: "$1.00"
+    alert_at: "$0.75"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "App Builder"
+  subtitle: "Full-Stack Agent"
+  avatar: "AB"
+  color: "#8b5cf6"
+  tags: ["Agent", "Code Generation", "Full-Stack"]
