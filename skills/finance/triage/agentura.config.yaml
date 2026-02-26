@@ -30,3 +30,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "Finance Manager"
+  subtitle: "Finance Triage"
+  avatar: "FM"
+  color: "#f59e0b"
+  tags: ["Routing", "Finance Domain"]

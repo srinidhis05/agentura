@@ -139,7 +139,7 @@ export default function MemoryPage() {
               <p className="text-2xl font-bold text-amber-600">{status.skills_tracked.length}</p>
               <div className="mt-1 flex flex-wrap gap-1">
                 {status.skills_tracked.slice(0, 6).map((s) => (
-                  <span key={s} className="rounded bg-accent/50 px-1 py-0.5 font-mono text-[9px]">
+                  <span key={s} className="rounded bg-muted px-1 py-0.5 font-mono text-[9px]">
                     {s}
                   </span>
                 ))}
@@ -190,7 +190,7 @@ export default function MemoryPage() {
                   {searchResults.map((result, i) => (
                     <div
                       key={i}
-                      className="rounded-md border border-border bg-accent/50 p-3"
+                      className="rounded-md border border-border bg-muted p-3"
                     >
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="text-[9px]">

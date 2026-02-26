@@ -11,5 +11,5 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 18 skills across 5 domains (dev, finance, hr, platform, productivity)
 - Learning loop: corrections → auto-tests → reflexion rules → re-injection
 - Docker Compose full-stack development environment
-- Kubernetes deployment manifests
+- Deployment manifests
 - CI/CD via GitHub Actions

@@ -10,6 +10,7 @@ class SkillRole(str, Enum):
     MANAGER = "manager"
     SPECIALIST = "specialist"
     FIELD = "field"
+    AGENT = "agent"
 
 
 class SkillLanguage(str, Enum):
@@ -30,6 +31,26 @@ class SkillMetadata(BaseModel):
     cost_budget_per_execution: str = "$0.10"
     timeout: str = "60s"
     routes_to: list[dict[str, str]] = Field(default_factory=list)
+
+
+# --- Agent/sandbox config ---
+
+class SandboxConfig(BaseModel):
+    """E2B sandbox settings for agent-role skills."""
+    template: str = "base"
+    timeout: int = 300
+    max_iterations: int = 50
+    cpu: int = 2
+    memory: int = 512
+
+
+class AgentIteration(BaseModel):
+    """Single tool-call iteration within an agent execution loop."""
+    iteration: int
+    tool_name: str
+    tool_input: dict[str, Any]
+    tool_output: str
+    timestamp: str
 
 
 # --- Domain config (parsed from agentura.config.yaml) ---
@@ -104,6 +125,7 @@ class SkillContext(BaseModel):
     input_data: dict[str, Any] = Field(default_factory=dict)
     routed_context: dict[str, Any] = Field(default_factory=dict)
     mcp_tools: list[str] = Field(default_factory=list)
+    sandbox_config: Optional[SandboxConfig] = None
 
 
 class SkillResult(BaseModel):
@@ -119,3 +141,39 @@ class SkillResult(BaseModel):
     context_for_next: dict[str, Any] = Field(default_factory=dict)
     approval_required: bool = False
     pending_action: str = ""
+
+
+# --- Service indexer types ---
+
+class TechStack(BaseModel):
+    """Detected technology stack for a service repository."""
+    languages: list[str] = Field(default_factory=list)
+    build_tool: str = ""
+    frameworks: list[str] = Field(default_factory=list)
+    test_framework: str = ""
+    package_manager: str = ""
+
+
+class ModuleInfo(BaseModel):
+    """A logical module within a service (package, directory, etc.)."""
+    path: str
+    purpose: str = ""
+    files_count: int = 0
+    lines_count: int = 0
+
+
+class ServiceIndex(BaseModel):
+    """Result of indexing a service repository."""
+    service_name: str
+    repo_path: str
+    output_dir: str
+    tech_stack: TechStack
+    files_generated: list[str] = Field(default_factory=list)
+
+
+class MappedSkill(BaseModel):
+    """An ai-velocity skill mapped to a service task."""
+    name: str
+    path: str
+    content: str
+    truncated: bool = False

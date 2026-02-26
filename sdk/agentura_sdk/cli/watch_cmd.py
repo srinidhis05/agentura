@@ -1,4 +1,4 @@
-"""agentura watch — Live execution feed (like kubectl get pods --watch)."""
+"""agentura watch — Live execution feed."""
 
 from __future__ import annotations
 

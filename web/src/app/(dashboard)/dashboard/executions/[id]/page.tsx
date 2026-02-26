@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getExecution, approveExecution } from "@/lib/api";
+import { formatOutput } from "@/lib/format-output";
 import { TraceTimeline } from "@/components/trace/trace-timeline";
 import { useState } from "react";
 
@@ -119,10 +120,8 @@ export default function ExecutionDetailPage() {
               <CardTitle className="text-sm">Input</CardTitle>
             </CardHeader>
             <CardContent>
-              <pre className="max-h-48 overflow-auto rounded-md bg-accent/50 p-3 text-xs">
-                {typeof exec.input_summary === "string"
-                  ? exec.input_summary
-                  : JSON.stringify(exec.input_summary, null, 2)}
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-4 text-xs leading-relaxed text-foreground">
+                {formatOutput(exec.input_summary)}
               </pre>
             </CardContent>
           </Card>
@@ -132,10 +131,8 @@ export default function ExecutionDetailPage() {
               <CardTitle className="text-sm">Output</CardTitle>
             </CardHeader>
             <CardContent>
-              <pre className="max-h-60 overflow-auto rounded-md bg-accent/50 p-3 text-xs">
-                {typeof exec.output_summary === "string"
-                  ? exec.output_summary
-                  : JSON.stringify(exec.output_summary, null, 2)}
+              <pre className="max-h-[600px] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-4 text-xs leading-relaxed text-foreground">
+                {formatOutput(exec.output_summary)}
               </pre>
             </CardContent>
           </Card>

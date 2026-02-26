@@ -1,4 +1,4 @@
-"""Agentura CLI — Create, run, test, and manage skills (like kubectl for AI agents)."""
+"""Agentura CLI — Create, run, test, and manage AI plugins across your organization."""
 
 import sys
 
@@ -12,6 +12,7 @@ from agentura_sdk.cli.cortex_cmd import cortex
 from agentura_sdk.cli.create import create
 from agentura_sdk.cli.describe_cmd import describe
 from agentura_sdk.cli.get_cmd import get
+from agentura_sdk.cli.index_cmd import index
 from agentura_sdk.cli.logs_cmd import logs
 from agentura_sdk.cli.memory_cmd import memory
 from agentura_sdk.cli.replay import replay
@@ -25,7 +26,7 @@ from agentura_sdk.cli.watch_cmd import watch
 @click.group()
 @click.version_option(package_name="agentura-sdk")
 def cli():
-    """Agentura — Kubernetes for AI Agents.
+    """Agentura — Enterprise AI Plugin Marketplace.
 
     Create, deploy, and manage AI skills across your organization.
 
@@ -39,6 +40,7 @@ def cli():
       agentura create skill <domain>/<name>    Scaffold a new skill
       agentura validate <domain>/<name>        Validate skill structure
       agentura run <domain>/<name>             Execute a skill locally
+      agentura index <repo-path>               Index a service → knowledge graph
       agentura correct <domain>/<name>         Submit correction → auto-gen tests
       agentura test <domain>/<name>            Run DeepEval + Promptfoo tests
       agentura apply -f <path>                 Deploy skills to gateway
@@ -128,6 +130,7 @@ cli.add_command(ask)
 cli.add_command(apply)
 cli.add_command(correct)
 cli.add_command(cortex)
+cli.add_command(index)
 cli.add_command(create)
 cli.add_command(run)
 cli.add_command(test)

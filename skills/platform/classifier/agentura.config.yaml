@@ -48,3 +48,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "Router"
+  subtitle: "Platform Classifier"
+  avatar: "CL"
+  color: "#6366f1"
+  tags: ["Message Routing", "Domain Classification"]

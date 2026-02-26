@@ -1,0 +1,41 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: service-agent
+    path: service-agent
+    role: agent
+    model: anthropic/claude-sonnet-4.5
+    cost_budget: "$2.00"
+    triggers:
+      - type: command
+        pattern: "fix {description} in {service}"
+      - type: command
+        pattern: "add {feature} to {service}"
+      - type: command
+        pattern: "write tests for {service}"
+
+sandbox:
+  template: base
+  timeout: 600
+  max_iterations: 50
+  cpu: 2
+  memory: 1024
+
+guardrails:
+  budget:
+    max_per_execution: "$2.00"
+    alert_at: "$1.50"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "Service Agent"
+  subtitle: "Codebase-Aware Dev Agent"
+  avatar: "SA"
+  color: "#10b981"
+  tags: ["Agent", "Code", "PR", "Testing"]
