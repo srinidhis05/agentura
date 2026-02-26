@@ -8,7 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from agentura_sdk.types import SkillContext, SkillResult
+from agentura_sdk.types import SkillContext, SkillResult, SkillRole
 
 # Load .env — walk up from CWD to find the project root .env
 def _find_dotenv() -> Path | None:
@@ -70,6 +70,10 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
 
 async def execute_skill(ctx: SkillContext) -> SkillResult:
     """Execute a skill using Pydantic AI (Anthropic) or OpenRouter."""
+    if ctx.role == SkillRole.AGENT:
+        from agentura_sdk.runner.agent_executor import execute_agent
+        return await execute_agent(ctx)
+
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
 

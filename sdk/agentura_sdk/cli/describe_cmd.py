@@ -1,4 +1,4 @@
-"""agentura describe <resource> <name> — Detailed view (like kubectl describe)."""
+"""agentura describe <resource> <name> — Detailed resource view."""
 
 import click
 from rich.console import Console

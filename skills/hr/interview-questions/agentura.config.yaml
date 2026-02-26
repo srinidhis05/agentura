@@ -26,3 +26,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "Coach"
+  subtitle: "Interview Designer"
+  avatar: "IQ"
+  color: "#ec4899"
+  tags: ["Question Generation", "Rubrics"]

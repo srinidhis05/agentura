@@ -69,9 +69,9 @@
 
 ---
 
-## ADR-007: CLI Follows kubectl Verb-Resource Pattern
+## ADR-007: CLI Follows Verb-Resource Pattern
 
-**Chose**: `agentura <verb> <resource> [name] [flags]` (kubectl-style)
+**Chose**: `agentura <verb> <resource> [name] [flags]` (verb-resource pattern)
 **Over**: Flat commands (`agentura list-skills`, `agentura show-execution`)
 **Why**:
 - Verbs reusable across resources: `get skills`, `get domains`, `get executions`

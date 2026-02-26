@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import type { SkillResult } from "@/lib/types";
+import { formatOutput } from "@/lib/format-output";
 
 export function ResultPanel({ result }: { result: SkillResult }) {
   return (
@@ -25,8 +26,8 @@ export function ResultPanel({ result }: { result: SkillResult }) {
           <CardTitle className="text-sm">Output</CardTitle>
         </CardHeader>
         <CardContent>
-          <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-xs">
-            {JSON.stringify(result.output, null, 2)}
+          <pre className="max-h-[600px] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-4 text-xs leading-relaxed text-foreground">
+            {formatOutput(result.output)}
           </pre>
         </CardContent>
       </Card>
@@ -57,7 +58,7 @@ export function ResultPanel({ result }: { result: SkillResult }) {
               <CardTitle className="text-sm">Context for Next</CardTitle>
             </CardHeader>
             <CardContent>
-              <pre className="max-h-40 overflow-auto rounded-md bg-muted p-3 text-xs">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs text-foreground">
                 {JSON.stringify(result.context_for_next, null, 2)}
               </pre>
             </CardContent>

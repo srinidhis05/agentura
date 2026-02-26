@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { listExecutions, approveExecution } from "@/lib/api";
+import { formatOutput } from "@/lib/format-output";
 import { useState } from "react";
 
 const outcomeStyles: Record<string, string> = {
@@ -102,7 +103,7 @@ export default function ExecutionsPage() {
             className={`rounded-lg px-4 py-1.5 text-xs transition-colors ${
               activeFilter === tab.key
                 ? "bg-accent text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
             }`}
           >
             {tab.label}
@@ -194,10 +195,8 @@ export default function ExecutionsPage() {
                       {exec.output_summary != null && (
                         <div className="mb-3">
                           <p className="mb-1 text-[10px] font-medium text-muted-foreground">Output preview</p>
-                          <pre className="max-h-24 overflow-auto rounded-lg bg-accent/50 p-3 font-mono text-[11px]">
-                            {typeof exec.output_summary === "string"
-                              ? exec.output_summary
-                              : JSON.stringify(exec.output_summary, null, 2)}
+                          <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 font-mono text-[11px] text-foreground">
+                            {formatOutput(exec.output_summary)}
                           </pre>
                         </div>
                       )}
