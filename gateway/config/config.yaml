@@ -44,3 +44,6 @@ triggers:
   webhook:
     enabled: true
     secret: "${WEBHOOK_SECRET}"
+  github:
+    enabled: true
+    secret: "${GITHUB_WEBHOOK_SECRET}"

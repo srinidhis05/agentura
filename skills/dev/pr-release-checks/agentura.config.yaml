@@ -1,0 +1,31 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: pr-release-checks
+    path: pr-release-checks
+    role: specialist
+    model: anthropic/claude-haiku-4-5-latest
+    cost_budget: "$0.05"
+    triggers:
+      - type: webhook
+        description: "Invoked by PR pipeline on pull_request events"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.05"
+    alert_at: "$0.04"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval
+
+display:
+  title: "Release"
+  subtitle: "Release Readiness"
+  avatar: "RC"
+  color: "#f59e0b"
+  tags: ["Release Checks", "Compliance"]
