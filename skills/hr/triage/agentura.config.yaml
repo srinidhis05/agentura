@@ -36,3 +36,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "HR Manager"
+  subtitle: "HR Triage"
+  avatar: "HM"
+  color: "#ec4899"
+  tags: ["Routing", "HR Domain"]

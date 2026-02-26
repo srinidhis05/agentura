@@ -29,3 +29,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "Herald"
+  subtitle: "Daily Briefing"
+  avatar: "MB"
+  color: "#8b5cf6"
+  tags: ["Morning Brief", "Priorities"]

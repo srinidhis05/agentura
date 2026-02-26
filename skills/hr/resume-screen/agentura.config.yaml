@@ -28,3 +28,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "Screener"
+  subtitle: "Talent Evaluator"
+  avatar: "RS"
+  color: "#ec4899"
+  tags: ["Resume Screening", "Fit Scoring"]
