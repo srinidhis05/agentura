@@ -1,4 +1,4 @@
-"""agentura status — Platform health check (like kubectl cluster-info)."""
+"""agentura status — Platform health check."""
 
 import click
 from rich.console import Console

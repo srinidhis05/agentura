@@ -1,4 +1,4 @@
-"""agentura apply -f <path> — Declarative skill deployment (like kubectl apply)."""
+"""agentura apply -f <path> — Declarative plugin deployment."""
 
 from pathlib import Path
 

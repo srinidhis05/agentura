@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from agentura_sdk.runner.skill_loader import load_skill_md
-from agentura_sdk.types import SkillContext, SkillResult
+from agentura_sdk.types import SandboxConfig, SkillContext, SkillResult, SkillRole
 
 SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", "/skills"))
 KNOWLEDGE_DIR = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(".agentura"))
@@ -104,6 +104,12 @@ class SkillInfo(BaseModel):
     last_deployed: str = ""
     executions_total: int = 0
     accept_rate: float = 0.0
+    # Display metadata (for dashboard visualization)
+    display_title: str = ""
+    display_subtitle: str = ""
+    display_avatar: str = ""
+    display_color: str = ""
+    display_tags: list[str] = Field(default_factory=list)
 
 
 class SkillDetail(BaseModel):
@@ -128,6 +134,12 @@ class SkillDetail(BaseModel):
     last_deployed: str = ""
     executions_total: int = 0
     accept_rate: float = 0.0
+    # Display metadata
+    display_title: str = ""
+    display_subtitle: str = ""
+    display_avatar: str = ""
+    display_color: str = ""
+    display_tags: list[str] = Field(default_factory=list)
     # Detail-only
     task_description: str = ""
     input_schema: str = ""
@@ -258,6 +270,21 @@ def _build_skill_info(skill_dir: Path, domain_dir: Path) -> SkillInfo | None:
             deploy_status = s.get("deploy_status", "active")
             break
 
+    # Display metadata from skill-level config
+    skill_cfg_path = skill_dir / "agentura.config.yaml"
+    display = {}
+    if skill_cfg_path.exists():
+        try:
+            skill_cfg = yaml.safe_load(skill_cfg_path.read_text()) or {}
+            display = skill_cfg.get("display", {})
+        except Exception:
+            pass
+
+    # Auto-generate display fields if not configured
+    skill_name = loaded.metadata.name
+    display_title = display.get("title", "") or skill_name.replace("-", " ").title()
+    display_avatar = display.get("avatar", "") or skill_name[:2].upper()
+
     return SkillInfo(
         domain=loaded.metadata.domain,
         name=loaded.metadata.name,
@@ -278,6 +305,11 @@ def _build_skill_info(skill_dir: Path, domain_dir: Path) -> SkillInfo | None:
         last_deployed=last_deployed,
         executions_total=lifecycle["executions_total"],
         accept_rate=lifecycle["accept_rate"],
+        display_title=display_title,
+        display_subtitle=display.get("subtitle", ""),
+        display_avatar=display_avatar,
+        display_color=display.get("color", ""),
+        display_tags=display.get("tags", []),
     )
 
 
@@ -382,6 +414,19 @@ def get_skill(domain: str, skill_name: str):
             deploy_status = s.get("deploy_status", "active")
             break
 
+    # Display metadata from skill-level config
+    skill_config_path = skill_dir / "agentura.config.yaml"
+    display = {}
+    if skill_config_path.exists():
+        try:
+            skill_cfg_detail = yaml.safe_load(skill_config_path.read_text()) or {}
+            display = skill_cfg_detail.get("display", {})
+        except Exception:
+            pass
+
+    display_title = display.get("title", "") or skill_name.replace("-", " ").title()
+    display_avatar = display.get("avatar", "") or skill_name[:2].upper()
+
     return SkillDetail(
         domain=loaded.metadata.domain,
         name=loaded.metadata.name,
@@ -402,6 +447,11 @@ def get_skill(domain: str, skill_name: str):
         last_deployed=last_deployed,
         executions_total=lifecycle["executions_total"],
         accept_rate=lifecycle["accept_rate"],
+        display_title=display_title,
+        display_subtitle=display.get("subtitle", ""),
+        display_avatar=display_avatar,
+        display_color=display.get("color", ""),
+        display_tags=display.get("tags", []),
         task_description=_extract_section(body, "Task"),
         input_schema=_extract_section(body, "Input Format") or _extract_section(body, "Context You'll Receive"),
         output_schema=_extract_section(body, "Output Format"),
@@ -447,6 +497,20 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
     prompt_parts.append(skill_md.system_prompt)
     composed_prompt = "\n\n---\n\n".join(prompt_parts)
 
+    # Parse sandbox config for agent-role skills
+    sandbox_config = None
+    if skill_md.metadata.role == SkillRole.AGENT:
+        sandbox_config = SandboxConfig()
+        skill_config_path = root / "agentura.config.yaml"
+        if skill_config_path.exists():
+            try:
+                skill_cfg_raw = yaml.safe_load(skill_config_path.read_text()) or {}
+                sandbox_raw = skill_cfg_raw.get("sandbox", {})
+                if sandbox_raw:
+                    sandbox_config = SandboxConfig(**sandbox_raw)
+            except Exception:
+                pass
+
     ctx = SkillContext(
         skill_name=skill_md.metadata.name,
         domain=skill_md.metadata.domain,
@@ -454,6 +518,7 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
         model=model,
         system_prompt=composed_prompt,
         input_data=input_data,
+        sandbox_config=sandbox_config,
     )
 
     if req.dry_run:
@@ -492,6 +557,81 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
         _update_execution_outcome_to_pending_approval(domain, skill_name)
 
     return result
+
+
+@app.post("/api/v1/skills/{domain}/{skill_name}/execute-stream")
+async def execute_stream(domain: str, skill_name: str, req: ExecuteRequest):
+    """SSE streaming endpoint for agent-role skill executions.
+
+    Yields AgentIteration events as the agent works, then a final SkillResult.
+    Non-agent skills return 400.
+    """
+    from starlette.responses import StreamingResponse
+
+    from agentura_sdk.runner.agent_executor import execute_agent_streaming
+    from agentura_sdk.types import AgentIteration as AgentIterationType
+
+    root = SKILLS_DIR / domain / skill_name
+    skill_md_path = root / "SKILL.md"
+
+    if not root.exists() or not skill_md_path.exists():
+        raise HTTPException(status_code=404, detail=f"Skill not found: {domain}/{skill_name}")
+
+    skill_md = load_skill_md(skill_md_path)
+
+    if skill_md.metadata.role != SkillRole.AGENT:
+        raise HTTPException(status_code=400, detail="SSE streaming is only available for agent-role skills")
+
+    input_data = req.input_data
+    if not input_data:
+        fixture = root / "fixtures" / "sample_input.json"
+        if fixture.exists():
+            import json
+            input_data = json.loads(fixture.read_text())
+
+    model = req.model_override or skill_md.metadata.model
+
+    # Parse sandbox config from skill-level agentura.config.yaml
+    sandbox_config = SandboxConfig()
+    skill_config_path = root / "agentura.config.yaml"
+    if skill_config_path.exists():
+        try:
+            skill_cfg = yaml.safe_load(skill_config_path.read_text()) or {}
+            sandbox_raw = skill_cfg.get("sandbox", {})
+            if sandbox_raw:
+                sandbox_config = SandboxConfig(**sandbox_raw)
+        except Exception:
+            pass
+
+    prompt_parts = []
+    if skill_md.workspace_context:
+        prompt_parts.append(skill_md.workspace_context)
+    if skill_md.domain_context:
+        prompt_parts.append(skill_md.domain_context)
+    if skill_md.reflexion_context:
+        prompt_parts.append(skill_md.reflexion_context)
+    prompt_parts.append(skill_md.system_prompt)
+    composed_prompt = "\n\n---\n\n".join(prompt_parts)
+
+    ctx = SkillContext(
+        skill_name=skill_md.metadata.name,
+        domain=skill_md.metadata.domain,
+        role=skill_md.metadata.role,
+        model=model,
+        system_prompt=composed_prompt,
+        input_data=input_data,
+        sandbox_config=sandbox_config,
+    )
+
+    async def event_generator():
+        async for event in execute_agent_streaming(ctx):
+            if isinstance(event, AgentIterationType):
+                yield f"event: iteration\ndata: {event.model_dump_json()}\n\n"
+            else:
+                # Final SkillResult
+                yield f"event: result\ndata: {event.model_dump_json()}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/api/v1/skills/{domain}/{skill_name}/correct")
@@ -1674,7 +1814,7 @@ def get_domain(domain: str):
 
 
 # ---------------------------------------------------------------------------
-# Events API — kubectl get events equivalent
+# Events API
 # ---------------------------------------------------------------------------
 
 
@@ -1853,7 +1993,7 @@ def get_platform_health():
 class CreateSkillRequest(BaseModel):
     domain: str = Field(..., pattern=r"^[a-z][a-z0-9-]*$", description="Domain name (lowercase, hyphens ok)")
     name: str = Field(..., pattern=r"^[a-z][a-z0-9-]*$", description="Skill name (lowercase, hyphens ok)")
-    role: str = Field(default="specialist", pattern=r"^(manager|specialist|field)$")
+    role: str = Field(default="specialist", pattern=r"^(manager|specialist|field|agent)$")
     lang: str = Field(default="python", pattern=r"^(python|typescript|go)$")
     description: str = Field(default="", description="One-line description of what the skill does")
     model: str = Field(default="anthropic/claude-sonnet-4-5-20250929")
