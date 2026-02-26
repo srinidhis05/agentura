@@ -17,6 +17,7 @@ type Handlers struct {
 	Events    *EventsHandler
 	Memory    *MemoryHandler
 	Webhook   *WebhookHandler
+	GitHub    *GitHubWebhookHandler
 	Trigger   *TriggerHandler
 }
 
@@ -85,6 +86,11 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 	// Webhook inbound — external channels POST here
 	if h.Webhook != nil {
 		api.HandleFunc("POST /api/v1/channels/{channel}/inbound", h.Webhook.Inbound)
+	}
+
+	// GitHub webhook — no auth (uses signature verification)
+	if h.GitHub != nil {
+		mux.HandleFunc("POST /api/v1/webhooks/github", h.GitHub.Handle)
 	}
 
 	// Trigger status — cron scheduler info

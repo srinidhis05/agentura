@@ -66,6 +66,7 @@ func main() {
 		Events:    handler.NewEventsHandler(executorClient),
 		Memory:    handler.NewMemoryHandler(executorClient),
 		Webhook:   handler.NewWebhookHandler(executorClient, cfg.Triggers.Webhook),
+		GitHub:    handler.NewGitHubWebhookHandler(executorClient, cfg.Triggers.GitHub),
 		Trigger:   handler.NewTriggerHandler(scheduler),
 	}
 

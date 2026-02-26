@@ -235,6 +235,32 @@ func (c *Client) BaseURL() string {
 	return c.baseURL
 }
 
+// PostRaw sends a raw JSON payload to the executor and returns the response.
+func (c *Client) PostRaw(ctx context.Context, path string, payload []byte) (json.RawMessage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling executor: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("executor returned %d: %s", resp.StatusCode, respBody)
+	}
+
+	return json.RawMessage(respBody), nil
+}
+
 func (c *Client) postJSON(ctx context.Context, path string, body any) (json.RawMessage, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
