@@ -73,14 +73,14 @@ export default function DashboardPage() {
             Live visualization of agent connections and data flows
           </p>
         </div>
-        <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+        <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
           <span className="h-2 w-2 rounded-full bg-emerald-500" />
           {runningCount} agents active
         </span>
       </div>
 
-      {/* Dark Agent Network */}
-      <div className="rounded-2xl bg-gray-950 p-6 md:p-8">
+      {/* Agent Network */}
+      <div className="rounded-2xl bg-card p-6 md:p-8">
         {/* Legend */}
         <div className="mb-6 flex flex-wrap items-center gap-5 text-xs text-gray-400">
           <span className="flex items-center gap-1.5">
@@ -401,7 +401,7 @@ function LiveActivityFeed({
             <div
               key={i}
               className={`flex items-center gap-4 px-5 py-3.5 transition-colors ${
-                i === 0 ? "bg-blue-50/50" : ""
+                i === 0 ? "bg-blue-500/5" : ""
               }`}
             >
               <FeedIcon type={item.type} />
@@ -493,14 +493,14 @@ function eventTypeToMessage(type: string): string {
 function FeedIcon({ type }: { type: FeedItem["type"] }) {
   const bg =
     type === "execution"
-      ? "bg-blue-100 text-blue-600"
+      ? "bg-blue-500/15 text-blue-400"
       : type === "reflexion"
-        ? "bg-violet-100 text-violet-600"
+        ? "bg-violet-500/15 text-violet-400"
         : type === "optimization"
-          ? "bg-amber-100 text-amber-600"
+          ? "bg-amber-500/15 text-amber-400"
           : type === "error"
-            ? "bg-red-100 text-red-600"
-            : "bg-gray-100 text-gray-600";
+            ? "bg-red-500/15 text-red-400"
+            : "bg-gray-500/15 text-gray-400";
 
   return (
     <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${bg}`}>

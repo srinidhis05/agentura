@@ -11,6 +11,10 @@ export interface ChatMessage {
     correctionResult?: CorrectResponse;
     approvalResult?: ApprovalResponse;
     tableData?: { headers: string[]; rows: string[][] };
+    routing?: {
+      classifier: { domain: string; confidence: number; reasoning: string };
+      triage: { route_to: string; reasoning: string };
+    };
     error?: string;
   };
 }
