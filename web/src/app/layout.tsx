@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agentura",
-  description: "Agentura AI Skills Platform",
+  title: "Agentura — Enterprise Control Plane for AI Agents",
+  description:
+    "Self-hosted AI plugins for your organization. Domain isolation, policy enforcement, and feedback loops that get smarter with every interaction.",
 };
 
 export default function RootLayout({
@@ -24,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

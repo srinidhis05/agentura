@@ -51,14 +51,14 @@ export function Sidebar() {
     <aside className="flex h-screen w-52 flex-col border-r border-border bg-sidebar">
       {/* Brand */}
       <div className="px-5 pt-6 pb-5">
-        <div className="flex items-center gap-2.5">
+        <Link href="/" className="flex items-center gap-2.5">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-violet-600">
             <svg className="h-3.5 w-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           </div>
           <span className="text-base font-bold tracking-tight text-foreground">Agentura</span>
-        </div>
+        </Link>
       </div>
 
       {/* Navigation */}
