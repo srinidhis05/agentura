@@ -52,6 +52,23 @@ func main() {
 	// Adapters
 	executorClient := executor.NewClient(cfg.Executor.URL, time.Duration(cfg.Executor.Timeout)*time.Second)
 
+	// Execution dispatcher — determines how skill executions are isolated
+	var dispatcher executor.ExecutionDispatcher
+	switch cfg.Execution.Mode {
+	case "docker":
+		dispatcher = executor.NewDockerDispatcher(cfg.Execution.Docker)
+		slog.Info("execution mode: docker", "image", cfg.Execution.Docker.Image)
+	case "kubernetes":
+		dispatcher = executor.NewK8sDispatcher(cfg.Execution.Kubernetes)
+		slog.Info("execution mode: kubernetes",
+			"namespace", cfg.Execution.Kubernetes.Namespace,
+			"image", cfg.Execution.Kubernetes.Image,
+		)
+	default:
+		dispatcher = executor.NewProxyDispatcher(executorClient)
+		slog.Info("execution mode: proxy", "executor_url", cfg.Executor.URL)
+	}
+
 	// Cron scheduler
 	scheduler := service.NewScheduler(executorClient, cfg.Triggers)
 
@@ -59,7 +76,7 @@ func main() {
 	handlers := handler.Handlers{
 		Health:    handler.NewHealthHandler(dbCheck),
 		Chat:      handler.NewChatHandler(),
-		Skill:     handler.NewSkillHandler(executorClient),
+		Skill:     handler.NewSkillHandler(executorClient, dispatcher),
 		Knowledge: handler.NewKnowledgeHandler(executorClient),
 		Domain:    handler.NewDomainHandler(executorClient),
 		Platform:  handler.NewPlatformHandler(executorClient),

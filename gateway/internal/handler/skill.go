@@ -10,11 +10,12 @@ import (
 )
 
 type SkillHandler struct {
-	executor *executor.Client
+	executor   *executor.Client
+	dispatcher executor.ExecutionDispatcher
 }
 
-func NewSkillHandler(exec *executor.Client) *SkillHandler {
-	return &SkillHandler{executor: exec}
+func NewSkillHandler(exec *executor.Client, dispatcher executor.ExecutionDispatcher) *SkillHandler {
+	return &SkillHandler{executor: exec, dispatcher: dispatcher}
 }
 
 func (h *SkillHandler) CreateSkill(w http.ResponseWriter, r *http.Request) {
@@ -100,6 +101,25 @@ func (h *SkillHandler) ExecuteSkill(w http.ResponseWriter, r *http.Request) {
 	var req executor.ExecuteRequest
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Use dispatcher if available (docker/k8s modes), else fall back to proxy
+	if h.dispatcher != nil {
+		dispatchReq := executor.ExecutionDispatchRequest{
+			Domain:    domain,
+			Skill:     skill,
+			InputData: req.InputData,
+			DryRun:    req.DryRun,
+		}
+		result, err := h.dispatcher.Dispatch(r.Context(), dispatchReq)
+		if err != nil {
+			httputil.RespondError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(result)
 		return
 	}
 
