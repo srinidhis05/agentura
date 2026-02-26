@@ -28,6 +28,64 @@ def _find_skills_dir() -> str:
     return "skills"
 
 
+def _load_service_context(repo: Path, task_desc: str | None, console: Console) -> dict:
+    """Load .agentura/services/{name}/ knowledge + mapped skills into input_data."""
+    repo = repo.resolve()
+    name = repo.name
+
+    # Find the service index directory
+    index_dir = repo / ".agentura" / "services" / name
+    if not index_dir.exists():
+        console.print(f"[yellow]Warning: No index found at {index_dir}. Run: agentura index {repo}[/]")
+        return {"repo_path": str(repo), "task": task_desc or ""}
+
+    context: dict = {
+        "repo_path": str(repo),
+        "task": task_desc or "",
+    }
+
+    # Load knowledge files
+    for key, filename in [
+        ("service_context", "SERVICE.md"),
+        ("modules_context", "MODULES.md"),
+        ("api_context", "API_SURFACE.md"),
+        ("test_context", "TEST_MAP.md"),
+    ]:
+        path = index_dir / filename
+        if path.exists():
+            context[key] = path.read_text()
+
+    # Map expertise skills (lazy — only if AI_VELOCITY_DIR is set)
+    try:
+        from agentura_sdk.indexer.detectors import detect_tech_stack
+        from agentura_sdk.indexer.skill_mapper import map_skills
+
+        tech = detect_tech_stack(repo)
+        task_type = _infer_task_type(task_desc or "")
+        skills = map_skills(tech, task_type)
+        if skills:
+            context["expertise"] = "\n\n---\n\n".join(s.content for s in skills)
+            console.print(f"[dim]Loaded {len(skills)} expertise skill(s): {', '.join(s.name for s in skills)}[/]")
+    except Exception:
+        pass
+
+    return context
+
+
+def _infer_task_type(task: str) -> str:
+    """Infer task type from description for skill mapping."""
+    lower = task.lower()
+    if any(w in lower for w in ["test", "spec", "coverage"]):
+        return "test"
+    if any(w in lower for w in ["metric", "instrument", "prometheus", "observability"]):
+        return "instrument"
+    if any(w in lower for w in ["dashboard", "grafana", "datadog"]):
+        return "dashboard"
+    if any(w in lower for w in ["alert", "pager", "notify"]):
+        return "alert"
+    return "code"
+
+
 @click.command()
 @click.argument("skill_path")
 @click.option("--input", "input_file", type=click.Path(exists=True), help="JSON input file.")
@@ -39,7 +97,9 @@ def _find_skills_dir() -> str:
     help="Root directory for skills.",
 )
 @click.option("--model", "model_override", help="Override model from config.")
-def run(skill_path: str, input_file: str | None, dry_run: bool, skills_dir: str | None, model_override: str | None):
+@click.option("--repo", "repo_path", type=click.Path(exists=True), help="Repository path for service-agent skill.")
+@click.option("--task", "task_desc", help="Task description for service-agent skill.")
+def run(skill_path: str, input_file: str | None, dry_run: bool, skills_dir: str | None, model_override: str | None, repo_path: str | None, task_desc: str | None):
     if skills_dir is None:
         skills_dir = _find_skills_dir()
         if not Path(skills_dir).exists():
@@ -78,6 +138,10 @@ def run(skill_path: str, input_file: str | None, dry_run: bool, skills_dir: str 
     elif (root / "fixtures" / "sample_input.json").exists():
         input_data = json.loads((root / "fixtures" / "sample_input.json").read_text())
         console.print("[dim]Using fixtures/sample_input.json (no --input specified)[/]")
+
+    # Inject service context when --repo is provided
+    if repo_path:
+        input_data.update(_load_service_context(Path(repo_path), task_desc, console))
 
     model = model_override or skill_md.metadata.model
 
@@ -121,6 +185,13 @@ def run(skill_path: str, input_file: str | None, dry_run: bool, skills_dir: str 
             console.print(f"  Reflexion entries: [dim]none (no past corrections)[/]")
         console.print(f"  Prompt length: {len(ctx.system_prompt)} chars")
         console.print(f"  Input keys: {list(input_data.keys())}")
+        if repo_path:
+            console.print(f"  Repo: {repo_path}")
+            console.print(f"  Task: {task_desc or '[dim]none[/]'}")
+            if "service_context" in input_data:
+                console.print(f"  Service context: loaded ({len(input_data['service_context'])} chars)")
+            if "expertise" in input_data:
+                console.print(f"  Expertise: loaded ({len(input_data['expertise'])} chars)")
         console.print("\n[green]Validation passed.[/] Run without --dry-run to execute.")
         return
 
