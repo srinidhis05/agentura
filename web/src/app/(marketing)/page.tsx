@@ -34,7 +34,7 @@ function Nav() {
         </div>
 
         <a
-          href="https://github.com/agentura-ai/agentura"
+          href="https://github.com/srinidhis05/agentura"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-lg border border-border px-4 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
@@ -390,7 +390,7 @@ function WhySelfHost() {
 
 function GetStarted() {
   const steps = `# 1. Clone
-git clone https://github.com/agentura-ai/agentura.git && cd agentura
+git clone https://github.com/srinidhis05/agentura.git && cd agentura
 
 # 2. Configure
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
@@ -424,7 +424,7 @@ docker compose up`;
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-4 text-sm">
           <a
-            href="https://github.com/agentura-ai/agentura"
+            href="https://github.com/srinidhis05/agentura"
             target="_blank"
             rel="noopener noreferrer"
             className="rounded-lg px-5 py-2 font-semibold transition-colors"
@@ -450,7 +450,7 @@ function Footer() {
         <div className="flex flex-col items-center justify-between gap-4 text-xs text-muted-foreground md:flex-row">
           <div className="flex items-center gap-6">
             <a
-              href="https://github.com/agentura-ai/agentura"
+              href="https://github.com/srinidhis05/agentura"
               target="_blank"
               rel="noopener noreferrer"
               className="transition-colors hover:text-foreground"
