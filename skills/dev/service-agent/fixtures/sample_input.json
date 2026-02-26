@@ -1,0 +1,7 @@
+{
+  "task": "Add unit tests for the TechStack and ModuleInfo models in types.py",
+  "repo_path": "/home/user/repo",
+  "service_context": "# Agentura SDK\n\nPython SDK for the Agentura platform. Uses Pydantic models, Click CLI, and async execution.\n\n## Tech Stack\n- Language: Python 3.11+\n- Build: pip (pyproject.toml)\n- Frameworks: pydantic, click, anthropic\n- Tests: pytest\n\n## Entry Points\n- `sdk/agentura_sdk/cli/main.py` — CLI entrypoint\n- `sdk/agentura_sdk/server/app.py` — HTTP server\n",
+  "modules_context": "# Modules\n\n| Module | Purpose | Files | Lines |\n|--------|---------|-------|-------|\n| cli | CLI commands (click) | 12 | 800 |\n| runner | Skill execution engine | 4 | 400 |\n| sandbox | E2B sandbox wrapper | 2 | 80 |\n| indexer | Service indexing | 5 | 300 |\n",
+  "test_context": "# Test Map\n\nNo test files detected yet.\n"
+}
