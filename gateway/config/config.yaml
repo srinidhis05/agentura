@@ -35,6 +35,25 @@ executor:
   url: "${EXECUTOR_URL}"
   timeout: 120
 
+execution:
+  mode: "${EXECUTION_MODE}"
+  docker:
+    image: "${SKILL_RUNNER_IMAGE}"
+    network: "agentura_default"
+    skills_dir: "/skills"
+    resource_limits:
+      memory: "512m"
+      cpus: "1.0"
+  kubernetes:
+    namespace: "agentura"
+    image: "${SKILL_RUNNER_IMAGE}"
+    runtime_class: ""
+    service_account: "skill-runner"
+    resource_limits:
+      memory: "512Mi"
+      cpu: "1000m"
+    timeout: "300s"
+
 triggers:
   enabled: true
   timezone: UTC
