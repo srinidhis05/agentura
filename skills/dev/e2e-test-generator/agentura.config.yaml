@@ -28,3 +28,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "TestGen"
+  subtitle: "QA Engineer"
+  avatar: "TG"
+  color: "#3b82f6"
+  tags: ["Test Generation", "Edge Cases"]

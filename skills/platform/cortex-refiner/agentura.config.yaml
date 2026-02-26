@@ -14,3 +14,10 @@ guardrails:
   max_cost_per_execution: "$0.20"
   human_in_loop:
     require_approval: false
+
+display:
+  title: "Polish"
+  subtitle: "Skill Refiner"
+  avatar: "SR"
+  color: "#6366f1"
+  tags: ["Skill Refinement", "QA"]

@@ -26,3 +26,10 @@ feedback:
   capture_corrections: true
   auto_generate_tests: true
   test_framework: deepeval
+
+display:
+  title: "Inspector"
+  subtitle: "Invoice Compliance"
+  avatar: "IR"
+  color: "#f59e0b"
+  tags: ["Invoice Review", "Fraud Detection"]
