@@ -399,29 +399,50 @@ def _extract_artifacts(sandbox: object, files_created: list[str], skill_name: st
 # --- Memory recall ---
 
 def _recall_memories(skill_path: str, input_data: dict) -> str:
-    """Search past executions for relevant context and format as prompt section."""
+    """Search past corrections and reflexions for relevant context.
+
+    Tries semantic search first. Falls back to direct DB lookups if
+    vector search returns empty (common when embeddings fail).
+    """
     try:
         from agentura_sdk.memory import get_memory_store
 
         store = get_memory_store()
+        lines: list[str] = []
+
+        # Try semantic search first
         query = json.dumps(input_data, default=str)[:500]
         results = store.search_similar(skill_path, query, limit=3)
-        if not results:
-            return ""
-
-        lines = ["## Memory — Learned Preferences from Past Executions\n"]
         for r in results:
-            memory_text = r.get("memory", "")
-            if not memory_text:
-                memory_text = r.get("rule", "") or r.get("user_correction", "")
-            if memory_text:
-                lines.append(f"- {memory_text[:300]}")
+            text = r.get("memory", "") or r.get("rule", "") or r.get("user_correction", "")
+            if text:
+                lines.append(f"- {text[:300]}")
 
-        if len(lines) <= 1:
+        # Fallback: load corrections and reflexions directly from store
+        if not lines:
+            try:
+                corrections = store.get_corrections(skill_path)
+                for c in corrections[:3]:
+                    text = c.get("user_correction", c.get("correction", ""))
+                    if text:
+                        lines.append(f"- {text[:300]}")
+            except Exception:
+                pass
+            try:
+                reflexions = store.get_reflexions(skill_path)
+                for r in reflexions[:3]:
+                    text = r.get("rule", "")
+                    if text:
+                        lines.append(f"- {text[:300]}")
+            except Exception:
+                pass
+
+        if not lines:
             return ""
 
-        lines.append("\nApply these learned preferences to the current task.")
-        return "\n".join(lines)
+        header = "## Memory — Learned Preferences from Past Executions\n"
+        footer = "\nApply these learned preferences to the current task."
+        return header + "\n".join(lines) + footer
     except Exception as exc:
         logger.debug("Memory recall skipped: %s", exc)
         return ""
