@@ -1,0 +1,36 @@
+domain:
+  name: hr
+  description: "Human resources tools for recruiting, onboarding, and people operations"
+  owner: "people-team"
+
+skills:
+  - name: resume-screener
+    path: resume-screener
+    role: specialist
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.15"
+    triggers:
+      - type: command
+        pattern: "screen resume {resume}"
+      - type: command
+        pattern: "evaluate candidate {profile}"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.15"
+    alert_at: "$0.10"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "Resume Screener"
+  subtitle: "CV → Structured Assessment"
+  avatar: "RS"
+  color: "#f59e0b"
+  tags: ["HR", "Recruiting", "Specialist"]
+  conversation_starters:
+    - "Screen this resume for a senior engineer role"
+    - "Evaluate this candidate against our job description"
+    - "Compare these two candidates for the PM position"
