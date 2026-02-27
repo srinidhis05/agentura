@@ -233,7 +233,7 @@ func (s *Scheduler) executeCronJob(domain, skill string) {
 	slog.Info("cron executing", "domain", domain, "skill", skill)
 
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	req := executor.ExecuteRequest{

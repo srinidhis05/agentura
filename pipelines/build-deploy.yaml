@@ -1,0 +1,9 @@
+name: build-deploy
+description: "Build a web app from description and deploy to K8s"
+input_mapping:
+  description: prd
+steps:
+  - skill: dev/app-builder
+    required: true
+  - skill: dev/deployer
+    required: true
