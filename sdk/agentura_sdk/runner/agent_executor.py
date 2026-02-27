@@ -319,13 +319,26 @@ def _execute_tool(
 
     # Sandbox tools
     if tool_name == "write_file":
-        return sandbox_mod.write_file(sandbox, tool_input["path"], tool_input["content"])
+        path = tool_input.get("path", "")
+        content = tool_input.get("content", "")
+        if not path:
+            return "[error] write_file requires 'path' argument"
+        return sandbox_mod.write_file(sandbox, path, content)
     if tool_name == "read_file":
-        return sandbox_mod.read_file(sandbox, tool_input["path"])
+        path = tool_input.get("path", "")
+        if not path:
+            return "[error] read_file requires 'path' argument"
+        return sandbox_mod.read_file(sandbox, path)
     if tool_name == "run_command":
-        return sandbox_mod.run_command(sandbox, tool_input["command"])
+        cmd = tool_input.get("command", "")
+        if not cmd:
+            return "[error] run_command requires 'command' argument"
+        return sandbox_mod.run_command(sandbox, cmd)
     if tool_name == "run_code":
-        return sandbox_mod.run_code(sandbox, tool_input["code"])
+        code = tool_input.get("code", "")
+        if not code:
+            return "[error] run_code requires 'code' argument"
+        return sandbox_mod.run_code(sandbox, code)
     if tool_name == "clone_repo":
         return _clone_repo(sandbox, tool_input)
     if tool_name == "create_branch":

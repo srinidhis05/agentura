@@ -42,6 +42,7 @@ spec:
               value: postgresql://agentura:agentura_dev@postgres:5432/agentura
             - name: MCP_K8S_URL
               value: http://k8s-mcp:8090
+            # SLACK_BOT_TOKEN loaded via envFrom secretRef below (add key to agentura-api-keys when ready)
           envFrom:
             - secretRef:
                 name: agentura-api-keys

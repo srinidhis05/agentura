@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,15 +20,9 @@ func NewPipelineHandler(exec *executor.Client) *PipelineHandler {
 	return &PipelineHandler{executor: exec}
 }
 
-// ExecuteBuildDeploy proxies the synchronous build-deploy pipeline.
-func (h *PipelineHandler) ExecuteBuildDeploy(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "failed to read request body")
-		return
-	}
-
-	raw, err := h.executor.PostRaw(r.Context(), "/api/v1/pipelines/build-deploy/execute", body)
+// ListPipelines proxies GET /api/v1/pipelines to the executor.
+func (h *PipelineHandler) ListPipelines(w http.ResponseWriter, r *http.Request) {
+	raw, err := h.executor.ListPipelines(r.Context())
 	if err != nil {
 		httputil.RespondError(w, http.StatusBadGateway, err.Error())
 		return
@@ -37,15 +32,47 @@ func (h *PipelineHandler) ExecuteBuildDeploy(w http.ResponseWriter, r *http.Requ
 	w.Write(raw)
 }
 
-// ExecuteBuildDeployStream proxies the SSE streaming build-deploy pipeline.
-func (h *PipelineHandler) ExecuteBuildDeployStream(w http.ResponseWriter, r *http.Request) {
+// ExecutePipeline proxies POST /api/v1/pipelines/{name}/execute to the executor.
+func (h *PipelineHandler) ExecutePipeline(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "missing pipeline name")
+		return
+	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "failed to read request body")
 		return
 	}
 
-	resp, err := h.executor.StreamPost(r.Context(), "/api/v1/pipelines/build-deploy/execute-stream", body)
+	path := fmt.Sprintf("/api/v1/pipelines/%s/execute", name)
+	raw, err := h.executor.PostRaw(r.Context(), path, body)
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(raw)
+}
+
+// ExecutePipelineStream proxies POST /api/v1/pipelines/{name}/execute-stream as SSE.
+func (h *PipelineHandler) ExecutePipelineStream(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "missing pipeline name")
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+
+	path := fmt.Sprintf("/api/v1/pipelines/%s/execute-stream", name)
+	resp, err := h.executor.StreamPost(r.Context(), path, body)
 	if err != nil {
 		httputil.RespondError(w, http.StatusBadGateway, err.Error())
 		return

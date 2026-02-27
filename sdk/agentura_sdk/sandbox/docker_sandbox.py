@@ -6,6 +6,9 @@ Same 6-function sandbox interface:
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 import time
 from dataclasses import dataclass
 
@@ -21,6 +24,36 @@ except ImportError:
 IMAGE = "agentura/sandbox-runtime:latest"
 CONTAINER_PORT = 8080
 READY_TIMEOUT = 30
+
+
+def _get_docker_client():
+    """Create Docker client, resolving socket from Docker context if needed."""
+    _require_sdk()
+    # If DOCKER_HOST is set, docker.from_env() works fine
+    if os.environ.get("DOCKER_HOST"):
+        return docker.from_env()
+    # Try default socket first
+    try:
+        client = docker.from_env()
+        client.ping()
+        return client
+    except Exception:
+        pass
+    # Resolve from active Docker context (e.g. OrbStack)
+    try:
+        out = subprocess.check_output(
+            ["docker", "context", "inspect", "--format", "json"],
+            stderr=subprocess.DEVNULL, timeout=5,
+        )
+        contexts = json.loads(out)
+        if contexts:
+            host = contexts[0].get("Endpoints", {}).get("docker", {}).get("Host", "")
+            if host:
+                return docker.DockerClient(base_url=host)
+    except Exception:
+        pass
+    # Final fallback
+    return docker.from_env()
 
 
 @dataclass
@@ -53,8 +86,7 @@ def _wait_for_healthy(port: int) -> None:
 
 async def create(cfg: SandboxConfig, env_vars: dict[str, str] | None = None) -> DockerSandbox:
     """Run a sandbox-runtime container and wait for it to become healthy."""
-    _require_sdk()
-    client = docker.from_env()
+    client = _get_docker_client()
     environment = env_vars or {}
     container = client.containers.run(
         IMAGE,
@@ -79,9 +111,17 @@ def _url(sandbox: DockerSandbox, path: str) -> str:
     return f"http://localhost:{sandbox.host_port}{path}"
 
 
+def _safe_json(resp: httpx.Response) -> dict:
+    """Parse JSON response, returning error dict on failure."""
+    try:
+        return resp.json()
+    except Exception:
+        return {"error": f"[sandbox HTTP {resp.status_code}] {resp.text[:500]}"}
+
+
 def run_code(sandbox: DockerSandbox, code: str) -> str:
     resp = httpx.post(_url(sandbox, "/code"), json={"code": code}, timeout=120)
-    data = resp.json()
+    data = _safe_json(resp)
     parts = []
     if data.get("output"):
         parts.append(data["output"])
@@ -92,7 +132,7 @@ def run_code(sandbox: DockerSandbox, code: str) -> str:
 
 def run_command(sandbox: DockerSandbox, cmd: str) -> str:
     resp = httpx.post(_url(sandbox, "/execute"), json={"command": cmd}, timeout=120)
-    data = resp.json()
+    data = _safe_json(resp)
     parts = []
     if data.get("stdout"):
         parts.append(data["stdout"])
@@ -105,19 +145,20 @@ def run_command(sandbox: DockerSandbox, cmd: str) -> str:
 
 def write_file(sandbox: DockerSandbox, path: str, content: str) -> str:
     resp = httpx.post(_url(sandbox, "/files"), json={"path": path, "content": content}, timeout=30)
-    return resp.json().get("message", "written")
+    data = _safe_json(resp)
+    return data.get("message", data.get("error", "written"))
 
 
 def read_file(sandbox: DockerSandbox, path: str) -> str:
     resp = httpx.get(_url(sandbox, "/files"), params={"path": path}, timeout=30)
-    return resp.json().get("content", "")
+    data = _safe_json(resp)
+    return data.get("content", data.get("error", ""))
 
 
 def close(sandbox: DockerSandbox) -> None:
     """Remove the sandbox container."""
     try:
-        _require_sdk()
-        client = docker.from_env()
+        client = _get_docker_client()
         container = client.containers.get(sandbox.container_id)
         container.remove(force=True)
     except Exception:
