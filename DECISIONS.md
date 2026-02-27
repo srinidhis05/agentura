@@ -1,9 +1,9 @@
 # Decision Record Room
 
-## DEC-037: Agent role uses E2B + Claude API (not Claude Code)
-**Chose**: E2B sandbox + Anthropic SDK direct tool_use loop
-**Over**: Claude Code in Docker, direct Docker exec, no sandbox
-**Why**: Better observability (each tool call is a discrete event), lower cost (no Claude Code overhead), Firecracker microVM isolation, clean integration with existing SkillContext→SkillResult pipeline
+## DEC-037: Agent role uses sandbox + multi-provider LLM loop (not Claude Code)
+**Chose**: Docker/K8s sandbox + provider-abstracted tool_use loop (OpenRouter primary, Anthropic fallback)
+**Over**: Claude Code in Docker, direct Docker exec, no sandbox, E2B cloud sandbox
+**Why**: Better observability (each tool call is a discrete event), lower cost (no Claude Code overhead), container isolation, zero cloud dependency, clean integration with existing SkillContext→SkillResult pipeline
 **Constraint**: Agent skills MUST define sandbox config in agentura.config.yaml; max_iterations is mandatory
 
 ## DEC-038: Service knowledge graph stored as markdown files
@@ -35,3 +35,15 @@
 **Over**: Flat single-prompt agent, multi-agent orchestrator spawning sub-agents
 **Why**: Phases prevent context bloat (LC4), lazy skill loading (LC1), fail-fast (LC9); simpler than multi-agent for POC
 **Constraint**: Each phase MUST have a context gate (3-sentence summary); ai-velocity skills loaded only at the phase that needs them
+
+## DEC-044: Multi-skill workflow via artifact extraction + context_for_next chaining
+**Chose**: Extract sandbox files to /artifacts hostPath volume; chain skills via SkillResult.context_for_next injected into next skill's input_data; SSE pipeline streaming endpoint
+**Over**: GitHub as handoff, shared PVC between sandbox pods, S3 artifact store
+**Why**: Zero external deps, uses existing context_for_next field (types.py:142), consistent with sequential pipeline pattern from github_pr.py; /artifacts volume is simple hostPath for POC
+**Constraint**: Pipeline steps MUST be sequential; artifact extraction runs before sandbox.close(); deployer output with deploy_commands triggers _run_deploy post-processor
+
+## DEC-043: K8s/Docker sandbox via factory pattern
+**Chose**: Factory in `sandbox/__init__.py` selects backend (docker|k8s) via `SANDBOX_BACKEND` env var; sandbox-runtime FastAPI container serves tool endpoints
+**Over**: E2B cloud sandbox, direct pod exec via kubectl, WebSocket-based sandbox protocol
+**Why**: Zero cloud dependency, same interface for all backends, config-driven (CLAUDE.md principle), local dev via Docker fallback
+**Constraint**: SANDBOX_BACKEND must be docker|k8s; K8s mode requires executor ServiceAccount with pod CRUD RBAC; sandbox-runtime image must be pre-built
