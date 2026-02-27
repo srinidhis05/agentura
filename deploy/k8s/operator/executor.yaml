@@ -14,6 +14,15 @@ spec:
         app: executor
     spec:
       serviceAccountName: executor
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: fix-artifacts-perms
+          image: alpine:3.19
+          command: ["sh", "-c", "chown 1000:1000 /artifacts"]
+          volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
       containers:
         - name: executor
           image: agentura/executor:latest
