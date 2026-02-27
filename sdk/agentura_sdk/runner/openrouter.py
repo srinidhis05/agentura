@@ -7,11 +7,14 @@ Activated when OPENROUTER_API_KEY is set.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
@@ -197,6 +200,35 @@ def _call_model(
     return _call_model_messages(model_id, messages, temperature, max_tokens)
 
 
+def _repair_json(s: str) -> str:
+    """Best-effort repair of truncated JSON by closing open braces/brackets/strings."""
+    in_string = False
+    escape = False
+    stack: list[str] = []
+    for ch in s:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"' and not escape:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in ("{", "["):
+            stack.append("}" if ch == "{" else "]")
+        elif ch in ("}", "]") and stack:
+            stack.pop()
+    result = s
+    if in_string:
+        result += '"'
+    while stack:
+        result += stack.pop()
+    return result
+
+
 def tool_chat_completion(
     model: str,
     messages: list[dict],
@@ -234,7 +266,16 @@ def tool_chat_completion(
     for tc in message.get("tool_calls") or []:
         raw_args = tc["function"]["arguments"]
         if isinstance(raw_args, str) and raw_args.strip():
-            args = json.loads(raw_args)
+            try:
+                args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                # Attempt repair: close any open braces/brackets
+                repaired = _repair_json(raw_args)
+                try:
+                    args = json.loads(repaired)
+                except json.JSONDecodeError:
+                    logger.warning("unparseable tool args for %s: %s", tc["function"]["name"], raw_args[:200])
+                    args = {"raw_input": raw_args}
         elif isinstance(raw_args, dict):
             args = raw_args
         else:

@@ -148,6 +148,11 @@ func (c *Client) GetKnowledgeStats(ctx context.Context) (json.RawMessage, error)
 	return c.getJSON(ctx, "/api/v1/knowledge/stats")
 }
 
+// ListPipelines returns all available pipeline definitions as raw JSON passthrough.
+func (c *Client) ListPipelines(ctx context.Context) (json.RawMessage, error) {
+	return c.getJSON(ctx, "/api/v1/pipelines")
+}
+
 // ListDomains returns all domains with health metrics as raw JSON passthrough.
 func (c *Client) ListDomains(ctx context.Context) (json.RawMessage, error) {
 	return c.getJSON(ctx, "/api/v1/domains")

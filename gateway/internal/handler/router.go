@@ -86,8 +86,9 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 
 	// Pipelines (proxied to Python executor)
 	if h.Pipeline != nil {
-		api.HandleFunc("POST /api/v1/pipelines/build-deploy/execute", h.Pipeline.ExecuteBuildDeploy)
-		api.HandleFunc("POST /api/v1/pipelines/build-deploy/execute-stream", h.Pipeline.ExecuteBuildDeployStream)
+		api.HandleFunc("GET /api/v1/pipelines", h.Pipeline.ListPipelines)
+		api.HandleFunc("POST /api/v1/pipelines/{name}/execute", h.Pipeline.ExecutePipeline)
+		api.HandleFunc("POST /api/v1/pipelines/{name}/execute-stream", h.Pipeline.ExecutePipelineStream)
 	}
 
 	// Webhook inbound — external channels POST here

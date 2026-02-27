@@ -110,6 +110,7 @@ class SkillInfo(BaseModel):
     display_avatar: str = ""
     display_color: str = ""
     display_tags: list[str] = Field(default_factory=list)
+    conversation_starters: list[str] = Field(default_factory=list)
 
 
 class SkillDetail(BaseModel):
@@ -140,6 +141,7 @@ class SkillDetail(BaseModel):
     display_avatar: str = ""
     display_color: str = ""
     display_tags: list[str] = Field(default_factory=list)
+    conversation_starters: list[str] = Field(default_factory=list)
     # Detail-only
     task_description: str = ""
     input_schema: str = ""
@@ -161,6 +163,15 @@ def _extract_section(content: str, heading: str) -> str:
     pattern = rf"^##\s+{re.escape(heading)}\s*\n(.*?)(?=^##\s|\Z)"
     match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
     return match.group(1).strip() if match else ""
+
+
+def _extract_conversation_starters(content: str) -> list[str]:
+    """Extract bullet points from ## Trigger section as conversation starters (max 4)."""
+    section = _extract_section(content, "Trigger")
+    if not section:
+        return []
+    bullets = [line.lstrip("- ").strip() for line in section.splitlines() if line.strip().startswith("-")]
+    return bullets[:4]
 
 
 def _extract_guardrail_bullets(content: str) -> list[str]:
@@ -310,6 +321,7 @@ def _build_skill_info(skill_dir: Path, domain_dir: Path) -> SkillInfo | None:
         display_avatar=display_avatar,
         display_color=display.get("color", ""),
         display_tags=display.get("tags", []),
+        conversation_starters=_extract_conversation_starters(body),
     )
 
 
@@ -343,6 +355,15 @@ def list_triggers():
                 cfg = yaml.safe_load(cfg_path.read_text()) or {}
             except Exception:
                 continue
+            # Check top-level triggers (per-skill config format)
+            top_triggers = cfg.get("triggers", [])
+            if top_triggers:
+                results.append({
+                    "domain": domain_dir.name,
+                    "skill": skill_dir.name,
+                    "triggers": top_triggers,
+                })
+            # Check nested skills[].triggers (domain config format)
             for s in cfg.get("skills", []):
                 triggers = s.get("triggers", [])
                 if triggers:
@@ -452,6 +473,7 @@ def get_skill(domain: str, skill_name: str):
         display_avatar=display_avatar,
         display_color=display.get("color", ""),
         display_tags=display.get("tags", []),
+        conversation_starters=_extract_conversation_starters(body),
         task_description=_extract_section(body, "Task"),
         input_schema=_extract_section(body, "Input Format") or _extract_section(body, "Context You'll Receive"),
         output_schema=_extract_section(body, "Output Format"),
@@ -497,8 +519,9 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
     prompt_parts.append(skill_md.system_prompt)
     composed_prompt = "\n\n---\n\n".join(prompt_parts)
 
-    # Parse sandbox config for agent-role skills
+    # Parse sandbox config + MCP bindings for agent-role skills
     sandbox_config = None
+    mcp_bindings: list[dict] = []
     if skill_md.metadata.role == SkillRole.AGENT:
         sandbox_config = SandboxConfig()
         skill_config_path = root / "agentura.config.yaml"
@@ -508,6 +531,16 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
                 sandbox_raw = skill_cfg_raw.get("sandbox", {})
                 if sandbox_raw:
                     sandbox_config = SandboxConfig(**sandbox_raw)
+                for mcp_ref in skill_cfg_raw.get("mcp_tools", []):
+                    server_name = mcp_ref.get("server", "")
+                    env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
+                    server_url = os.environ.get(env_key, "")
+                    if server_url:
+                        mcp_bindings.append({
+                            "server": server_name,
+                            "url": server_url,
+                            "tools": mcp_ref.get("tools", []),
+                        })
             except Exception:
                 pass
 
@@ -518,6 +551,7 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
         model=model,
         system_prompt=composed_prompt,
         input_data=input_data,
+        mcp_bindings=mcp_bindings,
         sandbox_config=sandbox_config,
     )
 
@@ -555,6 +589,13 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
     # If approval is required, update the execution entry outcome to pending_approval
     if result.approval_required:
         _update_execution_outcome_to_pending_approval(domain, skill_name)
+
+    # Dispatch post-execution notifications (Slack, etc.)
+    try:
+        from agentura_sdk.notifications import dispatch_notifications
+        dispatch_notifications(root, domain, skill_name, result)
+    except Exception:
+        pass
 
     return result
 
@@ -880,16 +921,30 @@ def list_executions(
     outcome: str | None = None,
     domains: set[str] | None = Depends(_get_domain_scope),
 ):
-    """List execution history from episodic memory (domain-scoped)."""
-    data = _load_knowledge_file("episodic_memory.json")
-    entries = _filter_by_domain(data.get("entries", []), domains)
+    """List execution history from store (PostgreSQL) with JSON fallback (domain-scoped)."""
+    entries: list[dict] = []
 
-    if skill:
-        entries = [e for e in entries if e.get("skill") == skill]
+    # Try the store first (PostgreSQL/Composite)
+    try:
+        from agentura_sdk.memory import get_memory_store
+
+        store = get_memory_store()
+        entries = store.get_executions(skill) if skill else store.get_executions()
+        entries = _filter_by_domain(entries, domains)
+    except Exception:
+        pass
+
+    # Fallback to JSON
+    if not entries:
+        data = _load_knowledge_file("episodic_memory.json")
+        entries = _filter_by_domain(data.get("entries", []), domains)
+        if skill:
+            entries = [e for e in entries if e.get("skill") == skill]
+
     if outcome:
         entries = [e for e in entries if e.get("outcome") == outcome]
 
-    entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+    entries.sort(key=lambda e: str(e.get("timestamp", "")), reverse=True)
 
     return [ExecutionEntry(**{k: v for k, v in e.items() if k in ExecutionEntry.model_fields}) for e in entries]
 
@@ -1263,9 +1318,11 @@ def get_memory_status(domains: set[str] | None = Depends(_get_domain_scope)):
             except ImportError:
                 pass
 
-        # Count entries
+        # Count entries and extract skills from the actual store
+        store_executions: list[dict] = []
         try:
-            status.execution_memories = len(store.get_executions())
+            store_executions = store.get_executions()
+            status.execution_memories = len(store_executions)
         except Exception:
             pass
         try:
@@ -1282,31 +1339,41 @@ def get_memory_status(domains: set[str] | None = Depends(_get_domain_scope)):
             + status.correction_memories
             + status.reflexion_memories
         )
+
+        # Extract skills_tracked from store executions
+        skills_set: set[str] = set()
+        for e in store_executions:
+            s = e.get("skill", "")
+            if s:
+                skills_set.add(s)
+        status.skills_tracked = sorted(skills_set)
     except Exception:
         pass
 
-    # Also count from JSON files for skills tracked
-    exec_data = _load_knowledge_file("episodic_memory.json")
-    skills_set: set[str] = set()
-    for e in exec_data.get("entries", []):
-        s = e.get("skill", "")
-        if s:
-            skills_set.add(s)
-    status.skills_tracked = sorted(skills_set)
+    # Fallback to JSON files if store returned nothing
+    if not status.skills_tracked or status.total_memories == 0:
+        exec_data = _load_knowledge_file("episodic_memory.json")
+        if not status.skills_tracked:
+            skills_set_json: set[str] = set()
+            for e in exec_data.get("entries", []):
+                s = e.get("skill", "")
+                if s:
+                    skills_set_json.add(s)
+            if skills_set_json:
+                status.skills_tracked = sorted(skills_set_json)
 
-    # Count from JSON files — either as primary (json backend) or fallback (mem0 reports 0)
-    if status.backend == "json" or status.total_memories == 0:
-        json_execs = len(exec_data.get("entries", []))
-        corr_data = _load_knowledge_file("corrections.json")
-        json_corrs = len(corr_data.get("corrections", []))
-        refl_data = _load_knowledge_file("reflexion_entries.json")
-        json_refls = len(refl_data.get("entries", []))
-        json_total = json_execs + json_corrs + json_refls
-        if json_total > status.total_memories:
-            status.execution_memories = json_execs
-            status.correction_memories = json_corrs
-            status.reflexion_memories = json_refls
-            status.total_memories = json_total
+        if status.total_memories == 0:
+            json_execs = len(exec_data.get("entries", []))
+            corr_data = _load_knowledge_file("corrections.json")
+            json_corrs = len(corr_data.get("corrections", []))
+            refl_data = _load_knowledge_file("reflexion_entries.json")
+            json_refls = len(refl_data.get("entries", []))
+            json_total = json_execs + json_corrs + json_refls
+            if json_total > status.total_memories:
+                status.execution_memories = json_execs
+                status.correction_memories = json_corrs
+                status.reflexion_memories = json_refls
+                status.total_memories = json_total
 
     return status
 
@@ -1326,25 +1393,37 @@ class MemorySearchResult(BaseModel):
 @app.post("/api/v1/memory/search", response_model=MemorySearchResult)
 def memory_search(req: CrossDomainSearchRequest, domains: set[str] | None = Depends(_get_domain_scope)):
     """Cross-domain semantic search across skill memories (domain-scoped)."""
-    exec_data = _load_knowledge_file("episodic_memory.json")
-    filtered_entries = _filter_by_domain(exec_data.get("entries", []), domains)
-    skills_set: set[str] = set()
-    for e in filtered_entries:
-        s = e.get("skill", "")
-        if s:
-            skills_set.add(s)
-
     all_results: list[dict[str, Any]] = []
     backend = "json"
+    skills_set: set[str] = set()
 
+    # Load data from store (PostgreSQL/CompositeStore) first
+    store_executions: list[dict] = []
+    store_corrections: list[dict] = []
+    store_reflexions: list[dict] = []
     try:
         from agentura_sdk.memory import get_memory_store
         from agentura_sdk.memory.mem0_store import Mem0Store
 
         store = get_memory_store()
+        store_executions = _filter_by_domain(store.get_executions(), domains)
+        try:
+            store_corrections = _filter_by_domain(store.get_corrections(), domains)
+        except Exception:
+            pass
+        try:
+            store_reflexions = _filter_by_domain(store.get_all_reflexions(), domains)
+        except Exception:
+            pass
+
+        for e in store_executions:
+            s = e.get("skill", "")
+            if s:
+                skills_set.add(s)
+
+        # Try semantic search via mem0
         if isinstance(store, Mem0Store):
             backend = "mem0"
-            # Search across each skill
             for skill in skills_set:
                 hits = store.search_similar(skill, req.query, limit=3)
                 for h in hits:
@@ -1353,22 +1432,35 @@ def memory_search(req: CrossDomainSearchRequest, domains: set[str] | None = Depe
     except Exception:
         pass
 
-    # Fallback: word-level text search in JSON entries
+    # Fall back to JSON if store returned nothing
+    if not store_executions:
+        exec_data = _load_knowledge_file("episodic_memory.json")
+        store_executions = _filter_by_domain(exec_data.get("entries", []), domains)
+        for e in store_executions:
+            s = e.get("skill", "")
+            if s:
+                skills_set.add(s)
+    if not store_corrections:
+        corr_data = _load_knowledge_file("corrections.json")
+        store_corrections = _filter_by_domain(corr_data.get("corrections", []), domains)
+    if not store_reflexions:
+        refl_data = _load_knowledge_file("reflexion_entries.json")
+        store_reflexions = _filter_by_domain(refl_data.get("entries", []), domains)
+
+    # Word-level text search across all data
     if not all_results:
-        backend = "json"
+        backend = "text-search"
         query_words = [w for w in req.query.lower().split() if len(w) > 2]
 
         def _word_score(text: str) -> float:
-            """Score based on fraction of query words found in text."""
             text_lower = text.lower()
             if not query_words:
                 return 0.0
             matches = sum(1 for w in query_words if w in text_lower)
             return matches / len(query_words)
 
-        # Search executions (already domain-filtered)
-        for e in filtered_entries:
-            text = _json.dumps(e)
+        for e in store_executions:
+            text = _json.dumps(e, default=str)
             score = _word_score(text) * 0.5
             if score > 0.1:
                 all_results.append({
@@ -1378,10 +1470,8 @@ def memory_search(req: CrossDomainSearchRequest, domains: set[str] | None = Depe
                     "score": round(score, 2),
                     **{k: v for k, v in e.items() if isinstance(v, (str, int, float, bool))},
                 })
-        # Search corrections (domain-filtered)
-        corr_data = _load_knowledge_file("corrections.json")
-        for c in _filter_by_domain(corr_data.get("corrections", []), domains):
-            text = _json.dumps(c)
+        for c in store_corrections:
+            text = _json.dumps(c, default=str)
             score = _word_score(text) * 0.85
             if score > 0.1:
                 all_results.append({
@@ -1391,10 +1481,8 @@ def memory_search(req: CrossDomainSearchRequest, domains: set[str] | None = Depe
                     "score": round(score, 2),
                     **{k: v for k, v in c.items() if isinstance(v, (str, int, float, bool))},
                 })
-        # Search reflexions (domain-filtered)
-        refl_data = _load_knowledge_file("reflexion_entries.json")
-        for r in _filter_by_domain(refl_data.get("entries", []), domains):
-            text = _json.dumps(r)
+        for r in store_reflexions:
+            text = _json.dumps(r, default=str)
             score = _word_score(text) * 0.95
             if score > 0.1:
                 all_results.append({
@@ -1405,7 +1493,6 @@ def memory_search(req: CrossDomainSearchRequest, domains: set[str] | None = Depe
                     **{k: v for k, v in r.items() if isinstance(v, (str, int, float, bool))},
                 })
 
-    # Sort by score descending, limit
     all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
     return MemorySearchResult(
         results=all_results[:req.limit],
@@ -2191,27 +2278,44 @@ async def github_pr_pipeline(request: Request):
     return result
 
 
-@app.post("/api/v1/pipelines/build-deploy/execute")
-async def build_deploy_pipeline(req: ExecuteRequest):
-    """Run the build-deploy pipeline synchronously."""
-    from agentura_sdk.pipelines.build_deploy import run_build_deploy
+@app.get("/api/v1/pipelines")
+def list_pipelines_endpoint():
+    """List all available pipeline definitions."""
+    from agentura_sdk.pipelines.engine import list_pipelines
 
-    result = await run_build_deploy(req.input_data)
+    pipelines = list_pipelines()
+    return [
+        {"name": p.name, "description": p.description, "steps": len(p.steps)}
+        for p in pipelines
+    ]
+
+
+@app.post("/api/v1/pipelines/{name}/execute")
+async def execute_pipeline(name: str, req: ExecuteRequest):
+    """Run a named pipeline synchronously."""
+    from agentura_sdk.pipelines.engine import run_pipeline
+
+    try:
+        result = await run_pipeline(name, req.input_data)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return result
 
 
-@app.post("/api/v1/pipelines/build-deploy/execute-stream")
-async def build_deploy_pipeline_stream(req: ExecuteRequest):
-    """SSE streaming endpoint for the build-deploy pipeline.
-
-    Yields per-step and per-iteration events as the pipeline progresses.
-    """
+@app.post("/api/v1/pipelines/{name}/execute-stream")
+async def execute_pipeline_stream(name: str, req: ExecuteRequest):
+    """SSE streaming endpoint for a named pipeline."""
     from starlette.responses import StreamingResponse
 
-    from agentura_sdk.pipelines.build_deploy import run_build_deploy_stream
+    from agentura_sdk.pipelines.engine import load_pipeline, run_pipeline_stream
+
+    try:
+        load_pipeline(name)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
     async def event_generator():
-        async for event in run_build_deploy_stream(req.input_data):
+        async for event in run_pipeline_stream(name, req.input_data):
             yield event
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
