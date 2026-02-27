@@ -4,18 +4,15 @@ import { useReducer, useEffect, useState, useCallback } from "react";
 import { ChatSidebar } from "@/components/chat/chat-sidebar";
 import { MessageList } from "@/components/chat/message-list";
 import { MessageInput } from "@/components/chat/message-input";
+import { AgentPicker } from "@/components/chat/agent-picker";
+import type { DomainEntry } from "@/components/chat/agent-picker";
+import { ScopedChatHeader } from "@/components/chat/scoped-chat-header";
+import { ConversationStarters } from "@/components/chat/conversation-starters";
 import { chatReducer, initialState, saveState, loadState } from "@/lib/chat-reducer";
 import { routeCommand } from "@/lib/chat-router";
-import type { ChatMessage } from "@/lib/chat-types";
-
-const SUGGESTED_ACTIONS = [
-  { label: "List agents", command: "get skills" },
-  { label: "Platform status", command: "status" },
-  { label: "Recent executions", command: "get executions" },
-  { label: "Show domains", command: "get domains" },
-  { label: "Memory status", command: "memory status" },
-  { label: "Help", command: "help" },
-];
+import type { RouteOptions } from "@/lib/chat-router";
+import type { ChatMessage, ConversationScope } from "@/lib/chat-types";
+import type { PipelineInfo } from "@/lib/api";
 
 export default function ChatPage() {
   const [state, dispatch] = useReducer(chatReducer, initialState);
@@ -29,8 +26,6 @@ export default function ChatPage() {
     const saved = loadState();
     if (saved && saved.conversations.length > 0) {
       dispatch({ type: "LOAD_STATE", state: saved });
-    } else {
-      dispatch({ type: "NEW_CONVERSATION" });
     }
     setHydrated(true);
   }, []);
@@ -44,10 +39,14 @@ export default function ChatPage() {
     (c) => c.id === state.activeConversationId,
   );
 
+  const scope = activeConversation?.scope;
+
   const sendMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || !state.activeConversationId) return;
+
+      const convId = state.activeConversationId;
 
       const userMsg: ChatMessage = {
         id: `${Date.now()}-user`,
@@ -58,36 +57,82 @@ export default function ChatPage() {
 
       dispatch({
         type: "ADD_MESSAGE",
-        conversationId: state.activeConversationId,
+        conversationId: convId,
         message: userMsg,
       });
       setInput("");
       setIsThinking(true);
 
+      // Create a placeholder assistant message for streaming updates
+      const placeholderId = `${Date.now()}-assistant`;
+      const placeholder: ChatMessage = {
+        id: placeholderId,
+        role: "assistant",
+        content: "",
+        timestamp: Date.now(),
+      };
+      dispatch({ type: "ADD_MESSAGE", conversationId: convId, message: placeholder });
+
+      const onUpdate = (content: string) => {
+        dispatch({ type: "UPDATE_MESSAGE", conversationId: convId, messageId: placeholderId, content });
+      };
+
       try {
-        const response = await routeCommand(trimmed);
+        const opts: RouteOptions = {
+          scope: activeConversation?.scope,
+          messages: activeConversation?.messages ?? [],
+          onUpdate,
+        };
+        const response = await routeCommand(trimmed, opts);
+        // Final update with complete content + metadata
         dispatch({
-          type: "ADD_MESSAGE",
-          conversationId: state.activeConversationId,
-          message: response,
+          type: "UPDATE_MESSAGE",
+          conversationId: convId,
+          messageId: placeholderId,
+          content: response.content,
+          metadata: response.metadata,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        dispatch({
+          type: "UPDATE_MESSAGE",
+          conversationId: convId,
+          messageId: placeholderId,
+          content: `Error: ${message}`,
+          metadata: { error: message },
         });
       } finally {
         setIsThinking(false);
       }
     },
-    [state.activeConversationId],
+    [state.activeConversationId, activeConversation?.scope, activeConversation?.messages],
   );
 
-  const handleSuggestedAction = useCallback(
-    (command: string) => {
-      if (!state.activeConversationId) {
-        dispatch({ type: "NEW_CONVERSATION" });
-      }
-      // Small delay to let new conversation be created
-      setTimeout(() => sendMessage(command), 0);
-    },
-    [state.activeConversationId, sendMessage],
-  );
+  function handleSelectDomain(domain: DomainEntry) {
+    const newScope: ConversationScope = {
+      type: "domain",
+      id: domain.name,
+      displayTitle: domain.name.charAt(0).toUpperCase() + domain.name.slice(1),
+      displayAvatar: domain.emoji,
+      displayColor: domain.color,
+    };
+    dispatch({ type: "NEW_SCOPED_CONVERSATION", scope: newScope });
+  }
+
+  function handleSelectPipeline(pipeline: PipelineInfo) {
+    const newScope: ConversationScope = {
+      type: "pipeline",
+      id: pipeline.name,
+      displayTitle: pipeline.name.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      displayAvatar: pipeline.name.slice(0, 2).toUpperCase(),
+      displayColor: "#8b5cf6",
+    };
+    dispatch({ type: "NEW_SCOPED_CONVERSATION", scope: newScope });
+  }
+
+  function handleNewChat() {
+    dispatch({ type: "NEW_CONVERSATION" });
+  }
 
   if (!hydrated) {
     return (
@@ -97,7 +142,15 @@ export default function ChatPage() {
     );
   }
 
-  const showWelcome = !activeConversation || activeConversation.messages.length === 0;
+  const hasMessages = (activeConversation?.messages.length ?? 0) > 0;
+  const showPicker = !activeConversation || (!scope && !hasMessages);
+  const showStarters = !!scope && !hasMessages;
+
+  const starters: string[] = [];
+
+  const placeholder = scope
+    ? `Message ${scope.displayTitle}...`
+    : "Message Agentura...";
 
   return (
     <div className="flex h-screen">
@@ -106,51 +159,44 @@ export default function ChatPage() {
         activeId={state.activeConversationId}
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        onNew={() => dispatch({ type: "NEW_CONVERSATION" })}
+        onNew={handleNewChat}
         onSelect={(id) => dispatch({ type: "SET_ACTIVE", conversationId: id })}
         onDelete={(id) => dispatch({ type: "DELETE_CONVERSATION", conversationId: id })}
       />
 
       <div className="flex flex-1 flex-col">
-        {showWelcome ? (
-          <div className="flex flex-1 flex-col items-center justify-center px-4">
-            <div className="mb-8 flex flex-col items-center">
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600">
-                <svg className="h-7 w-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight">Agentura</h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                AI Skills Platform — type a command or pick an action below
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {SUGGESTED_ACTIONS.map((action) => (
-                <button
-                  key={action.command}
-                  onClick={() => handleSuggestedAction(action.command)}
-                  className="rounded-xl border border-border bg-card px-4 py-3 text-left text-sm transition-colors hover:border-primary/30 hover:bg-accent/50"
-                >
-                  <span className="font-medium">{action.label}</span>
-                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">{action.command}</p>
-                </button>
-              ))}
-            </div>
-          </div>
+        {showPicker ? (
+          <AgentPicker onSelectDomain={handleSelectDomain} onSelectPipeline={handleSelectPipeline} />
         ) : (
-          <MessageList
-            messages={activeConversation?.messages ?? []}
-            isThinking={isThinking}
-          />
+          <>
+            {scope && (
+              <ScopedChatHeader scope={scope} onNewChat={handleNewChat} />
+            )}
+            {showStarters ? (
+              <div className="flex flex-1 flex-col items-center justify-center">
+                <p className="mb-4 text-sm text-muted-foreground">
+                  Start a conversation with {scope!.displayTitle}
+                </p>
+                <ConversationStarters starters={starters} onSelect={sendMessage} />
+              </div>
+            ) : (
+              <MessageList
+                messages={activeConversation?.messages ?? []}
+                isThinking={isThinking}
+              />
+            )}
+          </>
         )}
 
-        <MessageInput
-          value={input}
-          onChange={setInput}
-          onSend={() => sendMessage(input)}
-          disabled={isThinking}
-        />
+        {!showPicker && (
+          <MessageInput
+            value={input}
+            onChange={setInput}
+            onSend={() => sendMessage(input)}
+            disabled={isThinking}
+            placeholder={placeholder}
+          />
+        )}
       </div>
     </div>
   );
