@@ -1,0 +1,29 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: deployer
+    path: deployer
+    role: specialist
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.10"
+    triggers:
+      - type: pipeline
+        pattern: "build-deploy step 2"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.10"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "Deployer"
+  subtitle: "Container Specialist"
+  avatar: "DP"
+  color: "#059669"
+  tags: ["Specialist", "Docker", "Deployment"]
