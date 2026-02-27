@@ -12,9 +12,10 @@ async function proxy(req: NextRequest) {
   const search = req.nextUrl.search;
   const url = `${API_TARGET}${path}${search}`;
 
+  const isSSE = path.includes("/execute-stream");
   const isPipeline = path.includes("/pipelines/") && path.includes("/execute");
   const isExecute = path.includes("/execute");
-  const timeoutMs = isPipeline ? 600_000 : isExecute ? 120_000 : 30_000;
+  const timeoutMs = isPipeline || isSSE ? 600_000 : isExecute ? 120_000 : 30_000;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

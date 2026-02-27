@@ -1,4 +1,4 @@
-import type { ChatState, ChatAction, Conversation } from "./chat-types";
+import type { ChatState, ChatAction, Conversation, ConversationScope } from "./chat-types";
 
 const STORAGE_KEY = "agentura-chat-state";
 
@@ -6,13 +6,14 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function createConversation(): Conversation {
+function createConversation(scope?: ConversationScope): Conversation {
   return {
     id: generateId(),
-    title: "New Chat",
+    title: scope?.displayTitle ?? "New Chat",
     messages: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    scope,
   };
 }
 
@@ -25,6 +26,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "NEW_CONVERSATION": {
       const conv = createConversation();
+      return {
+        conversations: [conv, ...state.conversations],
+        activeConversationId: conv.id,
+      };
+    }
+
+    case "NEW_SCOPED_CONVERSATION": {
+      const conv = createConversation(action.scope);
       return {
         conversations: [conv, ...state.conversations],
         activeConversationId: conv.id,
@@ -63,6 +72,24 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     }
 
+    case "UPDATE_MESSAGE": {
+      return {
+        ...state,
+        conversations: state.conversations.map((c) => {
+          if (c.id !== action.conversationId) return c;
+          return {
+            ...c,
+            updatedAt: Date.now(),
+            messages: c.messages.map((m) =>
+              m.id === action.messageId
+                ? { ...m, content: action.content, ...(action.metadata ? { metadata: action.metadata } : {}) }
+                : m,
+            ),
+          };
+        }),
+      };
+    }
+
     case "LOAD_STATE":
       return action.state;
 
@@ -83,7 +110,20 @@ export function loadState(): ChatState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as ChatState;
+    const saved = JSON.parse(raw) as ChatState;
+    // Drop ghost conversations from pre-picker era (no scope AND no messages)
+    saved.conversations = saved.conversations.filter(
+      (c: Conversation) => c.scope || c.messages.length > 0,
+    );
+    if (saved.conversations.length === 0) {
+      saved.activeConversationId = null;
+    } else if (
+      saved.activeConversationId &&
+      !saved.conversations.some((c) => c.id === saved.activeConversationId)
+    ) {
+      saved.activeConversationId = saved.conversations[0]?.id ?? null;
+    }
+    return saved;
   } catch {
     return null;
   }
