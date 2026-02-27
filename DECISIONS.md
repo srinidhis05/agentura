@@ -59,3 +59,51 @@
 **Over**: Baking kubectl into executor pod (DEC-045), embedding infrastructure logic in Python post-processors, hardcoded tool sets per skill
 **Why**: MCP servers are plugins — K8s MCP today, GitHub Actions / ECS / Terraform MCP tomorrow; same agent executor code, zero code changes to onboard new flows; deployer as agent can verify its own deployment via kubectl_get
 **Constraint**: MCP servers MUST expose /health, /tools, /tools/call endpoints; tool bindings configured in agentura.config.yaml mcp_tools section; server URLs resolved via MCP_{SERVER}_URL env vars
+
+## DEC-047: Pipeline registry as YAML config (new pipeline = new YAML file)
+**Chose**: `pipelines/` directory at repo root with one YAML per pipeline; generic engine.py loads config and iterates steps; generic endpoints at `/api/v1/pipelines/{name}/execute[-stream]`
+**Over**: Hardcoded pipeline functions per workflow (run_build_deploy, run_github_pr), per-pipeline Go handlers and TS functions
+**Why**: Config-driven (CLAUDE.md principle) — adding a new pipeline requires zero code changes across Python/Go/TS; existing build-deploy pipeline is backward-compatible thin wrapper
+**Constraint**: Pipeline YAML MUST have name + steps[].skill; input_mapping is optional; steps execute sequentially with context_for_next chaining
+
+## DEC-048: Domain-level agent picker (not individual skills)
+**Chose**: Chat picker shows domains (Dev, HR, Finance) and pipelines as entry points; triage internally routes to specialist skills within the selected domain
+**Over**: Showing individual specialist skills (App Builder, TestGen, Deployer) directly in the picker
+**Why**: Users think in workflows ("I need dev help"), not in skill names; matches ChatGPT GPTs / Coze pattern; keeps specialist routing as an internal concern; reduces cognitive load
+**Constraint**: Picker MUST show domains + pipelines only; platform domain and manager-role skills are hidden; scoped conversations skip classifier but still use domain triage
+
+## DEC-049: API endpoints read from store first, JSON file fallback
+**Chose**: Memory/execution API endpoints read from CompositeStore (PostgreSQL) first, fall back to JSON files only if store returns empty
+**Over**: Hardcoded JSON file reads, store-only with no fallback
+**Why**: Production data lives in PostgreSQL via CompositeStore; JSON files are stale snapshots from early dev; fallback preserves backward compat for fresh installs without DB
+**Constraint**: Any new API endpoint that reads execution/correction/reflexion data MUST use store.get_*() methods first
+
+## DEC-050: ECM skills use agent role with MCP tool bindings in agentura.config.yaml
+**Chose**: ECM manager skills converted to agent role with MCP bindings (ecm-gateway for Redshift + Sheets) configured in agentura.config.yaml
+**Over**: Claude Code --print execution, specialist role with post-processors, direct API calls
+**Why**: Agent role provides sandbox isolation + observable tool_use loop; MCP bindings are config-driven (DEC-046 pattern); ecm-gateway already exists as production MCP server
+**Constraint**: ECM skills MUST use ecm-gateway MCP server only; MCP_ECM_GATEWAY_URL env var required on executor pod
+
+## DEC-051: Slack notifications as post-execution hooks in config
+**Chose**: Notification dispatch in agentura.config.yaml (channel, config, on triggers) with SlackNotifier posting via chat.postMessage API
+**Over**: Baking Slack posting into skill prompts, separate notification microservice, webhook-based notifications
+**Why**: Config-driven (CLAUDE.md principle); skill prompts stay focused on domain logic; notification config is per-skill; threading supported for structured output
+**Constraint**: SLACK_BOT_TOKEN env var required; notifications are fire-and-forget (failure does not block execution result)
+
+## DEC-052: ECM daily flow uses staggered cron entries 10min apart
+**Chose**: Individual cron triggers per skill (1:30, 1:40, 1:50 UTC) instead of pipeline-based sequential scheduling
+**Over**: Single pipeline cron that runs all 3 phases sequentially, parallel execution with dependencies
+**Why**: Staggered cron allows each skill to run independently; failure in one does not block others; pipeline endpoint exists for on-demand full flow; simpler scheduler logic
+**Constraint**: Gateway scheduler timeout MUST be >= 10min for ECM skills (600s timeout)
+
+## DEC-053: File-based IPC uses exec model for phase 1
+**Chose**: Executor creates sandbox pod, uses K8s exec API to write/read files to /ipc/ directory inside sandbox pod
+**Over**: Shared PVC between pods, sidecar model, WebSocket-based protocol
+**Why**: Avoids shared volumes across pods (complex lifecycle); K8s exec is available via existing SA RBAC; file IPC protocol is simple JSON request/response; backward compatible (SANDBOX_IPC_MODE=http is default)
+**Constraint**: SANDBOX_IPC_MODE must be http|file; file mode requires kubernetes Python SDK with exec support
+
+## DEC-054: ECM skills live in ai-velocity repo, mounted into executor
+**Chose**: ECM skills in ai-velocity/work-plugins/ecm-operations/agentura-skills/, mounted as /skills/ecm via hostPath volume
+**Over**: Duplicating ECM skills in public agentura repo, gitignore with symlinks, separate private repo
+**Why**: ECM contains company-specific business logic (SQL queries, runbooks, stuck-reasons); agentura repo stays public; single source of truth in ai-velocity; zero duplication
+**Constraint**: Executor deployment MUST mount ecm-skills volume at /skills/ecm; K8s node must have ai-velocity repo at /ecm-skills hostPath

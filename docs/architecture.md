@@ -143,14 +143,26 @@ skills/{domain}/{skill-name}/
 
 ---
 
-## Principle 7: Extensibility (New Domain = New Folder)
+## Principle 7: Extensibility (New Domain = New Folder, New Pipeline = New YAML)
 
-New domain = new folder + SKILL.md + config. No code changes to the platform:
+New domain = new folder + SKILL.md + config. New pipeline = new YAML file. No code changes to the platform:
 
 ```bash
+# New skill
 agentura create skill hr/resume-screen --role specialist --lang python
 # Creates: skills/hr/resume-screen/SKILL.md, agentura.config.yaml, tests/, fixtures/
 # Platform automatically discovers and routes to it
+```
+
+```yaml
+# New pipeline: pipelines/onboard-employee.yaml
+name: onboard-employee
+steps:
+  - skill: hr/resume-screen
+    required: true
+  - skill: hr/interview-questions
+    required: true
+# Immediately available at /api/v1/pipelines/onboard-employee/execute — zero code changes
 ```
 
 **Operator pattern**: Each domain can have a manager skill that acts as the domain's "operator" — it understands the domain's resources and routes to specialist skills:
@@ -278,7 +290,7 @@ For every new feature, check against these principles:
 - [ ] Is it isolated by domain? (namespace-scoped)
 - [ ] Is it policy-enforced? (admission control)
 - [ ] Does it use the uniform object model? (SkillContext → SkillResult)
-- [ ] Can it be extended without code changes? (new domain = new folder)
+- [ ] Can it be extended without code changes? (new domain = new folder, new pipeline = new YAML)
 - [ ] Does it persist to the knowledge layer? (state store)
 - [ ] Can it be operated via CLI AND dashboard? (both interfaces)
 - [ ] Does it feed the memory hierarchy? (firm → domain → skill → session)

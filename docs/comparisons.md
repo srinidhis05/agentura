@@ -21,6 +21,7 @@ Most agent frameworks are **libraries** — you import them into Python/TypeScri
 | **Architecture** | Code-first (Python) | Code-first (state graphs) | Code-first (conversations) | Code-first (Python + types) | Code-first (TypeScript) | Visual workflow builder | **Config-first (Markdown + YAML)** |
 | **Skill definition** | `Agent(role=, goal=, backstory=)` | `StateGraph().add_node()` | `ConversableAgent()` | `Agent(model, system_prompt)` | `Agent({ ... })` | Visual nodes | **SKILL.md + agentura.config.yaml** |
 | **Multi-agent** | Crew with role hierarchy | Graph with conditional edges | Conversation patterns | Single agent | Agent networks | Workflow connections | **Domain → Role → Skill hierarchy** |
+| **Multi-skill pipelines** | Python (sequential/hierarchical) | Python state graphs | Conversation patterns | None | Workflow definitions | Visual connections | **YAML config (new pipeline = new file)** |
 | **Learning from feedback** | Memory (short/long/entity) | Checkpointing | Teachable agents (basic) | None | None | None | **Correction → auto-test → reflexion** |
 | **Security model** | Basic (AMP adds RBAC) | Sandboxing via Pyodide | Basic | Type-safe outputs | Basic | Credential store | **Skills reason only; MCP tools act (separate boundary, MCP gateway planned)** |
 | **Who writes skills** | Python developers | Python developers | Python/.NET developers | Python developers | TypeScript developers | No-code users | **Domain experts (Markdown)** |
@@ -146,7 +147,25 @@ Skills are organized into domains with resource quotas, cross-domain policies, a
 ### 4. Structural Security
 Skills produce text/JSON only — they cannot execute code or shell commands. Real-world actions go through MCP tools via a separate boundary. An MCP gateway layer (planned) will add policy enforcement — PII scanning, secrets detection, and injection prevention — before tool calls reach external systems. The reasoning/action separation is architectural, not policy-based.
 
-### 5. Config-Driven, Not Code-Driven
+### 5. Config-Driven Pipelines (New Pipeline = New YAML File)
+Multi-skill workflows are defined as YAML in `pipelines/`:
+
+```yaml
+# pipelines/build-deploy.yaml
+name: build-deploy
+description: "Build a web app from description and deploy to K8s"
+input_mapping:
+  description: prd
+steps:
+  - skill: dev/app-builder
+    required: true
+  - skill: dev/deployer
+    required: true
+```
+
+Adding a new pipeline requires zero code changes — no new Python functions, Go handlers, or TypeScript API calls. The generic engine loads the YAML and the generic endpoints (`/api/v1/pipelines/{name}/execute`) serve it immediately. In CrewAI, LangGraph, and AutoGen, adding a new multi-agent workflow always requires writing new code.
+
+### 6. Config-Driven, Not Code-Driven
 A domain expert writes a SKILL.md in Markdown and an agentura.config.yaml. No Python, TypeScript, or Go required to create a skill. Code is only needed for custom execution handlers.
 
 ---
