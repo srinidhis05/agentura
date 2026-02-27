@@ -278,6 +278,11 @@ async def run_pipeline_stream(
 
             if result.context_for_next:
                 carry_forward.update(result.context_for_next)
+            # Propagate url/port from task_complete output for downstream use
+            if result.output.get("url"):
+                carry_forward["url"] = result.output["url"]
+            if result.output.get("port"):
+                carry_forward["port"] = result.output["port"]
 
             yield _sse("step_completed", {
                 "step": step_idx,
@@ -289,6 +294,7 @@ async def run_pipeline_stream(
                 "artifacts_dir": result.context_for_next.get("artifacts_dir", ""),
                 "deployed": result.output.get("deployed", False),
                 "port": result.output.get("port"),
+                "url": result.output.get("url"),
             })
 
             steps_completed = step_idx

@@ -646,6 +646,11 @@ async function handleScopedPipeline(
         let detail = "";
         if (toolName === "write_file" && toolInput?.path) {
           detail = ` → \`${toolInput.path}\``;
+          // Show PLAN.md content inline so user sees the build plan
+          if (String(toolInput.path).endsWith("PLAN.md") && toolInput.content) {
+            const planContent = String(toolInput.content).slice(0, 500);
+            detail += `\n\n${planContent}${String(toolInput.content).length > 500 ? "\n..." : ""}`;
+          }
         } else if (toolName === "read_file" && toolInput?.path) {
           detail = ` → \`${toolInput.path}\``;
         } else if (toolName === "run_command" && toolInput?.command) {

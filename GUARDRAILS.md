@@ -18,6 +18,10 @@
 **Rule**: Every `json.loads()` call on LLM-generated content MUST be wrapped in try/except with a repair attempt (close unclosed strings/braces/brackets) before falling back to `{"raw_input": raw_args}`.
 **Detection**: Any `json.loads()` on a variable named `*args*`, `*response*`, or `*content*` from an LLM API without a try/except block.
 
+## GR-005: Push to srinidhis05 remote only
+**Rule**: This repo's remote is `git@github-personal:srinidhis05/agentura.git`. NEVER push to `vance-srinidhi` or any other GitHub account. Always verify with `git remote -v` before pushing.
+**Detection**: Any `git push` to a URL containing a username other than `srinidhis05`.
+
 ## GR-004: Check actual runtime environment before giving instructions — never assume Docker Compose
 **Mistake**: Told user to run `docker compose up` three separate times despite the full Agentura stack (executor, gateway, web, postgres, k8s-mcp) already running as K8s pods in the `agentura` namespace. Also missed deployed todo-list apps from prior pipeline runs.
 **Impact**: Wasted user time, eroded trust. User had to correct the same mistake three times.
