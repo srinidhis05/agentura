@@ -195,3 +195,37 @@ export function memorySearch(query: string, limit: number = 10): Promise<MemoryS
 export function getPromptAssembly(domain: string, skill: string): Promise<PromptAssembly> {
   return request<PromptAssembly>(`/api/v1/memory/prompt-assembly/${domain}/${skill}`);
 }
+
+// Pipeline API
+
+export interface PipelineResult {
+  success: boolean;
+  steps_completed: number;
+  total_latency_ms: number;
+  total_cost_usd: number;
+  url: string | null;
+  steps?: Array<{
+    step: number;
+    skill: string;
+    success: boolean;
+    latency_ms: number;
+    cost_usd: number;
+  }>;
+}
+
+export async function executeBuildDeploy(input: {
+  description: string;
+  app_name?: string;
+  port?: number;
+}): Promise<PipelineResult> {
+  const res = await fetch(`${BASE}/api/v1/pipelines/build-deploy/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${body}`);
+  }
+  return res.json() as Promise<PipelineResult>;
+}

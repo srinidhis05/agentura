@@ -40,10 +40,22 @@
 **Chose**: Extract sandbox files to /artifacts hostPath volume; chain skills via SkillResult.context_for_next injected into next skill's input_data; SSE pipeline streaming endpoint
 **Over**: GitHub as handoff, shared PVC between sandbox pods, S3 artifact store
 **Why**: Zero external deps, uses existing context_for_next field (types.py:142), consistent with sequential pipeline pattern from github_pr.py; /artifacts volume is simple hostPath for POC
-**Constraint**: Pipeline steps MUST be sequential; artifact extraction runs before sandbox.close(); deployer output with deploy_commands triggers _run_deploy post-processor
+**Constraint**: Pipeline steps MUST be sequential; artifact extraction runs before sandbox.close(); deployer is an agent skill that runs kubectl in its sandbox
 
 ## DEC-043: K8s/Docker sandbox via factory pattern
 **Chose**: Factory in `sandbox/__init__.py` selects backend (docker|k8s) via `SANDBOX_BACKEND` env var; sandbox-runtime FastAPI container serves tool endpoints
 **Over**: E2B cloud sandbox, direct pod exec via kubectl, WebSocket-based sandbox protocol
 **Why**: Zero cloud dependency, same interface for all backends, config-driven (CLAUDE.md principle), local dev via Docker fallback
 **Constraint**: SANDBOX_BACKEND must be docker|k8s; K8s mode requires executor ServiceAccount with pod CRUD RBAC; sandbox-runtime image must be pre-built
+
+## DEC-045: Deployer specialist generates K8s manifests, executor applies via kubectl
+**Chose**: Deployer remains specialist (generates k8s_manifest YAML), executor post-processor writes manifest to file and runs `kubectl apply`; SandboxConfig extended with `image`, `service_account`, `mount_artifacts` for future agent-role skills
+**Over**: Custom deployer sandbox image with kubectl baked in, agent-role deployer running kubectl inside sandbox
+**Why**: Onboarding a new flow = add a skill + let the LLM generate output; no custom Docker images per skill (DEC-043 constraint); executor already has SA with RBAC; specialist is simpler and cheaper than agent for deterministic template generation
+**Constraint**: Executor pod must have kubectl binary and SA with apps/deployments + core/services RBAC; deployer output must include `k8s_manifest` key
+
+## DEC-046: MCP servers as pluggable tool providers for agent skills
+**Chose**: Dedicated MCP server per infrastructure domain (k8s-mcp for kubectl), agent executor dynamically discovers tools via HTTP GET /tools, dispatches via POST /tools/call; deployer upgraded from specialist to agent with MCP tool bindings
+**Over**: Baking kubectl into executor pod (DEC-045), embedding infrastructure logic in Python post-processors, hardcoded tool sets per skill
+**Why**: MCP servers are plugins — K8s MCP today, GitHub Actions / ECS / Terraform MCP tomorrow; same agent executor code, zero code changes to onboard new flows; deployer as agent can verify its own deployment via kubectl_get
+**Constraint**: MCP servers MUST expose /health, /tools, /tools/call endpoints; tool bindings configured in agentura.config.yaml mcp_tools section; server URLs resolved via MCP_{SERVER}_URL env vars

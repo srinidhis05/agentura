@@ -230,6 +230,7 @@ def get_registry() -> MCPRegistry:
 
     # 3. Override URLs from environment for well-known servers
     _well_known = {
+        "k8s": os.environ.get("MCP_K8S_URL", ""),
         "redshift": os.environ.get("MCP_REDSHIFT_URL", ""),
         "google-sheets": os.environ.get("MCP_GOOGLE_SHEETS_URL", ""),
         "google-drive": os.environ.get("MCP_GOOGLE_DRIVE_URL", ""),

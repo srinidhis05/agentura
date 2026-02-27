@@ -17,12 +17,14 @@ spec:
       securityContext:
         fsGroup: 1000
       initContainers:
-        - name: fix-artifacts-perms
+        - name: fix-perms
           image: alpine:3.19
-          command: ["sh", "-c", "chown 1000:1000 /artifacts"]
+          command: ["sh", "-c", "chown 1000:1000 /artifacts && chown -R 1000:1000 /skills"]
           volumeMounts:
             - name: artifacts
               mountPath: /artifacts
+            - name: skills
+              mountPath: /skills
       containers:
         - name: executor
           image: agentura/executor:latest
@@ -38,13 +40,14 @@ spec:
               value: /data/.agentura
             - name: DATABASE_URL
               value: postgresql://agentura:agentura_dev@postgres:5432/agentura
+            - name: MCP_K8S_URL
+              value: http://k8s-mcp:8090
           envFrom:
             - secretRef:
                 name: agentura-api-keys
           volumeMounts:
             - name: skills
               mountPath: /skills
-              readOnly: true
             - name: artifacts
               mountPath: /artifacts
           readinessProbe:
@@ -61,7 +64,7 @@ spec:
         - name: skills
           hostPath:
             path: /skills
-            type: DirectoryOrCreate
+            type: Directory
         - name: artifacts
           hostPath:
             path: /artifacts

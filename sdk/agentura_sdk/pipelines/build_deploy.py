@@ -1,4 +1,4 @@
-"""Build-deploy pipeline: app-builder (agent) -> deployer (specialist).
+"""Build-deploy pipeline: app-builder (agent) -> deployer (agent + MCP).
 
 Chains skills by injecting context_for_next from step N into input_data of step N+1.
 The async generator variant yields SSE events for real-time progress.
@@ -62,6 +62,7 @@ def _build_skill_context(
     system_prompt = "\n\n---\n\n".join(prompt_parts)
 
     sandbox_config = None
+    mcp_bindings: list[dict] = []
     if loaded.metadata.role == SkillRole.AGENT:
         sandbox_config = SandboxConfig()
         config_path = skill_dir / "agentura.config.yaml"
@@ -71,6 +72,17 @@ def _build_skill_context(
                 sandbox_raw = cfg.get("sandbox", {})
                 if sandbox_raw:
                     sandbox_config = SandboxConfig(**sandbox_raw)
+                # Resolve MCP tool bindings from config
+                for mcp_ref in cfg.get("mcp_tools", []):
+                    server_name = mcp_ref.get("server", "")
+                    env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
+                    server_url = os.environ.get(env_key, "")
+                    if server_url:
+                        mcp_bindings.append({
+                            "server": server_name,
+                            "url": server_url,
+                            "tools": mcp_ref.get("tools", []),
+                        })
             except Exception:
                 pass
 
@@ -81,6 +93,7 @@ def _build_skill_context(
         model=loaded.metadata.model,
         system_prompt=system_prompt,
         input_data=input_data,
+        mcp_bindings=mcp_bindings,
         sandbox_config=sandbox_config,
     )
 
@@ -92,9 +105,14 @@ async def run_build_deploy(pipeline_input: dict[str, Any]) -> dict[str, Any]:
     step_results: list[dict] = []
     carry_forward: dict[str, Any] = {}
 
+    # Map pipeline fields to app-builder expected format
+    normalized = dict(pipeline_input)
+    if "description" in normalized and "prd" not in normalized:
+        normalized["prd"] = normalized["description"]
+
     for step_idx, (skill_path, required) in enumerate(PIPELINE_STEPS, 1):
         step_start = time.monotonic()
-        step_input = dict(pipeline_input)
+        step_input = dict(normalized)
         step_input.update(carry_forward)
 
         try:
@@ -165,9 +183,14 @@ async def run_build_deploy_stream(
     steps_completed = 0
     total_cost = 0.0
 
+    # Map pipeline fields to app-builder expected format
+    normalized = dict(pipeline_input)
+    if "description" in normalized and "prd" not in normalized:
+        normalized["prd"] = normalized["description"]
+
     for step_idx, (skill_path, required) in enumerate(PIPELINE_STEPS, 1):
         step_start = time.monotonic()
-        step_input = dict(pipeline_input)
+        step_input = dict(normalized)
         step_input.update(carry_forward)
 
         yield _sse("step_started", {
