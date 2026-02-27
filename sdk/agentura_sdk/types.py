@@ -174,7 +174,7 @@ class ServiceIndex(BaseModel):
 
 
 class MappedSkill(BaseModel):
-    """An ai-velocity skill mapped to a service task."""
+    """An external skill library entry mapped to a service task."""
     name: str
     path: str
     content: str

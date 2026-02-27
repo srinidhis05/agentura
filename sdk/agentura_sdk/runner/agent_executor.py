@@ -396,6 +396,48 @@ def _extract_artifacts(sandbox: object, files_created: list[str], skill_name: st
     return output_dir, artifacts
 
 
+# --- Memory recall ---
+
+def _recall_memories(skill_path: str, input_data: dict) -> str:
+    """Search past executions for relevant context and format as prompt section."""
+    try:
+        from agentura_sdk.memory import get_memory_store
+
+        store = get_memory_store()
+        query = json.dumps(input_data, default=str)[:500]
+        results = store.search_similar(skill_path, query, limit=3)
+        if not results:
+            return ""
+
+        lines = ["## Memory — Learned Preferences from Past Executions\n"]
+        for r in results:
+            memory_text = r.get("memory", "")
+            if not memory_text:
+                memory_text = r.get("rule", "") or r.get("user_correction", "")
+            if memory_text:
+                lines.append(f"- {memory_text[:300]}")
+
+        if len(lines) <= 1:
+            return ""
+
+        lines.append("\nApply these learned preferences to the current task.")
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.debug("Memory recall skipped: %s", exc)
+        return ""
+
+
+def _build_prompt_with_memory(ctx: SkillContext) -> str:
+    """Compose system prompt with memory recall injected."""
+    memory_section = _recall_memories(
+        f"{ctx.domain}/{ctx.skill_name}", ctx.input_data
+    )
+    if memory_section:
+        logger.info("Injected %d chars of memory context", len(memory_section))
+        return f"{ctx.system_prompt}\n\n---\n\n{memory_section}"
+    return ctx.system_prompt
+
+
 # --- Agent loops ---
 
 async def execute_agent(ctx: SkillContext) -> SkillResult:
@@ -409,8 +451,11 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
     if tool_server_map:
         logger.info("MCP tools loaded: %s", list(tool_server_map.keys()))
 
+    # Compose prompt with memory recall
+    system_prompt = _build_prompt_with_memory(ctx)
+
     try:
-        provider = _get_provider(ctx.model, ctx.system_prompt, all_tools)
+        provider = _get_provider(ctx.model, system_prompt, all_tools)
     except RuntimeError as e:
         return SkillResult(
             skill_name=ctx.skill_name,
@@ -532,8 +577,11 @@ async def execute_agent_streaming(
     if tool_server_map:
         logger.info("MCP tools loaded: %s", list(tool_server_map.keys()))
 
+    # Compose prompt with memory recall
+    system_prompt = _build_prompt_with_memory(ctx)
+
     try:
-        provider = _get_provider(ctx.model, ctx.system_prompt, all_tools)
+        provider = _get_provider(ctx.model, system_prompt, all_tools)
     except RuntimeError as e:
         yield SkillResult(
             skill_name=ctx.skill_name,
