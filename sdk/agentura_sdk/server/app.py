@@ -165,8 +165,10 @@ def _extract_section(content: str, heading: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def _extract_conversation_starters(content: str) -> list[str]:
-    """Extract bullet points from ## Trigger section as conversation starters (max 4)."""
+def _extract_conversation_starters(content: str, display_cfg: dict | None = None) -> list[str]:
+    """Extract conversation starters from display config or SKILL.md ## Trigger section (max 4)."""
+    if display_cfg and display_cfg.get("conversation_starters"):
+        return display_cfg["conversation_starters"][:4]
     section = _extract_section(content, "Trigger")
     if not section:
         return []
@@ -321,7 +323,7 @@ def _build_skill_info(skill_dir: Path, domain_dir: Path) -> SkillInfo | None:
         display_avatar=display_avatar,
         display_color=display.get("color", ""),
         display_tags=display.get("tags", []),
-        conversation_starters=_extract_conversation_starters(body),
+        conversation_starters=_extract_conversation_starters(body, display),
     )
 
 
@@ -473,7 +475,7 @@ def get_skill(domain: str, skill_name: str):
         display_avatar=display_avatar,
         display_color=display.get("color", ""),
         display_tags=display.get("tags", []),
-        conversation_starters=_extract_conversation_starters(body),
+        conversation_starters=_extract_conversation_starters(body, display),
         task_description=_extract_section(body, "Task"),
         input_schema=_extract_section(body, "Input Format") or _extract_section(body, "Context You'll Receive"),
         output_schema=_extract_section(body, "Output Format"),
