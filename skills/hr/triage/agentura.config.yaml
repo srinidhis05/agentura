@@ -1,0 +1,28 @@
+domain:
+  name: hr
+  description: "Human resources tools for recruiting, onboarding, and people operations"
+  owner: "people-team"
+
+skills:
+  - name: triage
+    path: triage
+    role: manager
+    model: anthropic/claude-haiku-4.5
+    cost_budget: "$0.01"
+
+routing:
+  - when:
+      intent: "resume"
+    then:
+      skill: resume-screener
+  - when:
+      intent: "onboarding"
+    then:
+      skill: onboarding-guide
+
+display:
+  title: "HR"
+  subtitle: "Domain Manager"
+  avatar: "HR"
+  color: "#f59e0b"
+  tags: ["HR", "Router"]

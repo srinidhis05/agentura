@@ -1,0 +1,28 @@
+domain:
+  name: productivity
+  description: "Productivity tools for meetings, emails, and task management"
+  owner: "platform-team"
+
+skills:
+  - name: triage
+    path: triage
+    role: manager
+    model: anthropic/claude-haiku-4.5
+    cost_budget: "$0.01"
+
+routing:
+  - when:
+      intent: "meeting"
+    then:
+      skill: meeting-summarizer
+  - when:
+      intent: "email"
+    then:
+      skill: email-drafter
+
+display:
+  title: "Productivity"
+  subtitle: "Domain Manager"
+  avatar: "PM"
+  color: "#10b981"
+  tags: ["Productivity", "Router"]
