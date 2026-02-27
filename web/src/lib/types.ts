@@ -25,6 +25,7 @@ export interface SkillInfo {
   display_avatar: string;
   display_color: string;
   display_tags: string[];
+  conversation_starters: string[];
 }
 
 export interface SkillDetail extends SkillInfo {

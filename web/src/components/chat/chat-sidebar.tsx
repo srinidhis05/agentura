@@ -118,9 +118,17 @@ export function ChatSidebar({
                 >
                   <button
                     onClick={() => onSelect(conv.id)}
-                    className="flex-1 truncate text-left"
+                    className="flex flex-1 items-center gap-1.5 truncate text-left"
                   >
-                    {conv.title}
+                    {conv.scope && (
+                      <span
+                        className="inline-block h-4 w-4 shrink-0 rounded text-[8px] font-bold leading-4 text-center text-white"
+                        style={{ backgroundColor: conv.scope.displayColor }}
+                      >
+                        {conv.scope.displayAvatar.slice(0, 2)}
+                      </span>
+                    )}
+                    <span className="truncate">{conv.title}</span>
                   </button>
                   <button
                     onClick={(e) => {
