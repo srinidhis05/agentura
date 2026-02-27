@@ -15,11 +15,8 @@ skills:
 
 routing:
   - from: triage
-    to: github-pr-reviewer
-    condition: "query involves PR review or code review"
-  - from: triage
-    to: e2e-test-generator
-    condition: "query involves test generation or test cases"
+    to: "pipeline:build-deploy"
+    condition: "query involves building, creating, or deploying an app"
 
 guardrails:
   budget:
