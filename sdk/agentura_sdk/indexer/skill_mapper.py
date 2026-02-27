@@ -1,6 +1,6 @@
-"""Skill mapper — maps SDLC stages to ai-velocity SKILL.md files.
+"""Skill mapper — maps SDLC stages to external SKILL.md files.
 
-Reads sdlc.yaml from AI_VELOCITY_DIR for stage → skill mappings.
+Reads sdlc.yaml from SKILL_LIBRARY_DIR for stage → skill mappings.
 Truncates skills > 30K chars at the last complete ## section boundary.
 """
 
@@ -31,7 +31,7 @@ def _velocity_dir() -> Path | None:
 
 @lru_cache(maxsize=1)
 def _load_sdlc_config(velocity_dir: str) -> dict:
-    """Read and cache sdlc.yaml from the ai-velocity root."""
+    """Read and cache sdlc.yaml from the skill library root."""
     path = Path(velocity_dir) / "sdlc.yaml"
     if not path.exists():
         logger.warning("sdlc.yaml not found at %s", path)
@@ -68,7 +68,7 @@ def _truncate_at_section(text: str, max_chars: int) -> tuple[str, bool]:
 
 
 def _load_skill(velocity_dir: Path, skill_name: str) -> MappedSkill | None:
-    """Load a single SKILL.md from ai-velocity directory."""
+    """Load a single SKILL.md from skill library directory."""
     skill_path = _resolve_skill_path(velocity_dir, skill_name)
     if not skill_path:
         logger.debug("skill not found: %s", skill_name)
@@ -86,7 +86,7 @@ def _load_skill(velocity_dir: Path, skill_name: str) -> MappedSkill | None:
 
 
 def map_skills_for_stage(stage: str, language: str) -> list[MappedSkill]:
-    """Map an SDLC stage + language to relevant ai-velocity skills.
+    """Map an SDLC stage + language to relevant skill library skills.
 
     Reads sdlc.yaml to collect base skills + language-specific overlays.
     Returns empty list if AI_VELOCITY_DIR is not set or sdlc.yaml is missing.
@@ -119,7 +119,7 @@ def map_skills_for_stage(stage: str, language: str) -> list[MappedSkill]:
 
 
 def map_skills(tech: TechStack, task_type: str) -> list[MappedSkill]:
-    """Map a tech stack + task type to relevant ai-velocity skills.
+    """Map a tech stack + task type to relevant skill library skills.
 
     Backward-compatible wrapper around map_skills_for_stage().
     """
