@@ -121,7 +121,10 @@ After applying the manifest:
 
 ## Guardrails
 
+- **NEVER use ClusterIP** — Service type MUST be NodePort. This is critical for user access.
 - Always verify the deployment succeeded before calling task_complete
 - If kubectl_apply fails, report the error — do not retry blindly
 - Embed ALL artifact files in the ConfigMap data section
-- Always include the access URL in the completion message
+- The task_complete `summary` MUST include the access URL as `http://localhost:<nodePort>`
+- The task_complete output MUST include a `url` field with the access URL
+- After applying, always `kubectl_get` the service to read the auto-assigned nodePort number

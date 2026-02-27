@@ -37,3 +37,8 @@ display:
   avatar: "AB"
   color: "#8b5cf6"
   tags: ["Agent", "Code Generation", "Full-Stack"]
+  conversation_starters:
+    - "Build a todo list app"
+    - "Create a weather dashboard"
+    - "Build a kanban board"
+    - "Make a personal portfolio site"
