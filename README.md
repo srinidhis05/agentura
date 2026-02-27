@@ -158,6 +158,9 @@ agentura/
 ├── sdk/                          # Python SDK + Skill Executor
 │   └── agentura_sdk/
 │       ├── server/app.py         # FastAPI server (all endpoints)
+│       ├── pipelines/
+│       │   ├── engine.py         # Generic pipeline executor (YAML-driven)
+│       │   └── build_deploy.py   # Backward-compat wrapper
 │       ├── runner/
 │       │   ├── skill_loader.py   # Loads SKILL.md + DOMAIN.md + reflexions
 │       │   ├── local_runner.py   # Pydantic AI execution engine
@@ -182,6 +185,9 @@ agentura/
 │       ├── app/(dashboard)/      # Admin dashboard (/dashboard/*)
 │       ├── components/chat/      # Chat components (sidebar, messages, input)
 │       └── lib/                  # API client, chat state, command router
+│
+├── pipelines/                    # Pipeline definitions (YAML config)
+│   └── build-deploy.yaml         # Build app → deploy to K8s
 │
 ├── skills/                       # Skill definitions (the workloads)
 │   ├── platform/classifier/      # Routes to correct domain
@@ -237,6 +243,15 @@ agentura/
 | GET | `/api/v1/domains` | List domains with health |
 | GET | `/api/v1/domains/{domain}` | Domain detail + topology |
 
+### Pipelines (Multi-Skill Workflows)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/pipelines` | List available pipelines |
+| POST | `/api/v1/pipelines/{name}/execute` | Run a pipeline |
+| POST | `/api/v1/pipelines/{name}/execute-stream` | Run with SSE streaming |
+
+New pipeline = new YAML file in `pipelines/`. Zero code changes across Python, Go, or TypeScript.
+
 ### Platform
 | Method | Path | Description |
 |--------|------|-------------|
@@ -251,6 +266,7 @@ agentura/
 | Feature | Agentura | Claude Plugins | CrewAI | LangGraph |
 |---------|--------|--------|--------|-----------|
 | Skills as config (no code) | SKILL.md + YAML | plugin.json + agents/ | Python (role/goal/backstory) | Python graphs |
+| Multi-skill pipelines | YAML config (new pipeline = new file) | None | Python (sequential/hierarchical) | Python graphs |
 | Learning loop | Correction → Test → Reflexion | None | None | None |
 | Auto test generation | DeepEval + Promptfoo | None | None | None |
 | Domain isolation | Domains with quotas | Per-plugin | None | None |
