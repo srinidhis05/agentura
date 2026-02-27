@@ -1,7 +1,0 @@
-{
-  "pr_url": "https://github.com/example/repo/pull/42",
-  "pr_title": "feat: add user authentication middleware",
-  "diff": "diff --git a/src/middleware/auth.py b/src/middleware/auth.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/middleware/auth.py\n@@ -0,0 +1,35 @@\n+from fastapi import Request, HTTPException\n+from jose import jwt\n+\n+\n+class AuthMiddleware:\n+    def __init__(self, secret_key: str, algorithm: str = \"HS256\"):\n+        self.secret_key = secret_key\n+        self.algorithm = algorithm\n+\n+    async def __call__(self, request: Request, call_next):\n+        token = request.headers.get(\"Authorization\", \"\").replace(\"Bearer \", \"\")\n+        if not token:\n+            raise HTTPException(status_code=401, detail=\"Missing token\")\n+        try:\n+            payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])\n+            request.state.user_id = payload.get(\"sub\")\n+        except jwt.JWTError:\n+            raise HTTPException(status_code=401, detail=\"Invalid token\")\n+        return await call_next(request)\n",
-  "changed_files": ["src/middleware/auth.py"],
-  "pr_description": "Adds JWT-based authentication middleware for FastAPI routes."
-}
