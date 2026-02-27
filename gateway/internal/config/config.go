@@ -206,7 +206,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Executor.URL = "http://localhost:8000"
 	}
 	if cfg.Executor.Timeout == 0 {
-		cfg.Executor.Timeout = 120
+		cfg.Executor.Timeout = 600
 	}
 
 	// Execution defaults

@@ -86,7 +86,7 @@ def _get_client() -> httpx.Client:
             "X-Title": "Agentura",
             "Content-Type": "application/json",
         },
-        timeout=120.0,
+        timeout=300.0,
     )
 
 

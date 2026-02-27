@@ -33,7 +33,7 @@ metrics:
 
 executor:
   url: "${EXECUTOR_URL}"
-  timeout: 120
+  timeout: 600
 
 execution:
   mode: "${EXECUTION_MODE}"

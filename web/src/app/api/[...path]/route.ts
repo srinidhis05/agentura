@@ -12,8 +12,9 @@ async function proxy(req: NextRequest) {
   const search = req.nextUrl.search;
   const url = `${API_TARGET}${path}${search}`;
 
+  const isPipeline = path.includes("/pipelines/") && path.includes("/execute");
   const isExecute = path.includes("/execute");
-  const timeoutMs = isExecute ? 120_000 : 30_000;
+  const timeoutMs = isPipeline ? 600_000 : isExecute ? 120_000 : 30_000;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -59,4 +60,4 @@ export const PUT = proxy;
 export const DELETE = proxy;
 export const PATCH = proxy;
 
-export const maxDuration = 120;
+export const maxDuration = 600;

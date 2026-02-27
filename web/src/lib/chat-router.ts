@@ -12,6 +12,7 @@ import {
   getPlatformHealth,
   getMemoryStatus,
   memorySearch,
+  executeBuildDeploy,
 } from "./api";
 
 function generateId(): string {
@@ -455,7 +456,47 @@ async function handleAsk(
     };
   }
 
-  // Step 3: Execute the target skill
+  // Step 3a: Pipeline routing (e.g. "pipeline:build-deploy")
+  if (routeTo.startsWith("pipeline:")) {
+    const pipelineName = routeTo.split(":")[1];
+    if (pipelineName === "build-deploy") {
+      const triageEntities = (triageOutput.entities || {}) as Record<string, unknown>;
+      const description = (triageEntities.description as string) || query;
+      const appName = (triageEntities.app_name as string) || "my-app";
+      const pipelineResult = await executeBuildDeploy({
+        description,
+        app_name: appName,
+        port: 9000,
+      });
+      return {
+        ...base,
+        content: pipelineResult.success
+          ? [
+              `Build-deploy pipeline completed successfully.`,
+              `Steps: ${pipelineResult.steps_completed}`,
+              `Cost: $${pipelineResult.total_cost_usd.toFixed(3)}`,
+              `Latency: ${(pipelineResult.total_latency_ms / 1000).toFixed(1)}s`,
+              pipelineResult.url ? `URL: ${pipelineResult.url}` : "",
+            ].filter(Boolean).join("\n")
+          : `Build-deploy pipeline failed at step ${pipelineResult.steps_completed}.`,
+        metadata: {
+          command: `ask → ${routeTo}`,
+          pipelineResult,
+          routing: {
+            classifier: { domain, confidence, reasoning },
+            triage: { route_to: routeTo, reasoning: triageReasoning },
+          },
+        },
+      };
+    }
+    return {
+      ...base,
+      content: `Unknown pipeline: ${pipelineName}`,
+      metadata: { command: "ask" },
+    };
+  }
+
+  // Step 3b: Execute the target skill
   const [targetDomain, targetSkill] = routeTo.includes("/")
     ? routeTo.split("/")
     : [domain, routeTo];

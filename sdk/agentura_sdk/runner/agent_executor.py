@@ -3,10 +3,12 @@
 Supports OpenRouter (primary) and Anthropic SDK (fallback) for tool calling.
 Provider selected via env vars: OPENROUTER_API_KEY first, ANTHROPIC_API_KEY second.
 Sandbox backend selected via SANDBOX_BACKEND env var (docker | k8s).
+MCP tools discovered dynamically from ctx.mcp_bindings.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -126,18 +128,55 @@ SANDBOX_TOOLS = [
     },
 ]
 
-# OpenAI-format tools (used by OpenRouter)
-OPENAI_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": t["name"],
-            "description": t["description"],
-            "parameters": t["input_schema"],
-        },
-    }
-    for t in SANDBOX_TOOLS
-]
+
+def _to_openai_tools(anthropic_tools: list[dict]) -> list[dict]:
+    """Convert Anthropic-format tool defs to OpenAI-format for OpenRouter."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["input_schema"],
+            },
+        }
+        for t in anthropic_tools
+    ]
+
+
+def _build_tool_set(
+    mcp_bindings: list[dict],
+) -> tuple[list[dict], dict[str, str]]:
+    """Build the full tool set: sandbox tools + MCP tools from bindings.
+
+    Returns (anthropic_tools, tool_name→server_url map for MCP dispatch).
+    """
+    from agentura_sdk.mcp.client import fetch_tool_definitions
+
+    all_tools = list(SANDBOX_TOOLS)
+    tool_server_map: dict[str, str] = {}
+
+    for binding in mcp_bindings:
+        server_url = binding.get("url", "")
+        requested_tools = binding.get("tools", [])
+        if not server_url:
+            logger.warning("MCP binding missing url: %s", binding)
+            continue
+
+        try:
+            remote_tools = fetch_tool_definitions(server_url)
+        except Exception as exc:
+            logger.error("failed to fetch tools from %s: %s", server_url, exc)
+            continue
+
+        for tool_def in remote_tools:
+            name = tool_def["name"]
+            if requested_tools and name not in requested_tools:
+                continue
+            all_tools.append(tool_def)
+            tool_server_map[name] = server_url
+
+    return all_tools, tool_server_map
 
 
 # --- Provider abstraction ---
@@ -148,17 +187,18 @@ _CallResult = tuple[bool, list[tuple[str, str, dict]], str, int, int]
 class _OpenRouterProvider:
     """OpenAI-compatible tool calling via OpenRouter."""
 
-    def __init__(self, model_id: str, system_prompt: str):
+    def __init__(self, model_id: str, system_prompt: str, tools: list[dict]):
         from agentura_sdk.runner.openrouter import resolve_model
         self._model = resolve_model(model_id)
         self._messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        self._tools = _to_openai_tools(tools)
 
     def add_user_message(self, content: str) -> None:
         self._messages.append({"role": "user", "content": content})
 
     def call(self) -> _CallResult:
         from agentura_sdk.runner.openrouter import tool_chat_completion
-        resp = tool_chat_completion(self._model, self._messages, OPENAI_TOOLS)
+        resp = tool_chat_completion(self._model, self._messages, self._tools)
 
         # Build assistant message for history
         assistant_msg: dict = {"role": "assistant"}
@@ -191,12 +231,13 @@ class _OpenRouterProvider:
 class _AnthropicProvider:
     """Anthropic Messages API tool calling."""
 
-    def __init__(self, model_id: str, system_prompt: str, api_key: str):
+    def __init__(self, model_id: str, system_prompt: str, api_key: str, tools: list[dict]):
         from anthropic import Anthropic
         self._client = Anthropic(api_key=api_key)
         self._model = model_id
         self._system = system_prompt
         self._messages: list[dict] = []
+        self._tools = tools
 
     def add_user_message(self, content: str) -> None:
         self._messages.append({"role": "user", "content": content})
@@ -206,7 +247,7 @@ class _AnthropicProvider:
             model=self._model,
             max_tokens=4096,
             system=self._system,
-            tools=SANDBOX_TOOLS,
+            tools=self._tools,
             messages=self._messages,
         )
 
@@ -240,17 +281,21 @@ def _resolve_anthropic_model(model: str) -> str:
     return aliases.get(name, name)
 
 
-def _get_provider(model: str, system_prompt: str) -> _OpenRouterProvider | _AnthropicProvider:
+def _get_provider(
+    model: str,
+    system_prompt: str,
+    tools: list[dict],
+) -> _OpenRouterProvider | _AnthropicProvider:
     """Select provider: OpenRouter primary, Anthropic fallback."""
     if os.environ.get("OPENROUTER_API_KEY"):
         logger.info("Using OpenRouter provider for agent execution")
-        return _OpenRouterProvider(model, system_prompt)
+        return _OpenRouterProvider(model, system_prompt, tools)
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if api_key:
         logger.info("Using Anthropic provider for agent execution")
         model_id = _resolve_anthropic_model(model)
-        return _AnthropicProvider(model_id, system_prompt, api_key)
+        return _AnthropicProvider(model_id, system_prompt, api_key, tools)
 
     raise RuntimeError(
         "No LLM provider configured. Set OPENROUTER_API_KEY (preferred) or ANTHROPIC_API_KEY."
@@ -259,8 +304,20 @@ def _get_provider(model: str, system_prompt: str) -> _OpenRouterProvider | _Anth
 
 # --- Tool execution ---
 
-def _execute_tool(sandbox: object, tool_name: str, tool_input: dict) -> str:
-    """Dispatch a tool call to the sandbox backend."""
+def _execute_tool(
+    sandbox: object,
+    tool_name: str,
+    tool_input: dict,
+    tool_server_map: dict[str, str],
+) -> str:
+    """Dispatch a tool call — MCP server first, then sandbox fallback."""
+    # MCP tool dispatch
+    server_url = tool_server_map.get(tool_name)
+    if server_url:
+        from agentura_sdk.mcp.client import call_tool
+        return call_tool(server_url, tool_name, tool_input)
+
+    # Sandbox tools
     if tool_name == "write_file":
         return sandbox_mod.write_file(sandbox, tool_input["path"], tool_input["content"])
     if tool_name == "read_file":
@@ -334,8 +391,13 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
     config = ctx.sandbox_config or SandboxConfig()
     iterations: list[AgentIteration] = []
 
+    # Build dynamic tool set (sandbox + MCP)
+    all_tools, tool_server_map = _build_tool_set(ctx.mcp_bindings)
+    if tool_server_map:
+        logger.info("MCP tools loaded: %s", list(tool_server_map.keys()))
+
     try:
-        provider = _get_provider(ctx.model, ctx.system_prompt)
+        provider = _get_provider(ctx.model, ctx.system_prompt, all_tools)
     except RuntimeError as e:
         return SkillResult(
             skill_name=ctx.skill_name,
@@ -352,18 +414,29 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
         total_in = 0
         total_out = 0
 
+        task_completed = False
+        nudged = False
         for i in range(config.max_iterations):
-            wants_tools, tool_calls, text, tokens_in, tokens_out = provider.call()
+            wants_tools, tool_calls, text, tokens_in, tokens_out = await asyncio.to_thread(provider.call)
             total_in += tokens_in
             total_out += tokens_out
 
             if not wants_tools:
+                if not iterations and not nudged:
+                    # LLM responded with text without ever calling tools — nudge once.
+                    nudged = True
+                    logger.warning("Agent responded without tool use, nudging once")
+                    provider.add_user_message(
+                        "You MUST use the available tools to complete this task. "
+                        "Do not respond with text only. Start by calling the appropriate tool."
+                    )
+                    continue
                 final_output = {"summary": text}
                 break
 
             results: list[tuple[str, str]] = []
             for call_id, name, args in tool_calls:
-                tool_output = _execute_tool(sandbox, name, args)
+                tool_output = _execute_tool(sandbox, name, args, tool_server_map)
 
                 iterations.append(AgentIteration(
                     iteration=i + 1,
@@ -377,6 +450,7 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
 
                 if name == "task_complete":
                     final_output = args
+                    task_completed = True
                     break
 
             provider.add_tool_results(results)
@@ -399,7 +473,7 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
 
         return SkillResult(
             skill_name=ctx.skill_name,
-            success=True,
+            success=task_completed or bool(iterations),
             output={
                 **final_output,
                 "iterations_count": len(iterations),
@@ -440,8 +514,13 @@ async def execute_agent_streaming(
     config = ctx.sandbox_config or SandboxConfig()
     iterations: list[AgentIteration] = []
 
+    # Build dynamic tool set (sandbox + MCP)
+    all_tools, tool_server_map = _build_tool_set(ctx.mcp_bindings)
+    if tool_server_map:
+        logger.info("MCP tools loaded: %s", list(tool_server_map.keys()))
+
     try:
-        provider = _get_provider(ctx.model, ctx.system_prompt)
+        provider = _get_provider(ctx.model, ctx.system_prompt, all_tools)
     except RuntimeError as e:
         yield SkillResult(
             skill_name=ctx.skill_name,
@@ -458,19 +537,27 @@ async def execute_agent_streaming(
         final_output: dict = {}
         total_in = 0
         total_out = 0
+        task_completed = False
 
         for i in range(config.max_iterations):
-            wants_tools, tool_calls, text, tokens_in, tokens_out = provider.call()
+            wants_tools, tool_calls, text, tokens_in, tokens_out = await asyncio.to_thread(provider.call)
             total_in += tokens_in
             total_out += tokens_out
 
             if not wants_tools:
+                if not iterations:
+                    logger.warning("Agent responded without tool use, nudging")
+                    provider.add_user_message(
+                        "You MUST use the available tools to complete this task. "
+                        "Do not respond with text only. Start by calling the appropriate tool."
+                    )
+                    continue
                 final_output = {"summary": text}
                 break
 
             results: list[tuple[str, str]] = []
             for call_id, name, args in tool_calls:
-                tool_output = _execute_tool(sandbox, name, args)
+                tool_output = _execute_tool(sandbox, name, args, tool_server_map)
 
                 iteration = AgentIteration(
                     iteration=i + 1,
@@ -486,6 +573,7 @@ async def execute_agent_streaming(
 
                 if name == "task_complete":
                     final_output = args
+                    task_completed = True
                     break
 
             provider.add_tool_results(results)
@@ -508,7 +596,7 @@ async def execute_agent_streaming(
 
         yield SkillResult(
             skill_name=ctx.skill_name,
-            success=True,
+            success=task_completed or bool(iterations),
             output={
                 **final_output,
                 "iterations_count": len(iterations),
