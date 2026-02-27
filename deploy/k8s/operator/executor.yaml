@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor
+  namespace: agentura
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: executor
+  template:
+    metadata:
+      labels:
+        app: executor
+    spec:
+      serviceAccountName: executor
+      containers:
+        - name: executor
+          image: agentura/executor:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SANDBOX_BACKEND
+              value: k8s
+            - name: SKILLS_DIR
+              value: /skills
+            - name: AGENTURA_KNOWLEDGE_DIR
+              value: /data/.agentura
+            - name: DATABASE_URL
+              value: postgresql://agentura:agentura_dev@postgres:5432/agentura
+          envFrom:
+            - secretRef:
+                name: agentura-api-keys
+          volumeMounts:
+            - name: skills
+              mountPath: /skills
+              readOnly: true
+            - name: artifacts
+              mountPath: /artifacts
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            limits:
+              memory: 512Mi
+              cpu: "1"
+      volumes:
+        - name: skills
+          hostPath:
+            path: /skills
+            type: DirectoryOrCreate
+        - name: artifacts
+          hostPath:
+            path: /artifacts
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: executor
+  namespace: agentura
+spec:
+  selector:
+    app: executor
+  ports:
+    - port: 8000
+      targetPort: 8000

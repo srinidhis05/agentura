@@ -20,6 +20,7 @@ spec:
       containers:
         - name: operator
           image: agentura/operator:latest
+          imagePullPolicy: Never
           args:
             - --metrics-bind-address=:8080
             - --health-probe-bind-address=:8081

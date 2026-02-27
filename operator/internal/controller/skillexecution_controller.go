@@ -172,8 +172,9 @@ func (r *SkillExecutionReconciler) buildJob(exec *agenturav1alpha1.SkillExecutio
 		RestartPolicy: corev1.RestartPolicyNever,
 		Containers: []corev1.Container{
 			{
-				Name:  "skill-runner",
-				Image: exec.Spec.Runner.Image,
+				Name:            "skill-runner",
+				Image:           exec.Spec.Runner.Image,
+				ImagePullPolicy: corev1.PullIfNotPresent,
 				Env: []corev1.EnvVar{
 					{
 						Name:  "EXECUTION_REQUEST",
