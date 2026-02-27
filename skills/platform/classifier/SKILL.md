@@ -8,7 +8,7 @@ cost_budget_per_execution: "$0.01"
 timeout: "5s"
 routes_to:
   - domain: dev
-    when: "PR, pull request, review, test, e2e, CI, build, code"
+    when: "PR, pull request, review, test, e2e, CI, build, code, app, create, deploy, make, change, modify, redesign, update UI, todo, calculator"
   - domain: finance
     when: "expense, invoice, budget, spending, cost, payment, reimbursement"
   - domain: hr
@@ -27,7 +27,7 @@ Classify the incoming message into one of the registered business domains. Retur
 
 | Domain | Handles | Example Triggers |
 |--------|---------|-----------------|
-| `dev` | Code review, test generation, CI/CD, PR review | "review this PR", "generate e2e tests for login", "check build status" |
+| `dev` | Code review, test generation, CI/CD, PR review, build/deploy apps, modify apps | "review this PR", "generate e2e tests", "build me a counter app", "change the todo list background" |
 | `finance` | Expense analysis, invoice review, budget tracking | "analyze expenses for January", "check invoice INV-2026-42", "spending breakdown" |
 | `hr` | Resume screening, leave policy, onboarding, interview prep | "screen this resume", "how many leave days", "interview questions for PM role" |
 | `productivity` | Daily briefings, research, information aggregation | "morning briefing", "research playwright vs cypress", "catch me up" |

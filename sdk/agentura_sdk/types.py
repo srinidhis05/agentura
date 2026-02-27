@@ -126,6 +126,7 @@ class SkillContext(BaseModel):
     input_data: dict[str, Any] = Field(default_factory=dict)
     routed_context: dict[str, Any] = Field(default_factory=dict)
     mcp_tools: list[str] = Field(default_factory=list)
+    mcp_bindings: list[dict] = Field(default_factory=list)
     sandbox_config: Optional[SandboxConfig] = None
 
 

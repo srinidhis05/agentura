@@ -1,4 +1,5 @@
 import type { SkillResult, CorrectResponse, ApprovalResponse } from "./types";
+import type { PipelineResult } from "./api";
 
 export interface ChatMessage {
   id: string;
@@ -8,6 +9,7 @@ export interface ChatMessage {
   metadata?: {
     command?: string;
     skillResult?: SkillResult;
+    pipelineResult?: PipelineResult;
     correctionResult?: CorrectResponse;
     approvalResult?: ApprovalResponse;
     tableData?: { headers: string[]; rows: string[][] };
