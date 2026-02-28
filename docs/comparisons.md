@@ -23,8 +23,9 @@ Most agent frameworks are **libraries** — you import them into Python/TypeScri
 | **Multi-agent** | Crew with role hierarchy | Graph with conditional edges | Conversation patterns | Single agent | Agent networks | Workflow connections | **Domain → Role → Skill hierarchy** |
 | **Multi-skill pipelines** | Python (sequential/hierarchical) | Python state graphs | Conversation patterns | None | Workflow definitions | Visual connections | **YAML config (new pipeline = new file)** |
 | **Learning from feedback** | Memory (short/long/entity) | Checkpointing | Teachable agents (basic) | None | None | None | **Correction → auto-test → reflexion** |
-| **Security model** | Basic (AMP adds RBAC) | Sandboxing via Pyodide | Basic | Type-safe outputs | Basic | Credential store | **Skills reason only; MCP tools act (separate boundary, MCP gateway planned)** |
+| **Security model** | Basic (AMP adds RBAC) | Sandboxing via Pyodide | Basic | Type-safe outputs | Basic | Credential store | **Specialist skills produce text only; agent skills execute in isolated K8s sandbox pods with MCP tool access** |
 | **Who writes skills** | Python developers | Python developers | Python/.NET developers | Python developers | TypeScript developers | No-code users | **Domain experts (Markdown)** |
+| **Sandbox execution** | None | Pyodide (browser) | Docker (basic) | None | None | None | **Ephemeral K8s pods per execution** |
 
 ---
 
@@ -40,6 +41,7 @@ CrewAI is the most mature multi-agent framework with a strong enterprise offerin
 - **Config vs Code**: CrewAI agents are Python classes. Agentura skills are Markdown files with YAML config. This means domain experts (not just developers) can author and maintain skills.
 - **Learning loop**: CrewAI stores memory context. Agentura auto-generates regression tests from every user correction, creating a growing test suite that prevents regressions.
 - **Domain isolation**: CrewAI crews are flat. Agentura organizes skills into domains with namespace-scoped resource quotas and cross-domain policies.
+- **Execution isolation**: CrewAI runs agents in the application process. Agentura agent skills execute in ephemeral K8s sandbox pods — each execution gets its own isolated container, destroyed after completion.
 
 **Choose CrewAI if**: Your team is Python-heavy, you want a mature ecosystem, and code-first agents work for your workflow.
 
@@ -80,7 +82,7 @@ PydanticAI is a type-safe agent library with excellent structured output support
 
 **PydanticAI strengths**: Type-safe structured outputs, native MCP support, clean Pythonic API, minimal footprint.
 
-**Relationship**: Agentura uses PydanticAI as its execution engine. PydanticAI handles the LLM call; Agentura handles everything around it (routing, domain isolation, learning, security, deployment).
+**Relationship**: Agentura uses PydanticAI for specialist skill execution (single-turn LLM calls with structured output). Agent skills use a custom multi-turn tool calling loop with sandbox integration, supporting both OpenRouter and Anthropic SDK as providers.
 
 **Choose PydanticAI directly if**: You need a lightweight agent library in a Python application and don't need multi-domain orchestration or feedback loops.
 
@@ -145,7 +147,7 @@ No framework separates organizational context from domain context from learned r
 Skills are organized into domains with resource quotas, cross-domain policies, and role-based access. Each domain is isolated — skills in different domains cannot access each other's data directly.
 
 ### 4. Structural Security
-Skills produce text/JSON only — they cannot execute code or shell commands. Real-world actions go through MCP tools via a separate boundary. An MCP gateway layer (planned) will add policy enforcement — PII scanning, secrets detection, and injection prevention — before tool calls reach external systems. The reasoning/action separation is architectural, not policy-based.
+Agentura has two execution modes: **specialist skills** produce text/JSON via LLM reasoning (no code execution). **Agent skills** execute in isolated, ephemeral K8s sandbox pods — each execution gets its own pod that is destroyed after completion. Agents can write files, run commands, and call MCP tools (like kubectl), but are isolated from the host system and other executions. An MCP gateway layer (planned) will add policy enforcement — PII scanning, secrets detection, and injection prevention — before tool calls reach external systems.
 
 ### 5. Config-Driven Pipelines (New Pipeline = New YAML File)
 Multi-skill workflows are defined as YAML in `pipelines/`:

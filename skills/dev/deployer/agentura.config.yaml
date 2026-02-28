@@ -13,8 +13,8 @@ skills:
       - type: pipeline
         pattern: "build-deploy step 2"
 
-sandbox:
-  template: base
+agent:
+  executor: ptc
   timeout: 120
   max_iterations: 15
 

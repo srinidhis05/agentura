@@ -530,7 +530,7 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
         if skill_config_path.exists():
             try:
                 skill_cfg_raw = yaml.safe_load(skill_config_path.read_text()) or {}
-                sandbox_raw = skill_cfg_raw.get("sandbox", {})
+                sandbox_raw = skill_cfg_raw.get("sandbox", {}) or skill_cfg_raw.get("agent", {})
                 if sandbox_raw:
                     sandbox_config = SandboxConfig(**sandbox_raw)
                 for mcp_ref in skill_cfg_raw.get("mcp_tools", []):
@@ -636,13 +636,24 @@ async def execute_stream(domain: str, skill_name: str, req: ExecuteRequest):
 
     # Parse sandbox config from skill-level agentura.config.yaml
     sandbox_config = SandboxConfig()
+    mcp_bindings: list[dict] = []
     skill_config_path = root / "agentura.config.yaml"
     if skill_config_path.exists():
         try:
             skill_cfg = yaml.safe_load(skill_config_path.read_text()) or {}
-            sandbox_raw = skill_cfg.get("sandbox", {})
+            sandbox_raw = skill_cfg.get("sandbox", {}) or skill_cfg.get("agent", {})
             if sandbox_raw:
                 sandbox_config = SandboxConfig(**sandbox_raw)
+            for mcp_ref in skill_cfg.get("mcp_tools", []):
+                server_name = mcp_ref.get("server", "")
+                env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
+                server_url = os.environ.get(env_key, "")
+                if server_url:
+                    mcp_bindings.append({
+                        "server": server_name,
+                        "url": server_url,
+                        "tools": mcp_ref.get("tools", []),
+                    })
         except Exception:
             pass
 
@@ -663,11 +674,26 @@ async def execute_stream(domain: str, skill_name: str, req: ExecuteRequest):
         model=model,
         system_prompt=composed_prompt,
         input_data=input_data,
+        mcp_bindings=mcp_bindings,
         sandbox_config=sandbox_config,
     )
 
+    # Route to PTC, Claude Code, or legacy agent executor
+    from agentura_sdk.runner.ptc_executor import _should_use_ptc
+
+    if _should_use_ptc(ctx):
+        from agentura_sdk.runner.ptc_executor import execute_ptc_streaming
+        stream_fn = execute_ptc_streaming
+    else:
+        from agentura_sdk.runner.claude_code_executor import _should_use_claude_code
+        if _should_use_claude_code(ctx):
+            from agentura_sdk.runner.claude_code_executor import execute_claude_code_streaming
+            stream_fn = execute_claude_code_streaming
+        else:
+            stream_fn = execute_agent_streaming
+
     async def event_generator():
-        async for event in execute_agent_streaming(ctx):
+        async for event in stream_fn(ctx):
             if isinstance(event, AgentIterationType):
                 yield f"event: iteration\ndata: {event.model_dump_json()}\n\n"
             else:

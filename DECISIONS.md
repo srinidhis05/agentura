@@ -84,8 +84,38 @@
 **Why**: Config-driven; skill prompts stay focused on domain logic; notification config is per-skill; threading supported for structured output
 **Constraint**: SLACK_BOT_TOKEN env var required; notifications are fire-and-forget (failure does not block execution result)
 
+## DEC-054: Agent-role skills use Claude Agent SDK for execution
+**Chose**: Claude Agent SDK (`claude-agent-sdk`) wrapping Claude Code CLI as subprocess for agent-role skills
+**Over**: Custom sandbox pods with OpenRouter/Anthropic tool-use loop (DEC-037 approach)
+**Why**: Eliminates sandbox pod lifecycle, HTTP tool dispatch, write-loop bugs (read_file 4000-char truncation → rewrite loops), and content truncation; native file tools, built-in streaming, MCP support, cost tracking, turn limits — all battle-tested; specialist/manager roles keep OpenRouter (single-turn, cheaper)
+**Constraint**: Requires ANTHROPIC_API_KEY (direct Anthropic, not OpenRouter); legacy agent_executor.py retained as fallback when SDK unavailable; Node.js 20 required in executor image for CLI
+
 ## DEC-053: File-based IPC uses exec model for phase 1
 **Chose**: Executor creates sandbox pod, uses K8s exec API to write/read files to /ipc/ directory inside sandbox pod
 **Over**: Shared PVC between pods, sidecar model, WebSocket-based protocol
 **Why**: Avoids shared volumes across pods (complex lifecycle); K8s exec is available via existing SA RBAC; file IPC protocol is simple JSON request/response; backward compatible (SANDBOX_IPC_MODE=http is default)
 **Constraint**: SANDBOX_IPC_MODE must be http|file; file mode requires kubernetes Python SDK with exec support
+
+## DEC-055: Worker pod pattern for Claude Code execution
+**Chose**: Isolated worker pods (claude-code-worker image) per agent execution, HTTP SSE streaming back to executor
+**Over**: In-process Claude Code SDK inside executor pod (DEC-054 phase 1)
+**Why**: Container isolation per agent execution; executor stays lightweight (no Node.js, no OOM from concurrent agents); artifacts extracted via SSE result event (no kubectl exec); matches sandbox factory pattern; concurrent requests get separate pods
+**Constraint**: Requires SANDBOX_BACKEND=k8s; CLAUDE_CODE_WORKER_IMAGE env var configurable; executor SA needs pod create/delete RBAC
+
+## DEC-056: SSE streaming client uses zero-timeout HTTP client
+**Chose**: Separate `streamingClient` in Go gateway with `Timeout: 0` for SSE proxy
+**Over**: Single HTTP client with global timeout for all requests
+**Why**: Go `http.Client.Timeout` covers entire request lifecycle including body reads; SSE streams run for minutes during agent execution, causing premature termination and "network error" fallback in UI
+**Constraint**: Context cancellation from client disconnect provides the safety bound
+
+## DEC-057: PTC executor uses lightweight worker pods for MCP-only agent skills
+**Chose**: Isolated PTC worker pods (Python-only, ~200MB image) per execution, same SSE protocol as claude-code-worker; Anthropic Messages API with tool_use dispatching to MCP servers
+**Over**: In-process PTC in executor pod (fast but no isolation), full sandbox pods (heavyweight for MCP-only skills)
+**Why**: Isolation at scale — concurrent PTC executions in shared executor pod exhaust threads/memory; per-pod resource limits (512Mi/1CPU vs 2Gi/2CPU for claude-code-worker); no Node.js, no sandbox filesystem; consistent with DEC-055 worker pod pattern
+**Constraint**: Requires SANDBOX_BACKEND=k8s + ANTHROPIC_API_KEY; executor: ptc in agentura.config.yaml; PTC_WORKER_IMAGE env var configurable
+
+## DEC-058: Two-executor model — light (PTC) + full (Claude Code)
+**Chose**: Two domain-agnostic worker images: ptc-worker (MCP-only, Python, 200MB/512Mi) and claude-code-worker (file I/O + code + MCP, Python+Node, 800MB/2Gi); legacy sandbox retained as fallback when SANDBOX_BACKEND != k8s
+**Over**: Per-domain custom images, single heavyweight executor for all skills, in-process execution
+**Why**: Skills pick executor via config (`executor: ptc|claude-code`), not custom images; onboarding new domains (ECM, HR, finance) requires zero Docker builds; PTC handles 80% of agent skills (MCP-only); claude-code handles the rest (code generation, file manipulation)
+**Constraint**: New agent skills MUST set `executor: ptc` or `executor: claude-code` in agentura.config.yaml; legacy sandbox (no executor field) works but is deprecated for new skills

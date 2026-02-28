@@ -495,6 +495,7 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
 
         task_completed = False
         nudged = False
+        write_counts: dict[str, int] = {}  # track write_file calls per path
         for i in range(config.max_iterations):
             wants_tools, tool_calls, text, tokens_in, tokens_out = await asyncio.to_thread(provider.call)
             total_in += tokens_in
@@ -515,6 +516,27 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
 
             results: list[tuple[str, str]] = []
             for call_id, name, args in tool_calls:
+                # Detect write_file loops — reject writes after 2 to same path
+                if name == "write_file":
+                    fpath = args.get("path", "")
+                    write_counts[fpath] = write_counts.get(fpath, 0) + 1
+                    if write_counts[fpath] > 2:
+                        logger.warning("write_file loop blocked: %s attempt %d", fpath, write_counts[fpath])
+                        tool_output = (
+                            f"[error] WRITE REJECTED. {fpath} already written {write_counts[fpath] - 1} times. "
+                            "File content is correct from your earlier write. "
+                            "Do NOT rewrite files. Call task_complete now with your summary and files_created list."
+                        )
+                        iterations.append(AgentIteration(
+                            iteration=i + 1,
+                            tool_name=name,
+                            tool_input={"path": fpath, "content": "(blocked — duplicate write)"},
+                            tool_output=tool_output,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                        ))
+                        results.append((call_id, tool_output))
+                        continue
+
                 tool_output = _execute_tool(sandbox, name, args, tool_server_map)
 
                 iterations.append(AgentIteration(
@@ -620,6 +642,7 @@ async def execute_agent_streaming(
         total_in = 0
         total_out = 0
         task_completed = False
+        write_counts: dict[str, int] = {}  # track write_file calls per path
 
         for i in range(config.max_iterations):
             wants_tools, tool_calls, text, tokens_in, tokens_out = await asyncio.to_thread(provider.call)
@@ -639,6 +662,29 @@ async def execute_agent_streaming(
 
             results: list[tuple[str, str]] = []
             for call_id, name, args in tool_calls:
+                # Detect write_file loops — reject writes after 2 to same path
+                if name == "write_file":
+                    fpath = args.get("path", "")
+                    write_counts[fpath] = write_counts.get(fpath, 0) + 1
+                    if write_counts[fpath] > 2:
+                        logger.warning("write_file loop blocked: %s attempt %d", fpath, write_counts[fpath])
+                        tool_output = (
+                            f"[error] WRITE REJECTED. {fpath} already written {write_counts[fpath] - 1} times. "
+                            "File content is correct from your earlier write. "
+                            "Do NOT rewrite files. Call task_complete now with your summary and files_created list."
+                        )
+                        iteration = AgentIteration(
+                            iteration=i + 1,
+                            tool_name=name,
+                            tool_input={"path": fpath, "content": "(blocked — duplicate write)"},
+                            tool_output=tool_output,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                        )
+                        iterations.append(iteration)
+                        yield iteration
+                        results.append((call_id, tool_output))
+                        continue
+
                 tool_output = _execute_tool(sandbox, name, args, tool_server_map)
 
                 iteration = AgentIteration(

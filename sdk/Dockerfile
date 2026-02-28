@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir ".[server,sandbox]"
 
 FROM python:3.12-slim
 
+# No Node.js needed — Claude Code runs in isolated worker pods
 RUN groupadd --gid 1000 agentura && \
     useradd --uid 1000 --gid agentura --create-home agentura
 

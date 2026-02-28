@@ -43,6 +43,7 @@ class SandboxConfig(BaseModel):
     cpu: int = 2
     memory: int = 512
     backend: str = ""
+    executor: str = ""  # "claude-code" for Claude Agent SDK, "" for legacy sandbox
 
 
 class AgentIteration(BaseModel):
