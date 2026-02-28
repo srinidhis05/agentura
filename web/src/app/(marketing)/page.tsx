@@ -3,10 +3,11 @@ export default function LandingPage() {
     <div className="min-h-screen text-foreground">
       <Nav />
       <Hero />
+      <MemoryMoat />
       <HowItWorks />
+      <MemoryLearning />
       <ExecutorTypes />
       <Architecture />
-      <MemoryLearning />
       <PortYourPlugins />
       <WhySelfHost />
       <GetStarted />
@@ -31,10 +32,10 @@ function Nav() {
         </div>
 
         <div className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
+          <a href="#memory-moat" className="transition-colors hover:text-foreground">Memory Moat</a>
           <a href="#how-it-works" className="transition-colors hover:text-foreground">How It Works</a>
           <a href="#executors" className="transition-colors hover:text-foreground">Executors</a>
           <a href="#architecture" className="transition-colors hover:text-foreground">Architecture</a>
-          <a href="#memory" className="transition-colors hover:text-foreground">Memory</a>
           <a href="#port-plugins" className="transition-colors hover:text-foreground">Port Plugins</a>
         </div>
 
@@ -68,15 +69,15 @@ function Hero() {
         </div>
 
         <h1 className="text-4xl font-bold leading-tight tracking-tight md:text-6xl md:leading-[1.1]">
-          AI Agent Orchestration{" "}
+          AI That Gets Smarter{" "}
           <br className="hidden md:block" />
-          on Your Infrastructure
+          &mdash; And Stays Yours
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground md:text-xl">
-          Turn any automation, runbook, or work plugin into an AI skill that runs in
-          isolated K8s pods, learns from corrections, and gets smarter with every execution.
-          Three executor types. Built-in memory. Zero vendor lock-in.
+          Cloud AI forgets you between sessions. Agentura remembers everything &mdash;
+          corrections become reflexion rules, reflexions become system prompts, and every
+          execution deepens a knowledge base that lives on your infrastructure, not someone else&apos;s.
         </p>
 
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
@@ -91,14 +92,105 @@ function Hero() {
             Get Started
           </a>
           <a
-            href="#architecture"
+            href="#memory-moat"
             className="rounded-lg border border-border px-6 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
           >
-            View Architecture
+            See the Memory Moat
           </a>
         </div>
       </div>
     </section>
+  );
+}
+
+/* ── Memory Moat ── */
+
+function MemoryMoat() {
+  return (
+    <section id="memory-moat" className="border-t border-border/50 py-20 md:py-28">
+      <div className="mx-auto max-w-5xl px-6">
+        <div className="grid gap-10 md:grid-cols-2 md:items-center">
+          <div>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-purple-400">
+              The Memory Moat
+            </p>
+            <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+              The longer you use it,{" "}
+              <br className="hidden md:block" />
+              the deeper your moat
+            </h2>
+            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+              Every correction your team makes becomes a permanent guardrail.
+              Every reflexion rule gets injected into future prompts automatically.
+              Six months in, your system knows your domain better than any vendor
+              ever could &mdash; and that knowledge can never be taken from you.
+            </p>
+            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+              The moat isn&apos;t the orchestrator. It&apos;s the thousands of domain-specific
+              learnings that accumulate on your infrastructure and belong to you forever.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <MoatStep
+              week="Week 1"
+              label="First corrections"
+              detail="Team corrects agent output. System stores corrections in PostgreSQL."
+              fill="w-[15%]"
+              color="from-purple-500/60 to-purple-500/30"
+            />
+            <MoatStep
+              week="Month 1"
+              label="Reflexion rules active"
+              detail="Corrections generate reflexions. Agents stop repeating the same mistakes."
+              fill="w-[35%]"
+              color="from-purple-500/70 to-blue-500/40"
+            />
+            <MoatStep
+              week="Month 3"
+              label="Domain expertise emerges"
+              detail="Hundreds of learnings. Agents know your naming conventions, preferences, edge cases."
+              fill="w-[65%]"
+              color="from-blue-500/70 to-cyan-500/40"
+            />
+            <MoatStep
+              week="Month 6+"
+              label="Institutional memory"
+              detail="Thousands of domain-specific guardrails. No vendor can replicate this. It's yours."
+              fill="w-[90%]"
+              color="from-cyan-500/70 to-emerald-500/50"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MoatStep({
+  week,
+  label,
+  detail,
+  fill,
+  color,
+}: {
+  week: string;
+  label: string;
+  detail: string;
+  fill: string;
+  color: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-card/50 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-muted-foreground">{week}</span>
+        <span className="text-sm font-medium">{label}</span>
+      </div>
+      <div className="h-2 w-full rounded-full bg-secondary/80">
+        <div className={`h-2 rounded-full bg-gradient-to-r ${color} ${fill}`} />
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
+    </div>
   );
 }
 
@@ -512,10 +604,10 @@ function MemoryLearning() {
       <div className="mx-auto max-w-6xl px-6">
         <div className="mb-12 text-center">
           <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
-            Memory That Compounds
+            How the Memory System Works
           </h2>
           <p className="mt-3 text-sm text-muted-foreground">
-            Every execution teaches the system. Corrections, reflexions, and preferences persist across sessions.
+            Three mechanisms that compound: reflexion rules, correction pipelines, and cross-domain recall
           </p>
         </div>
 
