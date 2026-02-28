@@ -1,6 +1,8 @@
 # Agentura — AI That Gets Smarter, And Stays Yours
 
 [![CI](https://github.com/srinidhis05/agentura/actions/workflows/ci.yml/badge.svg)](https://github.com/srinidhis05/agentura/actions/workflows/ci.yml)
+[![Website](https://img.shields.io/badge/Website-agenturaai.tech-blue)](https://agenturaai.tech)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 
 > Self-hosted AI agent orchestrator with config-driven skills, isolated K8s execution, and a learning loop that compounds. Corrections become reflexion rules, reflexions become system prompts, and every execution deepens a knowledge base that lives on your infrastructure.
 
@@ -35,6 +37,18 @@ https://github.com/user-attachments/assets/213bc72a-bbfe-477e-ad59-18bc1ba5360b
 2. **Run a skill** — HR interview questions generated via Claude Sonnet
 3. **Correct a mistake** — "Need more system design depth" → reflexion rule + test auto-generated
 4. **Re-run** — Same skill now includes the learned rule in its prompt
+</details>
+
+### Web UI — Chat + Dashboard
+
+https://github.com/user-attachments/assets/48519761-0369-4f5d-9d99-9e5bd9cfc146
+
+<details>
+<summary>What you're seeing</summary>
+
+1. **Chat interface** — Natural language routing to the right skill
+2. **Dashboard** — Domain topology, execution history, knowledge layer
+3. **Skill detail** — Full SKILL.md rendered with config, guardrails, and metrics
 </details>
 
 ## What Is This?
