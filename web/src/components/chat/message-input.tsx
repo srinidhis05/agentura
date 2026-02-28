@@ -7,9 +7,10 @@ interface MessageInputProps {
   onChange: (value: string) => void;
   onSend: () => void;
   disabled?: boolean;
+  placeholder?: string;
 }
 
-export function MessageInput({ value, onChange, onSend, disabled }: MessageInputProps) {
+export function MessageInput({ value, onChange, onSend, disabled, placeholder }: MessageInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleKeyDown = useCallback(
@@ -45,7 +46,7 @@ export function MessageInput({ value, onChange, onSend, disabled }: MessageInput
             disabled={disabled}
             rows={1}
             className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
-            placeholder="Message Agentura..."
+            placeholder={placeholder ?? "Message Agentura..."}
             autoComplete="off"
             spellCheck={false}
           />

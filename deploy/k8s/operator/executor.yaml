@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor
+  namespace: agentura
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: executor
+  template:
+    metadata:
+      labels:
+        app: executor
+    spec:
+      serviceAccountName: executor
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: fix-perms
+          image: alpine:3.19
+          command: ["sh", "-c", "chown 1000:1000 /artifacts && chown -R 1000:1000 /skills && chown -R 1000:1000 /pipelines && mkdir -p /data/.agentura && chown -R 1000:1000 /data"]
+          volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
+            - name: skills
+              mountPath: /skills
+            - name: pipelines
+              mountPath: /pipelines
+            - name: knowledge
+              mountPath: /data
+      containers:
+        - name: executor
+          image: agentura/executor:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SANDBOX_BACKEND
+              value: k8s
+            - name: SKILLS_DIR
+              value: /skills
+            - name: PIPELINES_DIR
+              value: /pipelines
+            - name: AGENTURA_KNOWLEDGE_DIR
+              value: /data/.agentura
+            - name: DATABASE_URL
+              value: postgresql://agentura:agentura_dev@postgres:5432/agentura
+            - name: MCP_K8S_URL
+              value: http://k8s-mcp:8090
+            # ANTHROPIC_API_KEY and SLACK_BOT_TOKEN loaded via envFrom secretRef below
+          envFrom:
+            - secretRef:
+                name: agentura-api-keys
+          volumeMounts:
+            - name: skills
+              mountPath: /skills
+            - name: pipelines
+              mountPath: /pipelines
+            - name: artifacts
+              mountPath: /artifacts
+            - name: knowledge
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            limits:
+              memory: 2Gi
+              cpu: "2"
+      volumes:
+        - name: skills
+          hostPath:
+            path: /skills
+            type: DirectoryOrCreate
+        - name: pipelines
+          hostPath:
+            path: /pipelines
+            type: DirectoryOrCreate
+        - name: artifacts
+          hostPath:
+            path: /artifacts
+            type: DirectoryOrCreate
+        - name: knowledge
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: executor
+  namespace: agentura
+spec:
+  selector:
+    app: executor
+  ports:
+    - port: 8000
+      targetPort: 8000

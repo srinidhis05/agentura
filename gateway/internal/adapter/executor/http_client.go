@@ -34,8 +34,9 @@ type CorrectRequest struct {
 
 // Client calls the Python skill executor over HTTP.
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL         string
+	httpClient      *http.Client
+	streamingClient *http.Client
 }
 
 // NewClient creates an executor client.
@@ -44,6 +45,12 @@ func NewClient(baseURL string, timeout time.Duration) *Client {
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: timeout,
+		},
+		// SSE streams can run for minutes (agent execution). http.Client.Timeout
+		// covers the entire request lifecycle including body reads, so we use a
+		// zero-timeout client and rely on context cancellation instead.
+		streamingClient: &http.Client{
+			Timeout: 0,
 		},
 	}
 }
@@ -148,6 +155,11 @@ func (c *Client) GetKnowledgeStats(ctx context.Context) (json.RawMessage, error)
 	return c.getJSON(ctx, "/api/v1/knowledge/stats")
 }
 
+// ListPipelines returns all available pipeline definitions as raw JSON passthrough.
+func (c *Client) ListPipelines(ctx context.Context) (json.RawMessage, error) {
+	return c.getJSON(ctx, "/api/v1/pipelines")
+}
+
 // ListDomains returns all domains with health metrics as raw JSON passthrough.
 func (c *Client) ListDomains(ctx context.Context) (json.RawMessage, error) {
 	return c.getJSON(ctx, "/api/v1/domains")
@@ -230,9 +242,59 @@ func (c *Client) FetchTriggers(ctx context.Context) ([]TriggerInfo, error) {
 	return triggers, nil
 }
 
+// StreamPost sends a POST and returns the raw *http.Response for SSE streaming.
+// The caller is responsible for closing resp.Body.
+// Uses the streaming client (no timeout) so long-running SSE streams aren't killed.
+func (c *Client) StreamPost(ctx context.Context, path string, payload []byte) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.streamingClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling executor: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("executor returned %d: %s", resp.StatusCode, body)
+	}
+
+	return resp, nil
+}
+
 // BaseURL returns the executor base URL (used by webhook handler for routing).
 func (c *Client) BaseURL() string {
 	return c.baseURL
+}
+
+// PostRaw sends a raw JSON payload to the executor and returns the response.
+func (c *Client) PostRaw(ctx context.Context, path string, payload []byte) (json.RawMessage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling executor: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("executor returned %d: %s", resp.StatusCode, respBody)
+	}
+
+	return json.RawMessage(respBody), nil
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, body any) (json.RawMessage, error) {

@@ -7,32 +7,34 @@ model: anthropic/claude-haiku-4.5
 cost_budget_per_execution: "$0.01"
 timeout: "5s"
 routes_to:
-  - skill: web-researcher
-    when: "research, compare, summarize, what is, find information"
-  - skill: morning-briefing
-    when: "morning, briefing, daily, catch up, what's happening, today"
+  - skill: "meeting-summarizer"
+    when: "summarize meeting, meeting notes, action items from meeting, recap, standup notes"
+  - skill: "email-drafter"
+    when: "write email, draft email, compose email, reply to email, follow-up email"
 ---
 
 # Productivity Domain Manager
 
 ## Task
 
-Receive all productivity-related queries. Classify the intent, extract entities (topics, dates), and route to the correct specialist or field skill. Do NOT answer the query — only triage and route.
+Receive all productivity-related queries. Classify the intent, extract entities, and route to the correct specialist skill. Do NOT answer the query — only triage and route.
 
 ## Available Skills
 
 | Skill | Role | Handles |
 |-------|------|---------|
-| `web-researcher` | specialist | Topic research, comparisons, structured summaries |
-| `morning-briefing` | field | Daily briefings, status aggregation, action items |
+| `meeting-summarizer` | specialist | Meeting notes, summaries, action items, recaps |
+| `email-drafter` | specialist | Composing, drafting, replying to emails |
 
 ## Output Format
 
 ```json
 {
-  "route_to": "productivity/web-researcher | productivity/morning-briefing",
+  "route_to": "meeting-summarizer",
   "confidence": 0.95,
-  "entities": {},
+  "entities": {
+    "content": "extracted meeting transcript or email context"
+  },
   "reasoning": "one sentence"
 }
 ```

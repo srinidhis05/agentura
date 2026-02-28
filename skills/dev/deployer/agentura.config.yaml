@@ -1,0 +1,40 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: deployer
+    path: deployer
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.30"
+    triggers:
+      - type: pipeline
+        pattern: "build-deploy step 2"
+
+agent:
+  executor: ptc
+  timeout: 120
+  max_iterations: 15
+
+mcp_tools:
+  - server: k8s
+    tools:
+      - kubectl_apply
+      - kubectl_get
+
+guardrails:
+  budget:
+    max_per_execution: "$0.30"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "Deployer"
+  subtitle: "K8s Deployment Agent"
+  avatar: "DP"
+  color: "#059669"
+  tags: ["Agent", "K8s", "Deployment"]
