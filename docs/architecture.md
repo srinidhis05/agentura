@@ -268,8 +268,15 @@ CLI commands `list`, `run`, `validate`, `test`, `correct` work locally. Gateway 
 2. MCP gateway integration for tool call policy enforcement
 3. Shadow mode canary for batch skills
 
-### Phase 3: Organizational Memory — Built
+### Phase 3: Organizational Memory — Partially built
 PostgreSQL + Qdrant store executions, corrections, and reflexions. Memory recall in agent executor injects relevant corrections and reflexions into the system prompt before each skill run. Semantic search via Qdrant with PostgreSQL fallback (DEC-049).
+
+**Built**: Skill-level memory recall, corrections → reflexions → prompt injection, regression test generation, memory search API.
+
+**Not built**:
+1. **Cross-domain recall**: Memory is currently scoped to `user_id=skill_path` (single skill). Cross-domain recall that surfaces learnings from other skills/domains is not implemented.
+2. **Firm-level memory**: The 4-level hierarchy (Firm → Domain → Skill → Session) is documented but only 3 levels exist in code. Workspace/firm-level memory is not implemented.
+3. **Automatic correction flow**: Corrections require explicit `agentura correct` CLI invocation. No automatic correction trigger from the dashboard or API callback.
 
 ### Phase 4: Memory Governance — Not started
 Enterprise controls for production memory rollout:
@@ -279,7 +286,17 @@ Enterprise controls for production memory rollout:
 4. **Audit trail**: `created_by`, `updated_by`, `update_reason` on all memory mutations
 5. **Observability**: Prometheus metrics on recall latency, store errors, domain isolation violations
 
-### Phase 5: Continuous Controllers (self-healing) — Not started
+### Phase 5: Admission Control & Budget Enforcement — Not started
+1. **Gateway admission control**: Pre-route budget check, model gating, domain authorization at gateway layer
+2. **Runtime budget enforcement**: Stop execution when cost exceeds `max_per_execution` (currently declared but not enforced by SDK)
+3. **Cost alerting**: Notify when skill/domain spend crosses threshold
+
+### Phase 6: Local Model Support — Not started
+1. **Ollama integration**: Point executor at local Ollama endpoint for air-gapped deployments
+2. **vLLM support**: High-throughput local inference for production air-gapped clusters
+3. **Model router**: Abstract provider selection (cloud vs local) behind config flag
+
+### Phase 7: Continuous Controllers (self-healing) — Not started
 1. Skill health probes (accept rate, cost, latency monitoring)
 2. Auto-rollback on degradation (ADR-017)
 3. Shadow mode canary
