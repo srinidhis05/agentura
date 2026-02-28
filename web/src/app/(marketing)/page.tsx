@@ -3,7 +3,7 @@ export default function LandingPage() {
     <div className="min-h-screen text-foreground">
       <Nav />
       <Hero />
-      <MemoryMoat />
+      <CompoundingIntelligence />
       <HowItWorks />
       <MemoryLearning />
       <ExecutorTypes />
@@ -32,7 +32,7 @@ function Nav() {
         </div>
 
         <div className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
-          <a href="#memory-moat" className="transition-colors hover:text-foreground">Memory Moat</a>
+          <a href="#how-it-learns" className="transition-colors hover:text-foreground">How It Learns</a>
           <a href="#how-it-works" className="transition-colors hover:text-foreground">How It Works</a>
           <a href="#executors" className="transition-colors hover:text-foreground">Executors</a>
           <a href="#architecture" className="transition-colors hover:text-foreground">Architecture</a>
@@ -95,7 +95,7 @@ function Hero() {
             href="#memory-moat"
             className="rounded-lg border border-border px-6 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
           >
-            See the Memory Moat
+            See How It Learns
           </a>
         </div>
       </div>
@@ -105,19 +105,19 @@ function Hero() {
 
 /* ── Memory Moat ── */
 
-function MemoryMoat() {
+function CompoundingIntelligence() {
   return (
-    <section id="memory-moat" className="border-t border-border/50 py-20 md:py-28">
+    <section id="how-it-learns" className="border-t border-border/50 py-20 md:py-28">
       <div className="mx-auto max-w-5xl px-6">
         <div className="grid gap-10 md:grid-cols-2 md:items-center">
           <div>
             <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-purple-400">
-              The Memory Moat
+              Intelligence That Compounds
             </p>
             <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
               The longer you use it,{" "}
               <br className="hidden md:block" />
-              the deeper your moat
+              the smarter it gets
             </h2>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               Every correction your team makes becomes a permanent guardrail.
@@ -126,8 +126,9 @@ function MemoryMoat() {
               ever could &mdash; and that knowledge can never be taken from you.
             </p>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              The moat isn&apos;t the orchestrator. It&apos;s the thousands of domain-specific
-              learnings that accumulate on your infrastructure and belong to you forever.
+              After six months, your system has thousands of domain-specific
+              learnings that no vendor can replicate &mdash; because they live on
+              your infrastructure and belong to you.
             </p>
           </div>
 
