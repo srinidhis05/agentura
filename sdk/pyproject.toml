@@ -22,7 +22,6 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "deepeval>=1.0.0",
-    "promptfoo>=0.60.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
 ]
