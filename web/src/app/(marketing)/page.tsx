@@ -8,6 +8,7 @@ export default function LandingPage() {
       <MemoryLearning />
       <ExecutorTypes />
       <Architecture />
+      <Triggers />
       <PortYourPlugins />
       <WhySelfHost />
       <GetStarted />
@@ -36,6 +37,7 @@ function Nav() {
           <a href="#how-it-works" className="transition-colors hover:text-foreground">How It Works</a>
           <a href="#executors" className="transition-colors hover:text-foreground">Executors</a>
           <a href="#architecture" className="transition-colors hover:text-foreground">Architecture</a>
+          <a href="#triggers" className="transition-colors hover:text-foreground">Triggers</a>
           <a href="#port-plugins" className="transition-colors hover:text-foreground">Port Plugins</a>
         </div>
 
@@ -682,6 +684,119 @@ reflexion rule → prompt injection
 # Original SKILL.md follows...`}</pre>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Triggers ── */
+
+function Triggers() {
+  const triggers = [
+    {
+      name: "Slack",
+      desc: "@mention the bot, DM it, or use /agentura slash commands. Results post back to the channel.",
+      config: `# agentura.config.yaml
+triggers:
+  - type: slack
+    command: "/agentura run"`,
+      icon: (
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zm10.124 2.521a2.528 2.528 0 0 1 2.52-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.52V8.834zm-1.271 0a2.528 2.528 0 0 1-2.521 2.521 2.528 2.528 0 0 1-2.521-2.521V2.522A2.528 2.528 0 0 1 15.165 0a2.528 2.528 0 0 1 2.522 2.522v6.312zm-2.522 10.124a2.528 2.528 0 0 1 2.522 2.52A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.521-2.522v-2.52h2.521zm0-1.271a2.527 2.527 0 0 1-2.521-2.521 2.528 2.528 0 0 1 2.521-2.522h6.313A2.528 2.528 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.522h-6.313z" />
+        </svg>
+      ),
+      color: "emerald",
+    },
+    {
+      name: "GitHub Webhooks",
+      desc: "PR opened or updated triggers the review pipeline. Comments with corrections feed back into the learning loop.",
+      config: `# Gateway auto-handles:
+# PR opened → dev/pr-reviewer pipeline
+# Comment feedback → correction flow
+#
+# POST /api/v1/webhooks/github`,
+      icon: (
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+        </svg>
+      ),
+      color: "blue",
+    },
+    {
+      name: "Cron Schedules",
+      desc: "Run skills on a schedule. The gateway discovers cron triggers from skill configs and manages the schedule automatically.",
+      config: `# agentura.config.yaml
+triggers:
+  - type: cron
+    schedule: "0 9 * * 1-5"
+    description: "Weekday 9 AM"`,
+      icon: (
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+      color: "amber",
+    },
+    {
+      name: "Webhooks + API",
+      desc: "Any external system can trigger skills via HMAC-signed webhooks or direct REST API calls. Route through the classifier or target a skill directly.",
+      config: `# Generic webhook with HMAC verification
+POST /api/v1/channels/{channel}/inbound
+X-Webhook-Signature: sha256=...
+
+# Direct skill execution
+POST /api/v1/skills/{domain}/{skill}/execute`,
+      icon: (
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.12l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+        </svg>
+      ),
+      color: "purple",
+    },
+  ];
+
+  const colorMap = {
+    emerald: { border: "border-emerald-500/30", icon: "bg-emerald-500/10 text-emerald-400", label: "text-emerald-400" },
+    blue: { border: "border-blue-500/30", icon: "bg-blue-500/10 text-blue-400", label: "text-blue-400" },
+    amber: { border: "border-amber-500/30", icon: "bg-amber-500/10 text-amber-400", label: "text-amber-400" },
+    purple: { border: "border-purple-500/30", icon: "bg-purple-500/10 text-purple-400", label: "text-purple-400" },
+  };
+
+  return (
+    <section id="triggers" className="border-t border-border/50 py-20 md:py-28">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mb-12 text-center">
+          <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+            Trigger From Anywhere
+          </h2>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Skills and pipelines respond to Slack messages, GitHub events, cron schedules, webhooks, or direct API calls
+          </p>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2">
+          {triggers.map((trigger) => {
+            const c = colorMap[trigger.color as keyof typeof colorMap];
+            return (
+              <div key={trigger.name} className={`rounded-xl border ${c.border} bg-card/50 p-6 shadow-lg`}>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${c.icon}`}>
+                    {trigger.icon}
+                  </div>
+                  <h3 className={`text-base font-semibold ${c.label}`}>{trigger.name}</h3>
+                </div>
+                <p className="text-sm leading-relaxed text-muted-foreground mb-4">
+                  {trigger.desc}
+                </p>
+                <div className="overflow-hidden rounded-lg border border-border bg-background/50">
+                  <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-muted-foreground">
+                    <code>{trigger.config}</code>
+                  </pre>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>
