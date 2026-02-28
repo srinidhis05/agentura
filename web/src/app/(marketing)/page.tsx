@@ -251,15 +251,17 @@ mcp_tools:
     {
       num: "4",
       title: "Learn and Improve",
-      desc: "Submit corrections via CLI or API. The system generates reflexion rules and regression tests. Reflexions are injected into future prompts. Memory recall applies learned preferences automatically.",
-      code: `# User corrects: "use dark theme"
-# System generates:
-correction: "Always use dark theme"
-reflexion: "User prefers dark mode with
-  purple accent (#8b5cf6). Apply this
-  theme to all UI builds."
+      desc: "Run one command to correct an agent. The system stores the correction, generates a reflexion rule, and auto-generates regression tests. On the next execution, memory recall injects the reflexion into the prompt automatically.",
+      code: `$ agentura correct dev/app-builder \\
+    --execution-id EXEC-20260228 \\
+    --correction "Always use dark theme"
 
-# Next execution auto-recalls this.`,
+✓ Correction stored in PostgreSQL
+✓ Reflexion generated: "User prefers
+  dark mode with purple accent (#8b5cf6)"
+✓ Regression test written to
+  tests/generated/test_correction_3.py
+# Next run auto-recalls this reflexion.`,
       color: "text-purple-400",
       borderColor: "border-purple-500/30",
     },
@@ -645,16 +647,18 @@ Apply to all UI builds."
             </div>
             <h3 className="text-base font-semibold">Correction &rarr; Test Pipeline</h3>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Every correction is stored in PostgreSQL. Corrections auto-generate regression tests
-              that guard against repeat failures. After 6 months of use, your skills accumulate
-              thousands of domain-specific guardrails.
+              Run <code className="text-xs bg-secondary/80 px-1 py-0.5 rounded">agentura correct</code> to
+              submit a correction. The system stores it in PostgreSQL, generates a reflexion rule, and writes
+              a DeepEval regression test to <code className="text-xs bg-secondary/80 px-1 py-0.5 rounded">tests/generated/</code>.
+              Over time, your skills accumulate domain-specific guardrails.
             </p>
             <div className="mt-4 rounded-lg border border-border bg-background/50 p-3">
-              <pre className="font-mono text-xs text-muted-foreground leading-relaxed">{`correction → regression test
-regression test → reflexion rule
-reflexion rule → prompt injection
-
-# Compounding improvement loop`}</pre>
+              <pre className="font-mono text-xs text-muted-foreground leading-relaxed">{`$ agentura correct dev/app-builder
+# Triggers:
+#  1. Correction → PostgreSQL
+#  2. Reflexion rule → prompt injection
+#  3. DeepEval test → tests/generated/
+#  4. GUARDRAILS.md → domain guardrails`}</pre>
             </div>
           </div>
 
