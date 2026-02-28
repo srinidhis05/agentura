@@ -34,6 +34,7 @@ class PTCRequest(BaseModel):
     system_prompt: str
     model: str = "claude-sonnet-4-5-20250929"
     max_turns: int = 15
+    max_tokens: int = 16384
     mcp_servers: dict[str, dict] = Field(default_factory=dict)
     allowed_mcp_tools: list[str] = Field(default_factory=list)
 
@@ -100,12 +101,15 @@ def _call_mcp_tool(
     arguments: dict,
     tool_server_map: dict[str, str],
     *,
-    real_tool_calls: int = 0,
+    tools_called: set[str] | None = None,
 ) -> str:
     """Dispatch a tool call to its MCP server."""
     if tool_name == "task_complete":
-        if real_tool_calls == 0:
-            return "[error] You have not called any tools yet. You MUST perform the actual work (e.g. kubectl_apply) before calling task_complete. Do your job first."
+        called = tools_called or set()
+        # Require at least one write/mutating tool call — reads alone don't count
+        write_tools = {"kubectl_apply", "write_file", "run_command"}
+        if not called & write_tools:
+            return "[error] You have not called any mutating tools (e.g. kubectl_apply). Reading state with kubectl_get is NOT enough. You MUST apply the manifest before completing. Generate the K8s YAML from the artifacts dict and call kubectl_apply NOW."
         return json.dumps(arguments)
 
     server_url = tool_server_map.get(tool_name)
@@ -176,13 +180,13 @@ async def execute_stream(request: PTCRequest):
         total_out = 0
         final_output: dict = {}
         task_completed = False
-        real_tool_calls = 0
+        tools_called: set[str] = set()
 
         try:
             for _turn in range(request.max_turns):
                 resp = anthropic.messages.create(
                     model=request.model,
-                    max_tokens=4096,
+                    max_tokens=request.max_tokens,
                     system=request.system_prompt,
                     tools=tools,
                     messages=messages,
@@ -191,6 +195,19 @@ async def execute_stream(request: PTCRequest):
                 messages.append({"role": "assistant", "content": resp.content})
                 total_in += resp.usage.input_tokens
                 total_out += resp.usage.output_tokens
+
+                if resp.stop_reason == "max_tokens":
+                    logger.warning("Response truncated (max_tokens hit at %d output tokens). Continuing.", resp.usage.output_tokens)
+                    # Provide tool_results for any partial tool_use blocks so the API accepts the next turn
+                    partial_tool_ids = [b.id for b in resp.content if b.type == "tool_use"]
+                    if partial_tool_ids:
+                        messages.append({"role": "user", "content": [
+                            {"type": "tool_result", "tool_use_id": tid, "content": "[truncated] Your previous response was cut off. Please call the tool again with the complete input."}
+                            for tid in partial_tool_ids
+                        ]})
+                    else:
+                        messages.append({"role": "user", "content": "Your response was truncated. Please call the required tools now."})
+                    continue
 
                 if resp.stop_reason != "tool_use":
                     text_parts = [b.text for b in resp.content if b.type == "text"]
@@ -213,11 +230,11 @@ async def execute_stream(request: PTCRequest):
 
                     tool_output = _call_mcp_tool(
                         block.name, block.input, tool_server_map,
-                        real_tool_calls=real_tool_calls,
+                        tools_called=tools_called,
                     )
 
                     if block.name != "task_complete":
-                        real_tool_calls += 1
+                        tools_called.add(block.name)
 
                     yield _sse("tool_result", {
                         "tool_use_id": block.id,

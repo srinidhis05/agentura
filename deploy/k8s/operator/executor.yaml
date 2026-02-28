@@ -19,7 +19,7 @@ spec:
       initContainers:
         - name: fix-perms
           image: alpine:3.19
-          command: ["sh", "-c", "chown 1000:1000 /artifacts && chown -R 1000:1000 /skills && chown -R 1000:1000 /pipelines"]
+          command: ["sh", "-c", "chown 1000:1000 /artifacts && chown -R 1000:1000 /skills && chown -R 1000:1000 /pipelines && mkdir -p /data/.agentura && chown -R 1000:1000 /data"]
           volumeMounts:
             - name: artifacts
               mountPath: /artifacts
@@ -27,6 +27,8 @@ spec:
               mountPath: /skills
             - name: pipelines
               mountPath: /pipelines
+            - name: knowledge
+              mountPath: /data
       containers:
         - name: executor
           image: agentura/executor:latest
@@ -57,6 +59,8 @@ spec:
               mountPath: /pipelines
             - name: artifacts
               mountPath: /artifacts
+            - name: knowledge
+              mountPath: /data
           readinessProbe:
             httpGet:
               path: /health
@@ -71,7 +75,7 @@ spec:
         - name: skills
           hostPath:
             path: /skills
-            type: Directory
+            type: DirectoryOrCreate
         - name: pipelines
           hostPath:
             path: /pipelines
@@ -80,6 +84,8 @@ spec:
           hostPath:
             path: /artifacts
             type: DirectoryOrCreate
+        - name: knowledge
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

@@ -455,7 +455,7 @@ def _build_prompt_with_memory(ctx: SkillContext) -> str:
     )
     if memory_section:
         logger.info("Injected %d chars of memory context", len(memory_section))
-        return f"{ctx.system_prompt}\n\n---\n\n{memory_section}"
+        return f"{memory_section}\n\n---\n\n{ctx.system_prompt}"
     return ctx.system_prompt
 
 
