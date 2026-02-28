@@ -94,7 +94,7 @@ function Hero() {
             Get Started
           </a>
           <a
-            href="#memory-moat"
+            href="#how-it-learns"
             className="rounded-lg border border-border px-6 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
           >
             See How It Learns
@@ -124,8 +124,8 @@ function CompoundingIntelligence() {
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               Every correction your team makes becomes a permanent guardrail.
               Every reflexion rule gets injected into future prompts automatically.
-              And when one agent learns something, every agent in your organization
-              benefits &mdash; learnings flow across domains, not just within a single skill.
+              Learnings persist per skill and domain &mdash; and the architecture is designed
+              so cross-domain recall can surface relevant knowledge across your entire organization.
             </p>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               Six months in, your system has thousands of domain-specific
@@ -151,15 +151,15 @@ function CompoundingIntelligence() {
             />
             <MoatStep
               week="Month 3"
-              label="Cross-agent learning"
-              detail="Learnings flow across domains. A preference set in dev/app-builder is recalled by hr/onboarding-guide."
+              label="Domain expertise emerges"
+              detail="Hundreds of skill-level learnings. Agents know your naming conventions, preferences, and edge cases."
               fill="w-[65%]"
               color="from-blue-500/70 to-cyan-500/40"
             />
             <MoatStep
               week="Month 6+"
-              label="Organizational intelligence"
-              detail="Thousands of guardrails across every domain. Your entire org's knowledge, searchable and applied automatically."
+              label="Institutional memory"
+              detail="Thousands of domain-specific guardrails stored in PostgreSQL. Searchable, versioned, and yours."
               fill="w-[90%]"
               color="from-cyan-500/70 to-emerald-500/50"
             />
@@ -204,7 +204,7 @@ function HowItWorks() {
     {
       num: "1",
       title: "Write a Skill",
-      desc: "Define your agent in SKILL.md (Markdown) and agentura.config.yaml. Pick an executor type, wire MCP tools, set budgets.",
+      desc: "Define your agent in SKILL.md (Markdown) and agentura.config.yaml. Pick an executor type, wire MCP tools, set iteration and token limits.",
       code: `---
 name: deployer
 role: agent
@@ -251,7 +251,7 @@ mcp_tools:
     {
       num: "4",
       title: "Learn and Improve",
-      desc: "Corrections become regression tests. Reflexion rules are injected into future prompts. Memory recall applies learned preferences automatically.",
+      desc: "Submit corrections via CLI or API. The system generates reflexion rules and regression tests. Reflexions are injected into future prompts. Memory recall applies learned preferences automatically.",
       code: `# User corrects: "use dark theme"
 # System generates:
 correction: "Always use dark theme"
@@ -458,7 +458,7 @@ function Architecture() {
             <div className="grid gap-3 sm:grid-cols-4">
               <InnerBox label="API Server" sub="HTTP + SSE" color="blue" />
               <InnerBox label="Auth + CORS" sub="Rate Limiting" color="blue" />
-              <InnerBox label="Admission Control" sub="Budget + Model Gate" color="blue" />
+              <InnerBox label="Rate Limiting" sub="RPS + Burst Control" color="blue" />
               <InnerBox label="Pipeline Router" sub="Step Orchestration" color="blue" />
             </div>
           </div>
@@ -610,7 +610,7 @@ function MemoryLearning() {
             How the Memory System Works
           </h2>
           <p className="mt-3 text-sm text-muted-foreground">
-            Four levels of memory &mdash; from individual sessions to organization-wide knowledge &mdash; that flow across every agent
+            Three layers of memory &mdash; session, skill, and domain &mdash; with cross-domain recall on the roadmap
           </p>
         </div>
 
@@ -664,22 +664,20 @@ reflexion rule → prompt injection
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
             </div>
-            <h3 className="text-base font-semibold">Organizational Memory</h3>
+            <h3 className="text-base font-semibold">Skill-Level Memory</h3>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              When one agent learns, every agent benefits. Memory recall searches
-              across all domains to surface relevant learnings &mdash; a theme preference
-              from dev/app-builder appears in hr/onboarding-guide. Four levels:
-              Firm &rarr; Domain &rarr; Skill &rarr; Session.
+              Each skill accumulates its own corrections and reflexions.
+              Memory recall injects relevant learnings into the system prompt
+              before every execution. Stored in PostgreSQL, searchable via
+              semantic similarity with Qdrant fallback.
             </p>
             <div className="mt-4 rounded-lg border border-border bg-background/50 p-3">
               <pre className="font-mono text-xs text-muted-foreground leading-relaxed">{`# Memory injected at TOP of prompt:
-## Org Memory (cross-domain recall)
+## Memory (from past executions)
 - Theme: dark mode, #8b5cf6
 - Stack: vanilla JS preferred
 - Deploys: always use NodePort 32xxx
 
-## Domain Memory (dev/)
-- Tests: always include unit tests
 ---
 # Original SKILL.md follows...`}</pre>
             </div>
@@ -908,78 +906,130 @@ function PortYourPlugins() {
   );
 }
 
-/* ── Why Self-Host ── */
+/* ── Security & Deployment ── */
 
 function WhySelfHost() {
-  const reasons = [
+  const security = [
     {
-      title: "Your Data Never Leaves",
-      copy: "Skills run in your K8s cluster. Prompts, responses, artifacts, and domain knowledge stay inside your network. Agent pods are ephemeral — created per-execution, destroyed after.",
-      icon: (
-        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-        </svg>
-      ),
+      title: "HMAC Webhook Verification",
+      desc: "Inbound webhooks (GitHub, Slack, custom) are verified via SHA-256 HMAC signatures before processing.",
+      status: "built",
     },
     {
-      title: "No Vendor Lock-In",
-      copy: "Skills are Markdown. Config is YAML. Swap Claude for GPT, Gemini, or a local model via OpenRouter — skills, memory, and the knowledge layer stay the same.",
-      icon: (
-        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-        </svg>
-      ),
+      title: "JWT + Domain-Scoped RBAC",
+      desc: "Gateway validates JWTs and extracts domain_scope claims. Skills can only be executed within authorized domains.",
+      status: "built",
     },
     {
-      title: "Domain Isolation Built In",
-      copy: "Finance skills can't see HR data. Dev tools can't access production credentials. Each domain has its own RBAC, budget limits, MCP tool bindings, and admission policies.",
-      icon: (
-        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-        </svg>
-      ),
+      title: "Ephemeral Agent Pods",
+      desc: "Each execution creates an isolated K8s pod with bounded CPU/memory. Pod is destroyed after completion — no persistent attack surface.",
+      status: "built",
     },
     {
-      title: "Cost Control Per Execution",
-      copy: "Every skill has a budget cap. Every execution is logged with cost, latency, model used, and outcome. No surprise bills — agents are bounded by design.",
-      icon: (
-        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
+      title: "Rate Limiting",
+      desc: "Global RPS and burst control at the gateway layer. Configurable per deployment.",
+      status: "built",
+    },
+    {
+      title: "Scoped MCP Tool Bindings",
+      desc: "Each skill declares which MCP tools it can access. Dev skills get kubectl; HR skills get different tools. No skill has blanket access.",
+      status: "built",
+    },
+    {
+      title: "Memory Governance",
+      desc: "ACL-aware recall, PII scanning, retention/TTL, and audit trails for enterprise compliance.",
+      status: "roadmap",
+    },
+  ];
+
+  const deployment = [
+    {
+      title: "Any Kubernetes Cluster",
+      desc: "K3s on a Raspberry Pi, Kind for dev, EKS/GKE/AKS for production. Same manifests, same behavior.",
+    },
+    {
+      title: "VPC-Only Egress",
+      desc: "All data stays in your cluster. Only model API calls (Anthropic/OpenRouter) leave your network — and those can be routed through a proxy.",
+    },
+    {
+      title: "Multi-Model via OpenRouter",
+      desc: "Swap between Claude, GPT-4o, Gemini, DeepSeek, or Llama without changing skills. One API key, 200+ models.",
+    },
+    {
+      title: "Local Model Support",
+      desc: "Ollama and vLLM integration for fully air-gapped deployments where no data leaves the network.",
+      status: "roadmap",
     },
   ];
 
   return (
-    <section className="border-t border-border/50 py-20 md:py-28">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-12 text-center">
-          <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
-            Why Self-Host Your AI Agents?
-          </h2>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Cloud-hosted agents are convenient. But production teams need control, auditability, and agents that learn from their own data.
-          </p>
-        </div>
+    <>
+      {/* Security */}
+      <section id="security" className="border-t border-border/50 py-20 md:py-28">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="mb-12 text-center">
+            <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+              Security by Default
+            </h2>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Built for teams where security review is a gate, not an afterthought
+            </p>
+          </div>
 
-        <div className="grid gap-6 md:grid-cols-2">
-          {reasons.map((reason) => (
-            <div
-              key={reason.title}
-              className="rounded-xl border border-border/60 bg-card p-6"
-            >
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-secondary text-muted-foreground">
-                {reason.icon}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {security.map((item) => (
+              <div key={item.title} className="rounded-xl border border-border/60 bg-card/50 p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold">{item.title}</h3>
+                  {item.status === "roadmap" ? (
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                      Roadmap
+                    </span>
+                  ) : (
+                    <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                      Built
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">{item.desc}</p>
               </div>
-              <h3 className="text-base font-semibold">{reason.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {reason.copy}
-              </p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+
+      {/* Deployment */}
+      <section className="border-t border-border/50 py-20 md:py-28">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="mb-12 text-center">
+            <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+              Runs Where You Need It
+            </h2>
+            <p className="mt-3 text-sm text-muted-foreground">
+              From a single-node K3s cluster to managed Kubernetes in any cloud
+            </p>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            {deployment.map((item) => (
+              <div key={item.title} className="rounded-xl border border-border/60 bg-card p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-base font-semibold">{item.title}</h3>
+                  {"status" in item && item.status === "roadmap" && (
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                      Roadmap
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                  {item.desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </>
   );
 }
 
