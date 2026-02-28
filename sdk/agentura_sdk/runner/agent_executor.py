@@ -1,22 +1,30 @@
-"""Multi-turn agent executor: Claude tool_use → E2B sandbox → iterate.
+"""Multi-turn agent executor with provider abstraction.
 
-Uses the Anthropic SDK directly (not Pydantic AI) for raw tool_use control.
+Supports OpenRouter (primary) and Anthropic SDK (fallback) for tool calling.
+Provider selected via env vars: OPENROUTER_API_KEY first, ANTHROPIC_API_KEY second.
+Sandbox backend selected via SANDBOX_BACKEND env var (docker | k8s).
+MCP tools discovered dynamically from ctx.mcp_bindings.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
+from pathlib import Path
 
-from anthropic import Anthropic
-
-from agentura_sdk.sandbox import e2b_sandbox
+from agentura_sdk.sandbox import get_sandbox_module
 from agentura_sdk.types import AgentIteration, SandboxConfig, SkillContext, SkillResult
 
-# Tool definitions exposed to Claude
+logger = logging.getLogger(__name__)
+
+sandbox_mod = get_sandbox_module()
+
+# Tool definitions in Anthropic format (canonical)
 SANDBOX_TOOLS = [
     {
         "name": "write_file",
@@ -121,16 +129,216 @@ SANDBOX_TOOLS = [
 ]
 
 
-def _execute_tool(sandbox: object, tool_name: str, tool_input: dict) -> str:
-    """Dispatch a tool call to the E2B sandbox."""
+def _to_openai_tools(anthropic_tools: list[dict]) -> list[dict]:
+    """Convert Anthropic-format tool defs to OpenAI-format for OpenRouter."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["input_schema"],
+            },
+        }
+        for t in anthropic_tools
+    ]
+
+
+def _build_tool_set(
+    mcp_bindings: list[dict],
+) -> tuple[list[dict], dict[str, str]]:
+    """Build the full tool set: sandbox tools + MCP tools from bindings.
+
+    Returns (anthropic_tools, tool_name→server_url map for MCP dispatch).
+    """
+    from agentura_sdk.mcp.client import fetch_tool_definitions
+
+    all_tools = list(SANDBOX_TOOLS)
+    tool_server_map: dict[str, str] = {}
+
+    for binding in mcp_bindings:
+        server_url = binding.get("url", "")
+        requested_tools = binding.get("tools", [])
+        if not server_url:
+            logger.warning("MCP binding missing url: %s", binding)
+            continue
+
+        try:
+            remote_tools = fetch_tool_definitions(server_url)
+        except Exception as exc:
+            logger.error("failed to fetch tools from %s: %s", server_url, exc)
+            continue
+
+        for tool_def in remote_tools:
+            name = tool_def["name"]
+            if requested_tools and name not in requested_tools:
+                continue
+            all_tools.append(tool_def)
+            tool_server_map[name] = server_url
+
+    return all_tools, tool_server_map
+
+
+# --- Provider abstraction ---
+# Normalized call result: (wants_tool_use, tool_calls[(id, name, args)], text, tokens_in, tokens_out)
+_CallResult = tuple[bool, list[tuple[str, str, dict]], str, int, int]
+
+
+class _OpenRouterProvider:
+    """OpenAI-compatible tool calling via OpenRouter."""
+
+    def __init__(self, model_id: str, system_prompt: str, tools: list[dict]):
+        from agentura_sdk.runner.openrouter import resolve_model
+        self._model = resolve_model(model_id)
+        self._messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        self._tools = _to_openai_tools(tools)
+
+    def add_user_message(self, content: str) -> None:
+        self._messages.append({"role": "user", "content": content})
+
+    def call(self) -> _CallResult:
+        from agentura_sdk.runner.openrouter import tool_chat_completion
+        resp = tool_chat_completion(self._model, self._messages, self._tools)
+
+        # Build assistant message for history
+        assistant_msg: dict = {"role": "assistant"}
+        if resp.content:
+            assistant_msg["content"] = resp.content
+        if resp.tool_calls:
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+                }
+                for tc in resp.tool_calls
+            ]
+        self._messages.append(assistant_msg)
+
+        wants_tools = bool(resp.tool_calls)
+        calls = [(tc.id, tc.name, tc.arguments) for tc in resp.tool_calls]
+        return wants_tools, calls, resp.content or "", resp.tokens_in, resp.tokens_out
+
+    def add_tool_results(self, results: list[tuple[str, str]]) -> None:
+        for call_id, output in results:
+            self._messages.append({
+                "role": "tool",
+                "tool_call_id": call_id,
+                "content": output,
+            })
+
+
+class _AnthropicProvider:
+    """Anthropic Messages API tool calling."""
+
+    def __init__(self, model_id: str, system_prompt: str, api_key: str, tools: list[dict]):
+        from anthropic import Anthropic
+        self._client = Anthropic(api_key=api_key)
+        self._model = model_id
+        self._system = system_prompt
+        self._messages: list[dict] = []
+        self._tools = tools
+
+    def add_user_message(self, content: str) -> None:
+        self._messages.append({"role": "user", "content": content})
+
+    def call(self) -> _CallResult:
+        response = self._client.messages.create(
+            model=self._model,
+            max_tokens=4096,
+            system=self._system,
+            tools=self._tools,
+            messages=self._messages,
+        )
+
+        assistant_content = response.content
+        self._messages.append({"role": "assistant", "content": assistant_content})
+
+        wants_tools = response.stop_reason == "tool_use"
+        text_parts = [b.text for b in assistant_content if b.type == "text"]
+        calls = [(b.id, b.name, b.input) for b in assistant_content if b.type == "tool_use"]
+
+        tokens_in = getattr(response.usage, "input_tokens", 0)
+        tokens_out = getattr(response.usage, "output_tokens", 0)
+
+        return wants_tools, calls, "\n".join(text_parts), tokens_in, tokens_out
+
+    def add_tool_results(self, results: list[tuple[str, str]]) -> None:
+        tool_results = [
+            {"type": "tool_result", "tool_use_id": call_id, "content": output}
+            for call_id, output in results
+        ]
+        self._messages.append({"role": "user", "content": tool_results})
+
+
+def _resolve_anthropic_model(model: str) -> str:
+    """Resolve model string to Anthropic model ID."""
+    name = model.removeprefix("anthropic/")
+    aliases = {
+        "claude-sonnet-4.5": "claude-sonnet-4-5-latest",
+        "claude-haiku-4.5": "claude-haiku-4-5-latest",
+    }
+    return aliases.get(name, name)
+
+
+def _get_provider(
+    model: str,
+    system_prompt: str,
+    tools: list[dict],
+) -> _OpenRouterProvider | _AnthropicProvider:
+    """Select provider: OpenRouter primary, Anthropic fallback."""
+    if os.environ.get("OPENROUTER_API_KEY"):
+        logger.info("Using OpenRouter provider for agent execution")
+        return _OpenRouterProvider(model, system_prompt, tools)
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if api_key:
+        logger.info("Using Anthropic provider for agent execution")
+        model_id = _resolve_anthropic_model(model)
+        return _AnthropicProvider(model_id, system_prompt, api_key, tools)
+
+    raise RuntimeError(
+        "No LLM provider configured. Set OPENROUTER_API_KEY (preferred) or ANTHROPIC_API_KEY."
+    )
+
+
+# --- Tool execution ---
+
+def _execute_tool(
+    sandbox: object,
+    tool_name: str,
+    tool_input: dict,
+    tool_server_map: dict[str, str],
+) -> str:
+    """Dispatch a tool call — MCP server first, then sandbox fallback."""
+    # MCP tool dispatch
+    server_url = tool_server_map.get(tool_name)
+    if server_url:
+        from agentura_sdk.mcp.client import call_tool
+        return call_tool(server_url, tool_name, tool_input)
+
+    # Sandbox tools
     if tool_name == "write_file":
-        return e2b_sandbox.write_file(sandbox, tool_input["path"], tool_input["content"])
+        path = tool_input.get("path", "")
+        content = tool_input.get("content", "")
+        if not path:
+            return "[error] write_file requires 'path' argument"
+        return sandbox_mod.write_file(sandbox, path, content)
     if tool_name == "read_file":
-        return e2b_sandbox.read_file(sandbox, tool_input["path"])
+        path = tool_input.get("path", "")
+        if not path:
+            return "[error] read_file requires 'path' argument"
+        return sandbox_mod.read_file(sandbox, path)
     if tool_name == "run_command":
-        return e2b_sandbox.run_command(sandbox, tool_input["command"])
+        cmd = tool_input.get("command", "")
+        if not cmd:
+            return "[error] run_command requires 'command' argument"
+        return sandbox_mod.run_command(sandbox, cmd)
     if tool_name == "run_code":
-        return e2b_sandbox.run_code(sandbox, tool_input["code"])
+        code = tool_input.get("code", "")
+        if not code:
+            return "[error] run_code requires 'code' argument"
+        return sandbox_mod.run_code(sandbox, code)
     if tool_name == "clone_repo":
         return _clone_repo(sandbox, tool_input)
     if tool_name == "create_branch":
@@ -147,14 +355,14 @@ def _clone_repo(sandbox: object, params: dict) -> str:
     branch = params.get("branch", "main")
     target = params.get("target_dir", "/home/user/repo")
     cmd = f"git clone --depth 1 --branch {branch} {url} {target}"
-    return e2b_sandbox.run_command(sandbox, cmd)
+    return sandbox_mod.run_command(sandbox, cmd)
 
 
 def _create_branch(sandbox: object, params: dict) -> str:
     branch = params["branch_name"]
     base_dir = params.get("base_dir", "/home/user/repo")
     cmd = f"cd {base_dir} && git checkout -b {branch}"
-    return e2b_sandbox.run_command(sandbox, cmd)
+    return sandbox_mod.run_command(sandbox, cmd)
 
 
 def _create_pr(sandbox: object, params: dict) -> str:
@@ -166,115 +374,207 @@ def _create_pr(sandbox: object, params: dict) -> str:
         f'&& git push -u origin HEAD '
         f'&& gh pr create --title "{title}" --body "{body}"'
     )
-    return e2b_sandbox.run_command(sandbox, cmd)
+    return sandbox_mod.run_command(sandbox, cmd)
 
 
-def _resolve_model(model: str) -> str:
-    """Resolve model string to Anthropic model ID."""
-    name = model.removeprefix("anthropic/")
-    aliases = {
-        "claude-sonnet-4.5": "claude-sonnet-4-5-latest",
-        "claude-haiku-4.5": "claude-haiku-4-5-latest",
-    }
-    return aliases.get(name, name)
+# --- Artifact extraction ---
 
+def _extract_artifacts(sandbox: object, files_created: list[str], skill_name: str) -> tuple[str, dict]:
+    """Extract files from sandbox to host /artifacts directory for downstream skills."""
+    artifacts_dir = os.environ.get("ARTIFACTS_DIR", "/artifacts")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    output_dir = os.path.join(artifacts_dir, f"{skill_name}-{ts}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    artifacts: dict[str, str] = {}
+    for fpath in files_created:
+        content = sandbox_mod.read_file(sandbox, fpath)
+        if not content.startswith("[error]"):
+            Path(output_dir, os.path.basename(fpath)).write_text(content)
+            artifacts[fpath] = content
+
+    return output_dir, artifacts
+
+
+# --- Memory recall ---
+
+def _recall_memories(skill_path: str, input_data: dict) -> str:
+    """Search past corrections and reflexions for relevant context.
+
+    Tries semantic search first. Falls back to direct DB lookups if
+    vector search returns empty (common when embeddings fail).
+    """
+    try:
+        from agentura_sdk.memory import get_memory_store
+
+        store = get_memory_store()
+        lines: list[str] = []
+
+        # Try semantic search first
+        query = json.dumps(input_data, default=str)[:500]
+        results = store.search_similar(skill_path, query, limit=3)
+        for r in results:
+            text = r.get("memory", "") or r.get("rule", "") or r.get("user_correction", "")
+            if text:
+                lines.append(f"- {text[:300]}")
+
+        # Fallback: load corrections and reflexions directly from store
+        if not lines:
+            try:
+                corrections = store.get_corrections(skill_path)
+                for c in corrections[:3]:
+                    text = c.get("user_correction", c.get("correction", ""))
+                    if text:
+                        lines.append(f"- {text[:300]}")
+            except Exception:
+                pass
+            try:
+                reflexions = store.get_reflexions(skill_path)
+                for r in reflexions[:3]:
+                    text = r.get("rule", "")
+                    if text:
+                        lines.append(f"- {text[:300]}")
+            except Exception:
+                pass
+
+        if not lines:
+            return ""
+
+        header = "## Memory — Learned Preferences from Past Executions\n"
+        footer = "\nApply these learned preferences to the current task."
+        return header + "\n".join(lines) + footer
+    except Exception as exc:
+        logger.debug("Memory recall skipped: %s", exc)
+        return ""
+
+
+def _build_prompt_with_memory(ctx: SkillContext) -> str:
+    """Compose system prompt with memory recall injected."""
+    memory_section = _recall_memories(
+        f"{ctx.domain}/{ctx.skill_name}", ctx.input_data
+    )
+    if memory_section:
+        logger.info("Injected %d chars of memory context", len(memory_section))
+        return f"{memory_section}\n\n---\n\n{ctx.system_prompt}"
+    return ctx.system_prompt
+
+
+# --- Agent loops ---
 
 async def execute_agent(ctx: SkillContext) -> SkillResult:
-    """Run the multi-turn agent loop: Claude tool_use → E2B sandbox → iterate."""
+    """Run the multi-turn agent loop: LLM tool calling → sandbox → iterate."""
     start = time.monotonic()
     config = ctx.sandbox_config or SandboxConfig()
     iterations: list[AgentIteration] = []
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
+    # Build dynamic tool set (sandbox + MCP)
+    all_tools, tool_server_map = _build_tool_set(ctx.mcp_bindings)
+    if tool_server_map:
+        logger.info("MCP tools loaded: %s", list(tool_server_map.keys()))
+
+    # Compose prompt with memory recall
+    system_prompt = _build_prompt_with_memory(ctx)
+
+    try:
+        provider = _get_provider(ctx.model, system_prompt, all_tools)
+    except RuntimeError as e:
         return SkillResult(
             skill_name=ctx.skill_name,
             success=False,
-            output={"error": "ANTHROPIC_API_KEY required for agent execution"},
+            output={"error": str(e)},
         )
 
-    client = Anthropic(api_key=api_key)
-    model_id = _resolve_model(ctx.model)
-
-    # Create sandbox
-    sandbox = await e2b_sandbox.create(config)
+    model_id = ctx.model
+    sandbox = await sandbox_mod.create(config)
 
     try:
-        messages: list[dict] = [
-            {"role": "user", "content": json.dumps(ctx.input_data, indent=2)},
-        ]
-
+        provider.add_user_message(json.dumps(ctx.input_data, indent=2))
         final_output: dict = {}
+        total_in = 0
+        total_out = 0
 
+        task_completed = False
+        nudged = False
+        write_counts: dict[str, int] = {}  # track write_file calls per path
         for i in range(config.max_iterations):
-            response = client.messages.create(
-                model=model_id,
-                max_tokens=4096,
-                system=ctx.system_prompt,
-                tools=SANDBOX_TOOLS,
-                messages=messages,
-            )
+            wants_tools, tool_calls, text, tokens_in, tokens_out = await asyncio.to_thread(provider.call)
+            total_in += tokens_in
+            total_out += tokens_out
 
-            # Collect assistant content blocks
-            assistant_content = response.content
-            messages.append({"role": "assistant", "content": assistant_content})
-
-            # Check if the model wants to use tools
-            if response.stop_reason != "tool_use":
-                # Model finished without tool calls — extract text
-                text_parts = [b.text for b in assistant_content if b.type == "text"]
-                final_output = {"summary": "\n".join(text_parts)}
+            if not wants_tools:
+                if not iterations and not nudged:
+                    # LLM responded with text without ever calling tools — nudge once.
+                    nudged = True
+                    logger.warning("Agent responded without tool use, nudging once")
+                    provider.add_user_message(
+                        "You MUST use the available tools to complete this task. "
+                        "Do not respond with text only. Start by calling the appropriate tool."
+                    )
+                    continue
+                final_output = {"summary": text}
                 break
 
-            # Process each tool_use block
-            tool_results = []
-            for block in assistant_content:
-                if block.type != "tool_use":
-                    continue
+            results: list[tuple[str, str]] = []
+            for call_id, name, args in tool_calls:
+                # Detect write_file loops — reject writes after 2 to same path
+                if name == "write_file":
+                    fpath = args.get("path", "")
+                    write_counts[fpath] = write_counts.get(fpath, 0) + 1
+                    if write_counts[fpath] > 2:
+                        logger.warning("write_file loop blocked: %s attempt %d", fpath, write_counts[fpath])
+                        tool_output = (
+                            f"[error] WRITE REJECTED. {fpath} already written {write_counts[fpath] - 1} times. "
+                            "File content is correct from your earlier write. "
+                            "Do NOT rewrite files. Call task_complete now with your summary and files_created list."
+                        )
+                        iterations.append(AgentIteration(
+                            iteration=i + 1,
+                            tool_name=name,
+                            tool_input={"path": fpath, "content": "(blocked — duplicate write)"},
+                            tool_output=tool_output,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                        ))
+                        results.append((call_id, tool_output))
+                        continue
 
-                tool_name = block.name
-                tool_input = block.input
-
-                # Execute in sandbox
-                tool_output = _execute_tool(sandbox, tool_name, tool_input)
+                tool_output = _execute_tool(sandbox, name, args, tool_server_map)
 
                 iterations.append(AgentIteration(
                     iteration=i + 1,
-                    tool_name=tool_name,
-                    tool_input=tool_input,
+                    tool_name=name,
+                    tool_input=args,
                     tool_output=tool_output[:2000],
                     timestamp=datetime.now(timezone.utc).isoformat(),
                 ))
 
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": tool_output[:4000],
-                })
+                results.append((call_id, tool_output[:4000]))
 
-                # If task_complete, capture final output
-                if tool_name == "task_complete":
-                    final_output = tool_input
+                if name == "task_complete":
+                    final_output = args
+                    task_completed = True
                     break
 
-            messages.append({"role": "user", "content": tool_results})
+            provider.add_tool_results(results)
 
             if final_output:
                 break
 
-        latency_ms = (time.monotonic() - start) * 1000
+        # Extract artifacts from sandbox before closing
+        context_for_next: dict = {}
+        files_created = final_output.get("files_created", [])
+        if files_created:
+            try:
+                output_dir, artifacts = _extract_artifacts(sandbox, files_created, ctx.skill_name)
+                context_for_next = {"artifacts_dir": output_dir, "artifacts": artifacts}
+            except Exception as exc:
+                logger.warning("artifact extraction failed: %s", exc)
 
-        # Estimate cost from usage
-        cost_usd = 0.0
-        if hasattr(response, "usage"):
-            input_tokens = getattr(response.usage, "input_tokens", 0)
-            output_tokens = getattr(response.usage, "output_tokens", 0)
-            # Approximate cost (Sonnet 4.5 pricing)
-            cost_usd = (input_tokens * 3.0 + output_tokens * 15.0) / 1_000_000
+        latency_ms = (time.monotonic() - start) * 1000
+        cost_usd = (total_in * 3.0 + total_out * 15.0) / 1_000_000
 
         return SkillResult(
             skill_name=ctx.skill_name,
-            success=True,
+            success=task_completed or bool(iterations),
             output={
                 **final_output,
                 "iterations_count": len(iterations),
@@ -287,6 +587,7 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
             model_used=model_id,
             cost_usd=cost_usd,
             latency_ms=latency_ms,
+            context_for_next=context_for_next,
         )
 
     except Exception as e:
@@ -303,7 +604,7 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
             latency_ms=latency_ms,
         )
     finally:
-        e2b_sandbox.close(sandbox)
+        sandbox_mod.close(sandbox)
 
 
 async def execute_agent_streaming(
@@ -314,85 +615,116 @@ async def execute_agent_streaming(
     config = ctx.sandbox_config or SandboxConfig()
     iterations: list[AgentIteration] = []
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
+    # Build dynamic tool set (sandbox + MCP)
+    all_tools, tool_server_map = _build_tool_set(ctx.mcp_bindings)
+    if tool_server_map:
+        logger.info("MCP tools loaded: %s", list(tool_server_map.keys()))
+
+    # Compose prompt with memory recall
+    system_prompt = _build_prompt_with_memory(ctx)
+
+    try:
+        provider = _get_provider(ctx.model, system_prompt, all_tools)
+    except RuntimeError as e:
         yield SkillResult(
             skill_name=ctx.skill_name,
             success=False,
-            output={"error": "ANTHROPIC_API_KEY required for agent execution"},
+            output={"error": str(e)},
         )
         return
 
-    client = Anthropic(api_key=api_key)
-    model_id = _resolve_model(ctx.model)
-    sandbox = await e2b_sandbox.create(config)
+    model_id = ctx.model
+    sandbox = await sandbox_mod.create(config)
 
     try:
-        messages: list[dict] = [
-            {"role": "user", "content": json.dumps(ctx.input_data, indent=2)},
-        ]
+        provider.add_user_message(json.dumps(ctx.input_data, indent=2))
         final_output: dict = {}
-        response = None
+        total_in = 0
+        total_out = 0
+        task_completed = False
+        write_counts: dict[str, int] = {}  # track write_file calls per path
 
         for i in range(config.max_iterations):
-            response = client.messages.create(
-                model=model_id,
-                max_tokens=4096,
-                system=ctx.system_prompt,
-                tools=SANDBOX_TOOLS,
-                messages=messages,
-            )
+            wants_tools, tool_calls, text, tokens_in, tokens_out = await asyncio.to_thread(provider.call)
+            total_in += tokens_in
+            total_out += tokens_out
 
-            assistant_content = response.content
-            messages.append({"role": "assistant", "content": assistant_content})
-
-            if response.stop_reason != "tool_use":
-                text_parts = [b.text for b in assistant_content if b.type == "text"]
-                final_output = {"summary": "\n".join(text_parts)}
+            if not wants_tools:
+                if not iterations:
+                    logger.warning("Agent responded without tool use, nudging")
+                    provider.add_user_message(
+                        "You MUST use the available tools to complete this task. "
+                        "Do not respond with text only. Start by calling the appropriate tool."
+                    )
+                    continue
+                final_output = {"summary": text}
                 break
 
-            tool_results = []
-            for block in assistant_content:
-                if block.type != "tool_use":
-                    continue
+            results: list[tuple[str, str]] = []
+            for call_id, name, args in tool_calls:
+                # Detect write_file loops — reject writes after 2 to same path
+                if name == "write_file":
+                    fpath = args.get("path", "")
+                    write_counts[fpath] = write_counts.get(fpath, 0) + 1
+                    if write_counts[fpath] > 2:
+                        logger.warning("write_file loop blocked: %s attempt %d", fpath, write_counts[fpath])
+                        tool_output = (
+                            f"[error] WRITE REJECTED. {fpath} already written {write_counts[fpath] - 1} times. "
+                            "File content is correct from your earlier write. "
+                            "Do NOT rewrite files. Call task_complete now with your summary and files_created list."
+                        )
+                        iteration = AgentIteration(
+                            iteration=i + 1,
+                            tool_name=name,
+                            tool_input={"path": fpath, "content": "(blocked — duplicate write)"},
+                            tool_output=tool_output,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                        )
+                        iterations.append(iteration)
+                        yield iteration
+                        results.append((call_id, tool_output))
+                        continue
 
-                tool_output = _execute_tool(sandbox, block.name, block.input)
+                tool_output = _execute_tool(sandbox, name, args, tool_server_map)
 
                 iteration = AgentIteration(
                     iteration=i + 1,
-                    tool_name=block.name,
-                    tool_input=block.input,
+                    tool_name=name,
+                    tool_input=args,
                     tool_output=tool_output[:2000],
                     timestamp=datetime.now(timezone.utc).isoformat(),
                 )
                 iterations.append(iteration)
                 yield iteration
 
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": tool_output[:4000],
-                })
+                results.append((call_id, tool_output[:4000]))
 
-                if block.name == "task_complete":
-                    final_output = block.input
+                if name == "task_complete":
+                    final_output = args
+                    task_completed = True
                     break
 
-            messages.append({"role": "user", "content": tool_results})
+            provider.add_tool_results(results)
 
             if final_output:
                 break
 
+        # Extract artifacts from sandbox before closing
+        context_for_next: dict = {}
+        files_created = final_output.get("files_created", [])
+        if files_created:
+            try:
+                output_dir, artifacts = _extract_artifacts(sandbox, files_created, ctx.skill_name)
+                context_for_next = {"artifacts_dir": output_dir, "artifacts": artifacts}
+            except Exception as exc:
+                logger.warning("artifact extraction failed: %s", exc)
+
         latency_ms = (time.monotonic() - start) * 1000
-        cost_usd = 0.0
-        if response and hasattr(response, "usage"):
-            input_tokens = getattr(response.usage, "input_tokens", 0)
-            output_tokens = getattr(response.usage, "output_tokens", 0)
-            cost_usd = (input_tokens * 3.0 + output_tokens * 15.0) / 1_000_000
+        cost_usd = (total_in * 3.0 + total_out * 15.0) / 1_000_000
 
         yield SkillResult(
             skill_name=ctx.skill_name,
-            success=True,
+            success=task_completed or bool(iterations),
             output={
                 **final_output,
                 "iterations_count": len(iterations),
@@ -401,6 +733,7 @@ async def execute_agent_streaming(
             model_used=model_id,
             cost_usd=cost_usd,
             latency_ms=latency_ms,
+            context_for_next=context_for_next,
         )
 
     except Exception as e:
@@ -413,4 +746,4 @@ async def execute_agent_streaming(
             latency_ms=latency_ms,
         )
     finally:
-        e2b_sandbox.close(sandbox)
+        sandbox_mod.close(sandbox)

@@ -1,0 +1,36 @@
+domain:
+  name: productivity
+  description: "Productivity tools for meetings, emails, and task management"
+  owner: "platform-team"
+
+skills:
+  - name: email-drafter
+    path: email-drafter
+    role: specialist
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.10"
+    triggers:
+      - type: command
+        pattern: "draft email {context}"
+      - type: command
+        pattern: "write email to {recipient} about {topic}"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.10"
+    alert_at: "$0.08"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "Email Drafter"
+  subtitle: "Context → Professional Email"
+  avatar: "ED"
+  color: "#3b82f6"
+  tags: ["Productivity", "Email", "Specialist"]
+  conversation_starters:
+    - "Draft a follow-up email to a client"
+    - "Write a meeting request email"
+    - "Compose a project update for stakeholders"

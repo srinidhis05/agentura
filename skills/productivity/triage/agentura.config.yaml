@@ -1,6 +1,6 @@
 domain:
   name: productivity
-  description: "Productivity and information management tools"
+  description: "Productivity tools for meetings, emails, and task management"
   owner: "platform-team"
 
 skills:
@@ -9,31 +9,20 @@ skills:
     role: manager
     model: anthropic/claude-haiku-4.5
     cost_budget: "$0.01"
-    triggers:
-      - type: always
-        description: "All productivity domain queries pass through triage first"
 
 routing:
-  - from: triage
-    to: web-researcher
-    condition: "query involves research, comparison, or information gathering"
-  - from: triage
-    to: morning-briefing
-    condition: "query involves daily briefing or status summary"
-
-guardrails:
-  budget:
-    max_per_execution: "$0.01"
-    alert_at: "$0.008"
-
-feedback:
-  capture_corrections: true
-  auto_generate_tests: true
-  test_framework: deepeval
+  - when:
+      intent: "meeting"
+    then:
+      skill: meeting-summarizer
+  - when:
+      intent: "email"
+    then:
+      skill: email-drafter
 
 display:
-  title: "Productivity Manager"
-  subtitle: "Productivity Triage"
+  title: "Productivity"
+  subtitle: "Domain Manager"
   avatar: "PM"
-  color: "#8b5cf6"
-  tags: ["Routing", "Productivity Domain"]
+  color: "#10b981"
+  tags: ["Productivity", "Router"]

@@ -30,6 +30,9 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3001:3001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./skills:/skills:ro
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
@@ -37,6 +40,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-agentura_dev}
       DB_NAME: agentura
       EXECUTOR_URL: http://executor:8000
+      EXECUTION_MODE: ${EXECUTION_MODE:-proxy}
+      SKILL_RUNNER_IMAGE: ${SKILL_RUNNER_IMAGE:-agentura/skill-runner:latest}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       AUTH_ENABLED: ${AUTH_ENABLED:-false}
       JWKS_URL: ${JWKS_URL:-}
       JWT_ISSUER: ${JWT_ISSUER:-}
@@ -61,6 +68,8 @@ services:
         NEXT_PUBLIC_API_URL: http://localhost:3001
     ports:
       - "3002:3000"
+    environment:
+      API_TARGET: http://gateway:3001
     depends_on:
       - gateway
 
@@ -79,6 +88,13 @@ services:
         condition: service_healthy
     profiles:
       - slack
+
+  skill-runner:
+    build:
+      context: .
+      dockerfile: skill-runner/Dockerfile
+    profiles:
+      - build
 
   postgres:
     image: postgres:16-alpine

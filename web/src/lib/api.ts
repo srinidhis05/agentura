@@ -195,3 +195,108 @@ export function memorySearch(query: string, limit: number = 10): Promise<MemoryS
 export function getPromptAssembly(domain: string, skill: string): Promise<PromptAssembly> {
   return request<PromptAssembly>(`/api/v1/memory/prompt-assembly/${domain}/${skill}`);
 }
+
+// Pipeline API
+
+export interface PipelineInfo {
+  name: string;
+  description: string;
+  steps: number;
+}
+
+export function listPipelines(): Promise<PipelineInfo[]> {
+  return request<PipelineInfo[]>("/api/v1/pipelines");
+}
+
+export interface PipelineResult {
+  pipeline?: string;
+  success: boolean;
+  steps_completed: number;
+  total_steps?: number;
+  total_latency_ms: number;
+  total_cost_usd: number;
+  url: string | null;
+  steps?: Array<{
+    step: number;
+    skill: string;
+    success: boolean;
+    latency_ms: number;
+    cost_usd: number;
+  }>;
+}
+
+export async function executePipeline(
+  name: string,
+  input: Record<string, unknown>,
+): Promise<PipelineResult> {
+  return request<PipelineResult>(`/api/v1/pipelines/${name}/execute`, {
+    method: "POST",
+    body: JSON.stringify({ input_data: input }),
+  }, 300000);
+}
+
+// SSE streaming pipeline execution
+
+export interface PipelineSSEEvent {
+  type: "step_started" | "iteration" | "step_completed" | "pipeline_done";
+  data: Record<string, unknown>;
+}
+
+const SSE_BASE = BASE;
+
+export async function* executePipelineStream(
+  name: string,
+  input: Record<string, unknown>,
+): AsyncGenerator<PipelineSSEEvent> {
+  const resp = await fetch(`${SSE_BASE}/api/v1/pipelines/${name}/execute-stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input_data: input }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`Pipeline stream API ${resp.status}: ${body}`);
+  }
+
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // Parse SSE frames: "event: <type>\ndata: <json>\n\n"
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop()!; // keep incomplete frame in buffer
+
+    for (const frame of frames) {
+      if (!frame.trim()) continue;
+      let eventType = "";
+      let dataStr = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+        else if (line.startsWith("data: ")) dataStr = line.slice(6);
+      }
+      if (eventType && dataStr) {
+        try {
+          yield { type: eventType as PipelineSSEEvent["type"], data: JSON.parse(dataStr) };
+        } catch {
+          // skip malformed SSE frames
+        }
+      }
+    }
+  }
+}
+
+/** @deprecated Use executePipeline("build-deploy", input) instead. */
+export async function executeBuildDeploy(input: {
+  description: string;
+  app_name?: string;
+  port?: number;
+}): Promise<PipelineResult> {
+  return executePipeline("build-deploy", input);
+}

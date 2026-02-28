@@ -17,7 +17,9 @@ type Handlers struct {
 	Events    *EventsHandler
 	Memory    *MemoryHandler
 	Webhook   *WebhookHandler
+	GitHub    *GitHubWebhookHandler
 	Trigger   *TriggerHandler
+	Pipeline  *PipelineHandler
 }
 
 func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
@@ -82,9 +84,21 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 		api.HandleFunc("GET /api/v1/events", h.Events.ListEvents)
 	}
 
+	// Pipelines (proxied to Python executor)
+	if h.Pipeline != nil {
+		api.HandleFunc("GET /api/v1/pipelines", h.Pipeline.ListPipelines)
+		api.HandleFunc("POST /api/v1/pipelines/{name}/execute", h.Pipeline.ExecutePipeline)
+		api.HandleFunc("POST /api/v1/pipelines/{name}/execute-stream", h.Pipeline.ExecutePipelineStream)
+	}
+
 	// Webhook inbound — external channels POST here
 	if h.Webhook != nil {
 		api.HandleFunc("POST /api/v1/channels/{channel}/inbound", h.Webhook.Inbound)
+	}
+
+	// GitHub webhook — no auth (uses signature verification)
+	if h.GitHub != nil {
+		mux.HandleFunc("POST /api/v1/webhooks/github", h.GitHub.Handle)
 	}
 
 	// Trigger status — cron scheduler info

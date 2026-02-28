@@ -1,0 +1,8 @@
+{
+  "artifacts_dir": "/artifacts/app-builder-20260226120000",
+  "artifacts": {
+    "index.html": "<!DOCTYPE html><html><head><title>Calculator</title></head><body><h1>Calculator</h1></body></html>"
+  },
+  "app_name": "calculator-light",
+  "port": 9000
+}

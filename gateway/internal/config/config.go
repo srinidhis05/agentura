@@ -20,14 +20,21 @@ type Config struct {
 	Logging    LoggingConfig    `yaml:"logging"`
 	Metrics    MetricsConfig    `yaml:"metrics"`
 	Executor   ExecutorConfig   `yaml:"executor"`
+	Execution  ExecutionConfig  `yaml:"execution"`
 	Triggers   TriggersConfig   `yaml:"triggers"`
 }
 
 type TriggersConfig struct {
-	Enabled  bool          `yaml:"enabled"`
-	Timezone string        `yaml:"timezone"`
-	Cron     CronConfig    `yaml:"cron"`
-	Webhook  WebhookConfig `yaml:"webhook"`
+	Enabled  bool                `yaml:"enabled"`
+	Timezone string              `yaml:"timezone"`
+	Cron     CronConfig          `yaml:"cron"`
+	Webhook  WebhookConfig       `yaml:"webhook"`
+	GitHub   GitHubWebhookConfig `yaml:"github"`
+}
+
+type GitHubWebhookConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Secret  string `yaml:"secret"`
 }
 
 type CronConfig struct {
@@ -43,6 +50,39 @@ type WebhookConfig struct {
 type ExecutorConfig struct {
 	URL     string `yaml:"url"`
 	Timeout int    `yaml:"timeout"` // seconds
+}
+
+// ExecutionConfig controls how skill executions are dispatched.
+type ExecutionConfig struct {
+	Mode       string              `yaml:"mode"` // proxy | docker | kubernetes
+	Docker     DockerExecConfig    `yaml:"docker"`
+	Kubernetes KubernetesExecConfig `yaml:"kubernetes"`
+}
+
+type DockerExecConfig struct {
+	Image          string               `yaml:"image"`
+	Network        string               `yaml:"network"`
+	SkillsDir      string               `yaml:"skills_dir"`
+	ResourceLimits DockerResourceLimits  `yaml:"resource_limits"`
+}
+
+type DockerResourceLimits struct {
+	Memory string `yaml:"memory"`
+	CPUs   string `yaml:"cpus"`
+}
+
+type KubernetesExecConfig struct {
+	Namespace      string            `yaml:"namespace"`
+	Image          string            `yaml:"image"`
+	RuntimeClass   string            `yaml:"runtime_class"`
+	ServiceAccount string            `yaml:"service_account"`
+	ResourceLimits K8sResourceLimits `yaml:"resource_limits"`
+	Timeout        string            `yaml:"timeout"`
+}
+
+type K8sResourceLimits struct {
+	Memory string `yaml:"memory"`
+	CPU    string `yaml:"cpu"`
 }
 
 type ServerConfig struct {
@@ -166,7 +206,42 @@ func applyDefaults(cfg *Config) {
 		cfg.Executor.URL = "http://localhost:8000"
 	}
 	if cfg.Executor.Timeout == 0 {
-		cfg.Executor.Timeout = 120
+		cfg.Executor.Timeout = 600
+	}
+
+	// Execution defaults
+	if cfg.Execution.Mode == "" {
+		cfg.Execution.Mode = "proxy"
+	}
+	if cfg.Execution.Docker.Image == "" {
+		cfg.Execution.Docker.Image = "agentura/skill-runner:latest"
+	}
+	if cfg.Execution.Docker.Network == "" {
+		cfg.Execution.Docker.Network = "agentura_default"
+	}
+	if cfg.Execution.Docker.ResourceLimits.Memory == "" {
+		cfg.Execution.Docker.ResourceLimits.Memory = "512m"
+	}
+	if cfg.Execution.Docker.ResourceLimits.CPUs == "" {
+		cfg.Execution.Docker.ResourceLimits.CPUs = "1.0"
+	}
+	if cfg.Execution.Kubernetes.Namespace == "" {
+		cfg.Execution.Kubernetes.Namespace = "agentura"
+	}
+	if cfg.Execution.Kubernetes.Image == "" {
+		cfg.Execution.Kubernetes.Image = "agentura/skill-runner:latest"
+	}
+	if cfg.Execution.Kubernetes.ServiceAccount == "" {
+		cfg.Execution.Kubernetes.ServiceAccount = "skill-runner"
+	}
+	if cfg.Execution.Kubernetes.ResourceLimits.Memory == "" {
+		cfg.Execution.Kubernetes.ResourceLimits.Memory = "512Mi"
+	}
+	if cfg.Execution.Kubernetes.ResourceLimits.CPU == "" {
+		cfg.Execution.Kubernetes.ResourceLimits.CPU = "1000m"
+	}
+	if cfg.Execution.Kubernetes.Timeout == "" {
+		cfg.Execution.Kubernetes.Timeout = "300s"
 	}
 
 	// Triggers defaults

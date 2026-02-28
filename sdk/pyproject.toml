@@ -22,16 +22,21 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "deepeval>=1.0.0",
-    "promptfoo>=0.60.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-httpserver>=1.0.0",
 ]
 server = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
 ]
-agent = [
-    "e2b-code-interpreter>=1.0.0",
+sandbox = [
+    "kubernetes>=29.0.0",
+    "docker>=7.0.0",
+]
+claude-code = [
+    # claude-agent-sdk now runs in isolated worker pods (claude-code-worker image)
+    # Keep the extra defined but empty for backwards compat with existing installs
 ]
 
 [project.scripts]

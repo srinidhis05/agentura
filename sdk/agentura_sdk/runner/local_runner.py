@@ -1,6 +1,7 @@
 """Execute a skill locally via Pydantic AI + Anthropic API."""
 
 import json
+import logging
 import os
 import time
 from datetime import datetime, timezone
@@ -68,26 +69,33 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
     return execution_id
 
 
+logger = logging.getLogger(__name__)
+
+
 async def execute_skill(ctx: SkillContext) -> SkillResult:
     """Execute a skill using Pydantic AI (Anthropic) or OpenRouter."""
     if ctx.role == SkillRole.AGENT:
+        from agentura_sdk.runner.ptc_executor import _should_use_ptc
+        if _should_use_ptc(ctx):
+            from agentura_sdk.runner.ptc_executor import execute_ptc
+            logger.info("Routing agent skill %s to PTC executor", ctx.skill_name)
+            return await execute_ptc(ctx)
+        from agentura_sdk.runner.claude_code_executor import _should_use_claude_code
+        if _should_use_claude_code(ctx):
+            from agentura_sdk.runner.claude_code_executor import execute_claude_code
+            logger.info("Routing agent skill %s to Claude Code SDK", ctx.skill_name)
+            return await execute_claude_code(ctx)
         from agentura_sdk.runner.agent_executor import execute_agent
         return await execute_agent(ctx)
-
-    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-
-    if openrouter_key:
+    if os.environ.get("OPENROUTER_API_KEY"):
         return await _execute_via_openrouter(ctx)
-
-    if not anthropic_key:
-        return SkillResult(
-            skill_name=ctx.skill_name,
-            success=False,
-            output={"error": "Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY. Use --dry-run to skip."},
-        )
-
-    return await _execute_via_pydantic_ai(ctx)
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return await _execute_via_pydantic_ai(ctx)
+    return SkillResult(
+        skill_name=ctx.skill_name,
+        success=False,
+        output={"error": "Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY. Use --dry-run to skip."},
+    )
 
 
 async def _execute_via_openrouter(ctx: SkillContext) -> SkillResult:

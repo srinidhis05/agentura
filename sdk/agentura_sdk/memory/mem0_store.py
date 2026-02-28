@@ -43,21 +43,21 @@ def _build_config() -> dict:
             },
         }
 
-    # Embedder: use OpenAI-compatible endpoint via OpenRouter, or OpenAI directly
-    if os.environ.get("OPENAI_API_KEY"):
-        config["embedder"] = {
-            "provider": "openai",
-            "config": {
-                "model": "text-embedding-3-small",
-            },
-        }
-    elif os.environ.get("OPENROUTER_API_KEY"):
+    # Embedder: prefer OpenRouter (matches LLM order), then OpenAI directly
+    if os.environ.get("OPENROUTER_API_KEY"):
         config["embedder"] = {
             "provider": "openai",
             "config": {
                 "model": "openai/text-embedding-3-small",
                 "api_key": os.environ["OPENROUTER_API_KEY"],
                 "openai_base_url": "https://openrouter.ai/api/v1",
+            },
+        }
+    elif os.environ.get("OPENAI_API_KEY"):
+        config["embedder"] = {
+            "provider": "openai",
+            "config": {
+                "model": "text-embedding-3-small",
             },
         }
     else:

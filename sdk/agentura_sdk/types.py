@@ -36,12 +36,15 @@ class SkillMetadata(BaseModel):
 # --- Agent/sandbox config ---
 
 class SandboxConfig(BaseModel):
-    """E2B sandbox settings for agent-role skills."""
+    """Sandbox settings for agent-role skills."""
     template: str = "base"
     timeout: int = 300
     max_iterations: int = 50
+    max_tokens: int = 16384
     cpu: int = 2
     memory: int = 512
+    backend: str = ""
+    executor: str = ""  # "claude-code" for Claude Agent SDK, "" for legacy sandbox
 
 
 class AgentIteration(BaseModel):
@@ -125,6 +128,7 @@ class SkillContext(BaseModel):
     input_data: dict[str, Any] = Field(default_factory=dict)
     routed_context: dict[str, Any] = Field(default_factory=dict)
     mcp_tools: list[str] = Field(default_factory=list)
+    mcp_bindings: list[dict] = Field(default_factory=list)
     sandbox_config: Optional[SandboxConfig] = None
 
 
@@ -172,7 +176,7 @@ class ServiceIndex(BaseModel):
 
 
 class MappedSkill(BaseModel):
-    """An ai-velocity skill mapped to a service task."""
+    """An external skill library entry mapped to a service task."""
     name: str
     path: str
     content: str

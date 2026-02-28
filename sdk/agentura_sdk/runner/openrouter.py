@@ -7,36 +7,44 @@ Activated when OPENROUTER_API_KEY is set.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass
 
 import httpx
 
+logger = logging.getLogger(__name__)
+
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 MODEL_ALIASES: dict[str, str] = {
-    "claude-sonnet-4.5": "anthropic/claude-sonnet-4-5-20250929",
-    "claude-haiku-4.5": "anthropic/claude-haiku-4-5-20251001",
-    "claude-opus-4": "anthropic/claude-opus-4-20250514",
+    # Short names
+    "claude-sonnet-4.5": "anthropic/claude-sonnet-4.5",
+    "claude-haiku-4.5": "anthropic/claude-haiku-4.5",
+    "claude-opus-4": "anthropic/claude-opus-4",
     "gpt-4o": "openai/gpt-4o",
     "gpt-4o-mini": "openai/gpt-4o-mini",
     "gemini-2.0-flash": "google/gemini-2.0-flash-001",
     "deepseek-v3": "deepseek/deepseek-chat",
     "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct",
+    # Dated Anthropic IDs → OpenRouter canonical names
+    "anthropic/claude-sonnet-4-5-20250929": "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-haiku-4-5-20251001": "anthropic/claude-haiku-4.5",
+    "anthropic/claude-opus-4-20250514": "anthropic/claude-opus-4",
 }
 
 FALLBACK_CHAINS: dict[str, list[str]] = {
-    "anthropic/claude-sonnet-4-5-20250929": [
-        "anthropic/claude-haiku-4-5-20251001",
+    "anthropic/claude-sonnet-4.5": [
+        "anthropic/claude-haiku-4.5",
         "openai/gpt-4o-mini",
     ],
-    "anthropic/claude-opus-4-20250514": [
-        "anthropic/claude-sonnet-4-5-20250929",
+    "anthropic/claude-opus-4": [
+        "anthropic/claude-sonnet-4.5",
         "openai/gpt-4o",
     ],
     "openai/gpt-4o": [
-        "anthropic/claude-sonnet-4-5-20250929",
+        "anthropic/claude-sonnet-4.5",
         "openai/gpt-4o-mini",
     ],
 }
@@ -48,6 +56,23 @@ class ModelResponse:
     model: str
     latency_ms: float
     cost_usd: float
+    tokens_in: int
+    tokens_out: int
+
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict
+
+
+@dataclass
+class ToolChatResponse:
+    content: str | None
+    tool_calls: list[ToolCall]
+    finish_reason: str  # "stop" or "tool_calls"
+    model: str
     tokens_in: int
     tokens_out: int
 
@@ -64,7 +89,7 @@ def _get_client() -> httpx.Client:
             "X-Title": "Agentura",
             "Content-Type": "application/json",
         },
-        timeout=120.0,
+        timeout=300.0,
     )
 
 
@@ -173,6 +198,102 @@ def _call_model(
         {"role": "user", "content": user_message},
     ]
     return _call_model_messages(model_id, messages, temperature, max_tokens)
+
+
+def _repair_json(s: str) -> str:
+    """Best-effort repair of truncated JSON by closing open braces/brackets/strings."""
+    in_string = False
+    escape = False
+    stack: list[str] = []
+    for ch in s:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"' and not escape:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in ("{", "["):
+            stack.append("}" if ch == "{" else "]")
+        elif ch in ("}", "]") and stack:
+            stack.pop()
+    result = s
+    if in_string:
+        result += '"'
+    while stack:
+        result += stack.pop()
+    return result
+
+
+def tool_chat_completion(
+    model: str,
+    messages: list[dict],
+    tools: list[dict],
+    temperature: float = 0.0,
+    max_tokens: int = 4096,
+) -> ToolChatResponse:
+    """Chat completion with tool calling via OpenRouter."""
+    resolved = resolve_model(model)
+    client = _get_client()
+    try:
+        resp = client.post(
+            "/chat/completions",
+            json={
+                "model": resolved,
+                "messages": messages,
+                "tools": tools,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
+        )
+        resp.raise_for_status()
+        body = resp.text.strip()
+        if not body:
+            raise RuntimeError(f"OpenRouter returned empty body (status {resp.status_code})")
+        data = json.loads(body)
+    finally:
+        client.close()
+
+    choice = data["choices"][0]
+    message = choice["message"]
+    usage = data.get("usage", {})
+
+    tool_calls = []
+    for tc in message.get("tool_calls") or []:
+        raw_args = tc["function"]["arguments"]
+        if isinstance(raw_args, str) and raw_args.strip():
+            try:
+                args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                # Attempt repair: close any open braces/brackets
+                repaired = _repair_json(raw_args)
+                try:
+                    args = json.loads(repaired)
+                except json.JSONDecodeError:
+                    logger.warning("unparseable tool args for %s: %s", tc["function"]["name"], raw_args[:200])
+                    args = {"raw_input": raw_args}
+        elif isinstance(raw_args, dict):
+            args = raw_args
+        else:
+            args = {}
+        tool_calls.append(ToolCall(
+            id=tc["id"],
+            name=tc["function"]["name"],
+            arguments=args,
+        ))
+
+    return ToolChatResponse(
+        content=message.get("content"),
+        tool_calls=tool_calls,
+        finish_reason=choice.get("finish_reason", "stop"),
+        model=data.get("model", resolved),
+        tokens_in=usage.get("prompt_tokens", 0),
+        tokens_out=usage.get("completion_tokens", 0),
+    )
 
 
 def list_models() -> list[dict]:
