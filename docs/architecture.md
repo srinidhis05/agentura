@@ -271,7 +271,15 @@ CLI commands `list`, `run`, `validate`, `test`, `correct` work locally. Gateway 
 ### Phase 3: Organizational Memory — Built
 PostgreSQL + Qdrant store executions, corrections, and reflexions. Memory recall in agent executor injects relevant corrections and reflexions into the system prompt before each skill run. Semantic search via Qdrant with PostgreSQL fallback (DEC-049).
 
-### Phase 4: Continuous Controllers (self-healing) — Not started
+### Phase 4: Memory Governance — Not started
+Enterprise controls for production memory rollout:
+1. **ACL-aware recall**: Wire `DomainScopedStore` into `_recall_memories()` (currently bypassed)
+2. **PII/secrets scanning**: Pre-storage validation before `log_execution()` and `add_correction()`
+3. **Retention/TTL + DSAR**: `retention_days` per domain, soft-delete, data export/delete endpoints
+4. **Audit trail**: `created_by`, `updated_by`, `update_reason` on all memory mutations
+5. **Observability**: Prometheus metrics on recall latency, store errors, domain isolation violations
+
+### Phase 5: Continuous Controllers (self-healing) — Not started
 1. Skill health probes (accept rate, cost, latency monitoring)
 2. Auto-rollback on degradation (ADR-017)
 3. Shadow mode canary
