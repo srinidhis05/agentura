@@ -61,4 +61,4 @@ export const PUT = proxy;
 export const DELETE = proxy;
 export const PATCH = proxy;
 
-export const maxDuration = 600;
+export const maxDuration = 300;
