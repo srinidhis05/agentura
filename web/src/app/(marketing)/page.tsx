@@ -122,13 +122,13 @@ function CompoundingIntelligence() {
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               Every correction your team makes becomes a permanent guardrail.
               Every reflexion rule gets injected into future prompts automatically.
-              Six months in, your system knows your domain better than any vendor
-              ever could &mdash; and that knowledge can never be taken from you.
+              And when one agent learns something, every agent in your organization
+              benefits &mdash; learnings flow across domains, not just within a single skill.
             </p>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              After six months, your system has thousands of domain-specific
+              Six months in, your system has thousands of domain-specific
               learnings that no vendor can replicate &mdash; because they live on
-              your infrastructure and belong to you.
+              your infrastructure and belong to your entire organization.
             </p>
           </div>
 
@@ -149,15 +149,15 @@ function CompoundingIntelligence() {
             />
             <MoatStep
               week="Month 3"
-              label="Domain expertise emerges"
-              detail="Hundreds of learnings. Agents know your naming conventions, preferences, edge cases."
+              label="Cross-agent learning"
+              detail="Learnings flow across domains. A preference set in dev/app-builder is recalled by hr/onboarding-guide."
               fill="w-[65%]"
               color="from-blue-500/70 to-cyan-500/40"
             />
             <MoatStep
               week="Month 6+"
-              label="Institutional memory"
-              detail="Thousands of domain-specific guardrails. No vendor can replicate this. It's yours."
+              label="Organizational intelligence"
+              detail="Thousands of guardrails across every domain. Your entire org's knowledge, searchable and applied automatically."
               fill="w-[90%]"
               color="from-cyan-500/70 to-emerald-500/50"
             />
@@ -608,7 +608,7 @@ function MemoryLearning() {
             How the Memory System Works
           </h2>
           <p className="mt-3 text-sm text-muted-foreground">
-            Three mechanisms that compound: reflexion rules, correction pipelines, and cross-domain recall
+            Four levels of memory &mdash; from individual sessions to organization-wide knowledge &mdash; that flow across every agent
           </p>
         </div>
 
@@ -662,19 +662,22 @@ reflexion rule → prompt injection
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
             </div>
-            <h3 className="text-base font-semibold">Cross-Domain Memory</h3>
+            <h3 className="text-base font-semibold">Organizational Memory</h3>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Memory recall searches across all domains to find relevant past learnings.
-              A preference set during a dev/app-builder run is available to hr/interview-questions
-              if relevant. Stored in PostgreSQL, searchable by semantic similarity.
+              When one agent learns, every agent benefits. Memory recall searches
+              across all domains to surface relevant learnings &mdash; a theme preference
+              from dev/app-builder appears in hr/onboarding-guide. Four levels:
+              Firm &rarr; Domain &rarr; Skill &rarr; Session.
             </p>
             <div className="mt-4 rounded-lg border border-border bg-background/50 p-3">
               <pre className="font-mono text-xs text-muted-foreground leading-relaxed">{`# Memory injected at TOP of prompt:
-## Memory (from past executions)
+## Org Memory (cross-domain recall)
 - Theme: dark mode, #8b5cf6
 - Stack: vanilla JS preferred
-- Style: minimal, modern
+- Deploys: always use NodePort 32xxx
 
+## Domain Memory (dev/)
+- Tests: always include unit tests
 ---
 # Original SKILL.md follows...`}</pre>
             </div>
