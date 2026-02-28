@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 const API_TARGET = process.env.API_TARGET || "http://localhost:3001";
 
-export const maxDuration = 600;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 export async function POST(
