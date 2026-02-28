@@ -34,6 +34,10 @@ sandbox = [
     "kubernetes>=29.0.0",
     "docker>=7.0.0",
 ]
+claude-code = [
+    # claude-agent-sdk now runs in isolated worker pods (claude-code-worker image)
+    # Keep the extra defined but empty for backwards compat with existing installs
+]
 
 [project.scripts]
 agentura = "agentura_sdk.cli.main:main"

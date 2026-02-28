@@ -22,8 +22,20 @@
 **Rule**: This repo's remote is `git@github-personal:srinidhis05/agentura.git`. NEVER push to `vance-srinidhi` or any other GitHub account. Always verify with `git remote -v` before pushing.
 **Detection**: Any `git push` to a URL containing a username other than `srinidhis05`.
 
+## GR-006: Sync skills/ to K8s pod after editing — hostPath is not your local filesystem
+**Mistake**: Edited `skills/dev/app-builder/agentura.config.yaml` and `SKILL.md` locally, rebuilt the Docker image 3 times and redeployed, but the pod kept using the old config. Skills are volume-mounted via hostPath (`/skills` on the K8s node), not baked into the Docker image.
+**Impact**: Three failed deploy cycles. New `executor: claude-code` config never reached the pod. App-builder kept using legacy sandbox executor with the write-loop bug it was supposed to fix.
+**Rule**: After editing any file under `skills/`, ALWAYS sync to the pod via `kubectl cp`. The Docker image only packages Python code (`sdk/agentura_sdk/`), not skills. Verify with `kubectl exec -- cat /skills/<path>`.
+**Detection**: Any `skills/` file edit followed by `docker build` + `kubectl rollout restart` without a corresponding `kubectl cp` or hostPath sync.
+
 ## GR-004: Check actual runtime environment before giving instructions — never assume Docker Compose
 **Mistake**: Told user to run `docker compose up` three separate times despite the full Agentura stack (executor, gateway, web, postgres, k8s-mcp) already running as K8s pods in the `agentura` namespace. Also missed deployed todo-list apps from prior pipeline runs.
 **Impact**: Wasted user time, eroded trust. User had to correct the same mistake three times.
 **Rule**: Before giving "how to run" instructions, ALWAYS run `kubectl get pods -n agentura` (and `kubectl get svc -n agentura` if URLs are needed) to check what's actually running. The production runtime is Kubernetes, not Docker Compose. Docker Compose exists for legacy/local-only use.
 **Detection**: Any response containing `docker compose up` or `docker-compose up` without first checking `kubectl get pods`.
+
+## GR-007: Use todo lists for complex multi-step tasks to prevent context loss
+**Mistake**: During long multi-file implementation sessions, progress tracking relied on mental state rather than explicit task lists. Context compaction dropped intermediate progress, leading to repeated work and missed steps.
+**Impact**: Tasks got partially completed or forgotten after context refresh. User had to remind Claude of remaining work.
+**Rule**: For tasks with 3+ steps or multi-file changes, ALWAYS create a TaskCreate todo list at the start. Mark tasks in_progress when starting, completed when done. This survives context compaction and keeps both Claude and the user aligned on what's done vs. pending.
+**Detection**: Any multi-file implementation plan without corresponding TaskCreate calls.

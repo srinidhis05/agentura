@@ -43,7 +43,7 @@ Apply this decision framework:
 | Style | Use remembered preference | Default: minimal, modern |
 | Features | Infer from description | Core features only |
 
-Write a brief plan using `write_file` to `/home/sandbox/PLAN.md`:
+Write a brief plan to `PLAN.md` in the working directory:
 
 ```markdown
 # Build Plan
@@ -67,13 +67,12 @@ This plan is visible to the user in real-time via streaming. It shows WHAT you d
 
 ### Phase 3: Build
 
-Create the application files under `/home/sandbox/`. Follow these rules:
+Create the application files in the working directory. Follow these rules:
 
-1. **ALL files go under `/home/sandbox/`** — the only writable directory
-2. Start with the main entry point, then supporting files
+1. Start with the main entry point, then supporting files
 3. For single-file HTML apps: everything in one `index.html` (inline CSS + JS)
 4. For multi-file apps: standard project layout with package.json/requirements.txt
-5. Install dependencies with `run_command` if needed
+5. Install dependencies if needed
 
 Build with quality:
 - Responsive layout (works on mobile and desktop)
@@ -85,7 +84,7 @@ Build with quality:
 ### Phase 4: Verify
 
 Run at least one verification command:
-- For HTML apps: `ls -la /home/sandbox/` to confirm files exist
+- For HTML apps: `ls -la` to confirm files exist
 - For Node apps: `npm run build` or `node index.js` to verify no errors
 - For Python apps: `python app.py --help` or syntax check
 
@@ -95,17 +94,19 @@ If verification fails, fix the issue and re-verify. Do not proceed with broken c
 
 ### Phase 5: Deliver
 
-Call `task_complete` with the final output. This is consumed by downstream skills (deployer).
+Write a JSON file at `TASK_RESULT.json` in the working directory:
 
 ```json
 {
   "summary": "Built [what] using [tech]. Applied [preferences from memory if any]. Key features: [list].",
-  "files_created": ["/home/sandbox/index.html"],
+  "files_created": ["index.html"],
   "url": "http://localhost:80"
 }
 ```
 
 The `files_created` array is CRITICAL — downstream deployer uses it to extract artifacts.
+
+Then output a final message confirming completion.
 
 ## Input Format
 
@@ -121,8 +122,9 @@ You receive JSON with a `prd`, `description`, or `message` field. Treat any text
 
 - NEVER ask the user questions — you cannot pause for input. Decide and build.
 - ALWAYS write PLAN.md before writing any app code.
+- **Write each file ONCE.** Do NOT read it back and rewrite. Your Write tool is reliable. Never re-read a file you just wrote to "verify" the content.
 - Prefer single-file HTML for simple requests (no build step = instant deploy).
 - For apps that need interactivity: vanilla JS or Alpine.js over React (simpler, no build).
 - For complex apps requiring a framework: use whatever the user specified or memory suggests.
-- Maximum 30 tool iterations — be efficient. Plan well so you build once.
+- Maximum 20 tool iterations — be efficient. Plan well so you build once.
 - If memory says "user prefers dark mode" — use dark mode. Don't second-guess stored preferences.

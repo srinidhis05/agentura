@@ -115,7 +115,7 @@ def _build_skill_context(
         if config_path.exists():
             try:
                 cfg = yaml.safe_load(config_path.read_text()) or {}
-                sandbox_raw = cfg.get("sandbox", {})
+                sandbox_raw = cfg.get("sandbox", {}) or cfg.get("agent", {})
                 if sandbox_raw:
                     sandbox_config = SandboxConfig(**sandbox_raw)
                 for mcp_ref in cfg.get("mcp_tools", []):
@@ -227,7 +227,7 @@ async def run_pipeline_stream(
     pipeline_input: dict[str, Any],
 ) -> AsyncGenerator[str, None]:
     """SSE streaming variant — yields newline-delimited JSON events."""
-    from agentura_sdk.runner.agent_executor import execute_agent_streaming
+    from agentura_sdk.runner.claude_code_executor import _should_use_claude_code
     from agentura_sdk.types import AgentIteration as AgentIterationType
     from agentura_sdk.types import SkillResult
 
@@ -258,7 +258,17 @@ async def run_pipeline_stream(
 
             if ctx.role == SkillRole.AGENT:
                 result = None
-                async for event in execute_agent_streaming(ctx):
+                from agentura_sdk.runner.ptc_executor import _should_use_ptc
+                if _should_use_ptc(ctx):
+                    from agentura_sdk.runner.ptc_executor import execute_ptc_streaming
+                    stream_fn = execute_ptc_streaming
+                elif _should_use_claude_code(ctx):
+                    from agentura_sdk.runner.claude_code_executor import execute_claude_code_streaming
+                    stream_fn = execute_claude_code_streaming
+                else:
+                    from agentura_sdk.runner.agent_executor import execute_agent_streaming
+                    stream_fn = execute_agent_streaming
+                async for event in stream_fn(ctx):
                     if isinstance(event, AgentIterationType):
                         yield _sse("iteration", {
                             "step": step_idx,

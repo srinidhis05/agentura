@@ -75,6 +75,16 @@ logger = logging.getLogger(__name__)
 async def execute_skill(ctx: SkillContext) -> SkillResult:
     """Execute a skill using Pydantic AI (Anthropic) or OpenRouter."""
     if ctx.role == SkillRole.AGENT:
+        from agentura_sdk.runner.ptc_executor import _should_use_ptc
+        if _should_use_ptc(ctx):
+            from agentura_sdk.runner.ptc_executor import execute_ptc
+            logger.info("Routing agent skill %s to PTC executor", ctx.skill_name)
+            return await execute_ptc(ctx)
+        from agentura_sdk.runner.claude_code_executor import _should_use_claude_code
+        if _should_use_claude_code(ctx):
+            from agentura_sdk.runner.claude_code_executor import execute_claude_code
+            logger.info("Routing agent skill %s to Claude Code SDK", ctx.skill_name)
+            return await execute_claude_code(ctx)
         from agentura_sdk.runner.agent_executor import execute_agent
         return await execute_agent(ctx)
     if os.environ.get("OPENROUTER_API_KEY"):

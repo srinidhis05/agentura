@@ -19,12 +19,14 @@ spec:
       initContainers:
         - name: fix-perms
           image: alpine:3.19
-          command: ["sh", "-c", "chown 1000:1000 /artifacts && chown -R 1000:1000 /skills"]
+          command: ["sh", "-c", "chown 1000:1000 /artifacts && chown -R 1000:1000 /skills && chown -R 1000:1000 /pipelines"]
           volumeMounts:
             - name: artifacts
               mountPath: /artifacts
             - name: skills
               mountPath: /skills
+            - name: pipelines
+              mountPath: /pipelines
       containers:
         - name: executor
           image: agentura/executor:latest
@@ -36,19 +38,23 @@ spec:
               value: k8s
             - name: SKILLS_DIR
               value: /skills
+            - name: PIPELINES_DIR
+              value: /pipelines
             - name: AGENTURA_KNOWLEDGE_DIR
               value: /data/.agentura
             - name: DATABASE_URL
               value: postgresql://agentura:agentura_dev@postgres:5432/agentura
             - name: MCP_K8S_URL
               value: http://k8s-mcp:8090
-            # SLACK_BOT_TOKEN loaded via envFrom secretRef below (add key to agentura-api-keys when ready)
+            # ANTHROPIC_API_KEY and SLACK_BOT_TOKEN loaded via envFrom secretRef below
           envFrom:
             - secretRef:
                 name: agentura-api-keys
           volumeMounts:
             - name: skills
               mountPath: /skills
+            - name: pipelines
+              mountPath: /pipelines
             - name: artifacts
               mountPath: /artifacts
           readinessProbe:
@@ -59,13 +65,17 @@ spec:
             periodSeconds: 5
           resources:
             limits:
-              memory: 512Mi
-              cpu: "1"
+              memory: 2Gi
+              cpu: "2"
       volumes:
         - name: skills
           hostPath:
             path: /skills
             type: Directory
+        - name: pipelines
+          hostPath:
+            path: /pipelines
+            type: DirectoryOrCreate
         - name: artifacts
           hostPath:
             path: /artifacts

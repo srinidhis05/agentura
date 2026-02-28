@@ -32,10 +32,12 @@ Every skill is a Markdown manifest (SKILL.md) + config (agentura.config.yaml):
 Every interaction goes through the Go gateway. No component touches the data store directly. The gateway provides auth, routing, and rate limiting. An MCP gateway layer (planned) will add policy enforcement for tool calls.
 
 ```
-Client (CLI / Dashboard / Slack / WhatsApp)
+Client (CLI / Chat UI / Slack)
   → Go Gateway (auth, routing, rate limiting)
-    → Python Executor (skill loading, Pydantic AI execution)
-      → [MCP Gateway] → MCP Tools (databases, Slack, Notion via MCP protocol)
+    → Python Executor (skill loading, agent execution)
+      → Sandbox Pods (isolated per-execution, K8s ephemeral pods)
+      → MCP Servers (k8s-mcp for kubectl, extensible)
+      → PostgreSQL (executions, corrections, reflexions, memory)
 ```
 
 The MCP gateway sits between the executor and MCP tool servers. It intercepts tool calls and applies policy (PII redaction, secrets scanning, injection prevention) before they reach external systems. This is planned as a future integration point.
@@ -47,7 +49,7 @@ The MCP gateway sits between the executor and MCP tool servers. It intercepts to
 | Authentication (who are you?) | API key / OAuth | Designed |
 | Authorization (can you do this?) | Domain RBAC (role-based skill access) | Designed |
 | MCP policy enforcement | PII redaction, secrets/injection scanning | Planned |
-| State write | `.agentura/` knowledge layer | Built |
+| State write | PostgreSQL via CompositeStore + Qdrant vectors | Built |
 
 ---
 
@@ -84,7 +86,7 @@ Domains partition the control plane. Each domain has its own skills, roles, RBAC
 
 | Concept | Agentura |
 |---------|----------|
-| Namespace | Domain (dev/, finance/, hr/, productivity/) |
+| Namespace | Domain (dev/, hr/, productivity/, platform/) |
 | Pod | Skill (individual execution unit) |
 | Deployment | SKILL.md + agentura.config.yaml |
 | Service | Trigger patterns (command, cron, alert, always) |
@@ -133,13 +135,12 @@ Every skill has the same structure. Every tool can operate generically on any sk
 ```
 skills/{domain}/{skill-name}/
   SKILL.md                   # metadata (frontmatter) + behavior (body)
-  agentura.config.yaml       # deployment config
-  code/handler.{py,ts,go}    # execution handler
-  tests/                     # quality + regression tests
-  fixtures/                  # sample inputs
+  agentura.config.yaml       # deployment config (sandbox, MCP tools, triggers, display)
+  tests/                     # quality + regression tests (optional)
+  fixtures/                  # sample inputs (optional)
 ```
 
-**Uniform interface (ADR-014)**: Every handler implements `SkillContext → SkillResult`, regardless of language (Python, TypeScript, Go).
+Skills are SKILL.md + agentura.config.yaml only — no code handlers. Agent skills use the generic agent executor with tool calling and MCP tool access.
 
 ---
 
@@ -165,30 +166,34 @@ steps:
 # Immediately available at /api/v1/pipelines/onboard-employee/execute — zero code changes
 ```
 
+**Skill role types**:
+- **specialist**: produces text/JSON output via Pydantic AI
+- **agent**: executes in sandboxed pod with tool calling (write_file, run_command, etc.) and MCP tool access
+- **manager**: routes to other skills
+
 **Operator pattern**: Each domain can have a manager skill that acts as the domain's "operator" — it understands the domain's resources and routes to specialist skills:
 - `platform/classifier` → routes to domains
 - `hr/triage` → routes to hr/resume-screen, hr/interview-questions, hr/leave-policy
-- `finance/triage` → routes to finance/expense-analyzer, finance/invoice-reviewer
 
 ---
 
 ## Principle 8: State Store
 
-```
-.agentura/
-  episodic_memory.json    # Execution history
-  corrections.json        # User corrections
-  reflexion_entries.json  # Learned rules (derived from corrections)
-```
+PostgreSQL (primary store):
+- `executions` table — full execution history with reasoning traces
+- `corrections` table — user corrections linked to executions
+- `reflexions` table — learned rules derived from corrections
 
-**Access pattern**: Only the Python executor and CLI read/write `.agentura/`. The Go gateway and dashboard access it through the API.
+Qdrant (semantic search, in-memory):
+- Vector embeddings for memory recall during execution
+- Falls back to direct PostgreSQL queries when embeddings fail
 
-### Gap: Persistent Store
-Currently JSON files. Production needs PostgreSQL (ADR-008) with:
-- ACID guarantees for concurrent writes
-- Rich querying for skill discovery
-- Versioning/rollback for skill deployments
-- Watch/event stream for real-time updates
+Memory recall at execution time:
+- Agent executor calls `_recall_memories()` before each skill run
+- Injects relevant corrections and reflexions into the system prompt
+- Semantic search first, PostgreSQL fallback
+
+**Access pattern**: The Python executor reads/writes via `CompositeStore` (PostgreSQL + Qdrant). The Go gateway and dashboard access state through the API. JSON files (`.agentura/`) remain as a legacy fallback for fresh installs without a database (DEC-049).
 
 ---
 
@@ -255,24 +260,18 @@ Organizations need memory at multiple levels. Agentura provides a 4-level hierar
 
 ## Implementation Priority
 
-### Phase 1: CLI Gateway Connection
-1. `agentura status` — health check
-2. `agentura get skills/executions/domains` — query gateway
-3. `agentura describe skill/execution` — detailed views
-4. `agentura logs <execution-id>` — reasoning traces
-5. `agentura apply -f` — deploy skills to gateway
+### Phase 1: CLI Gateway Connection — Partially built
+CLI commands `list`, `run`, `validate`, `test`, `correct` work locally. Gateway operations (`get`, `describe`, `logs`, `apply`, `status`) not yet implemented.
 
-### Phase 2: Admission Control
+### Phase 2: Admission Control — Not started
 1. Pre-deploy validation (tests exist, budget within limits, model approved)
 2. MCP gateway integration for tool call policy enforcement
 3. Shadow mode canary for batch skills
 
-### Phase 3: Organizational Memory
-1. `agentura memory` commands
-2. Firm/domain/skill/session hierarchy in PostgreSQL
-3. Memory search via vector embeddings
+### Phase 3: Organizational Memory — Built
+PostgreSQL + Qdrant store executions, corrections, and reflexions. Memory recall in agent executor injects relevant corrections and reflexions into the system prompt before each skill run. Semantic search via Qdrant with PostgreSQL fallback (DEC-049).
 
-### Phase 4: Continuous Controllers (self-healing)
+### Phase 4: Continuous Controllers (self-healing) — Not started
 1. Skill health probes (accept rate, cost, latency monitoring)
 2. Auto-rollback on degradation (ADR-017)
 3. Shadow mode canary
