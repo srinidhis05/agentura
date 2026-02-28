@@ -39,3 +39,15 @@
 **Impact**: Tasks got partially completed or forgotten after context refresh. User had to remind Claude of remaining work.
 **Rule**: For tasks with 3+ steps or multi-file changes, ALWAYS create a TaskCreate todo list at the start. Mark tasks in_progress when starting, completed when done. This survives context compaction and keeps both Claude and the user aligned on what's done vs. pending.
 **Detection**: Any multi-file implementation plan without corresponding TaskCreate calls.
+
+## GR-008: Never hardcode max_tokens below 8192 for agent skills with structured output
+**Mistake**: ptc-worker/main.py had `max_tokens=4096` hardcoded. The deployer skill generates K8s ConfigMap YAML containing full HTML file contents inside `kubectl_apply` tool calls — easily 6000+ tokens. When hit, `stop_reason` became `"max_tokens"` not `"tool_use"`, and the code discarded the partial tool call silently.
+**Impact**: 5+ deployer pipeline runs appeared to succeed (`iterations_count: 0`, cost $0.07+) but created zero K8s resources. The model was generating correct tool calls that got truncated and silently dropped.
+**Rule**: Never hardcode `max_tokens` below 8192 for any agent skill that generates structured output (YAML, JSON, code) containing embedded file contents. Use SandboxConfig.max_tokens (default 16384) and always handle `stop_reason="max_tokens"` with continuation logic.
+**Detection**: Any hardcoded `max_tokens` value below 8192 in executor or worker code, or any agent loop that doesn't handle `stop_reason="max_tokens"`.
+
+## GR-009: ExecuteRequest requires input_data wrapper — raw top-level fields silently ignored
+**Mistake**: Sent `{"description": "build a counter app"}` directly to `/v1/skills/deployer/execute` but `ExecuteRequest` model expects `{"input_data": {"description": "..."}}`. The `input_data` field defaults to `{}` when the key is missing, so the skill received empty input with no error.
+**Impact**: Agent executed with empty prompt context, wasting tokens and producing generic responses instead of actual work.
+**Rule**: All direct API calls to execute endpoints MUST wrap payload in `{"input_data": {...}}`. When debugging "agent did nothing useful", always check whether `input_data` is actually populated.
+**Detection**: Any curl/httpx call to `/execute` or `/execute-stream` where the JSON body lacks an `input_data` key.
