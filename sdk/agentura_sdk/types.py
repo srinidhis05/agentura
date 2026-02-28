@@ -40,6 +40,7 @@ class SandboxConfig(BaseModel):
     template: str = "base"
     timeout: int = 300
     max_iterations: int = 50
+    max_tokens: int = 16384
     cpu: int = 2
     memory: int = 512
     backend: str = ""
