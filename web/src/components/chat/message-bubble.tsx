@@ -1,3 +1,5 @@
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "@/lib/chat-types";
 import { SkillResultCard } from "./skill-result-card";
 
@@ -53,11 +55,13 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
           <SkillResultCard result={message.metadata.skillResult} />
         )}
 
-        {/* Text content (only if no table) */}
+        {/* Text content (only if no table) — rendered as markdown */}
         {message.content && !message.metadata?.tableData && (
-          <div className={`text-sm whitespace-pre-wrap ${message.metadata?.error ? "text-red-600" : "text-foreground"}`}>
-            {message.content}
-          </div>
+          <article
+            className={`prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-foreground/80 prose-li:text-foreground/80 prose-strong:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none prose-pre:rounded-lg prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-a:text-primary prose-hr:border-border ${message.metadata?.error ? "prose-p:text-red-600" : ""}`}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+          </article>
         )}
       </div>
     </div>
