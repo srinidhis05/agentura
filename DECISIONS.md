@@ -119,3 +119,15 @@
 **Over**: Per-domain custom images, single heavyweight executor for all skills, in-process execution
 **Why**: Skills pick executor via config (`executor: ptc|claude-code`), not custom images; onboarding new domains (ECM, HR, finance) requires zero Docker builds; PTC handles 80% of agent skills (MCP-only); claude-code handles the rest (code generation, file manipulation)
 **Constraint**: New agent skills MUST set `executor: ptc` or `executor: claude-code` in agentura.config.yaml; legacy sandbox (no executor field) works but is deprecated for new skills
+
+## DEC-059: max_tokens=16384 default for PTC workers (over 4096)
+**Chose**: 16384 as default max_tokens for PTC worker agent loop
+**Over**: 4096 (original hardcoded value), 8192
+**Why**: Deployer skill embeds full HTML artifacts inside K8s ConfigMap YAML in tool_use calls, easily exceeding 4096 tokens. Truncated tool calls caused `stop_reason=max_tokens` instead of `tool_use`, silently failing deployment for 5+ runs with `iterations_count: 0` despite $0.07+ spend per run.
+**Constraint**: Never set max_tokens below 8192 for skills that generate structured output containing embedded file contents
+
+## DEC-060: max_tokens configurable via SandboxConfig (over hardcoded)
+**Chose**: `max_tokens` field on SandboxConfig, threaded from agentura.config.yaml → ptc_executor.py → PTC worker pod
+**Over**: Hardcoded in ptc-worker/main.py, per-skill env var override
+**Why**: Different skills need different token budgets — deployer needs 16K+ for embedded HTML, while simple MCP-only skills work fine with 4K. Config-driven aligns with DEC-047 (YAML config pattern).
+**Constraint**: SandboxConfig.max_tokens defaults to 16384; skills can override in agentura.config.yaml sandbox section
