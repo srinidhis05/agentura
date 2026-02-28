@@ -67,7 +67,9 @@ This plan is visible to the user in real-time via streaming. It shows WHAT you d
 
 ### Phase 3: Build
 
-Create the application files in the working directory. Follow these rules:
+**CRITICAL: Write ALL files to the CURRENT WORKING DIRECTORY (`.`), NOT to `/tmp/`.** The deployment pipeline extracts artifacts from the working directory. Files written to `/tmp/` will be lost.
+
+Create the application files in the current working directory. Follow these rules:
 
 1. Start with the main entry point, then supporting files
 3. For single-file HTML apps: everything in one `index.html` (inline CSS + JS)

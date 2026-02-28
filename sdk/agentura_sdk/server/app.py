@@ -1163,10 +1163,21 @@ def _scan_generated_tests() -> list[dict]:
 
 @app.get("/api/v1/knowledge/reflexions", response_model=list[KnowledgeReflexionEntry])
 def list_reflexions(skill: str | None = None, domains: set[str] | None = Depends(_get_domain_scope)):
-    """List all reflexion entries across all skills (domain-scoped)."""
-    # JSON files are source of truth (CLI writes here directly)
-    data = _load_knowledge_file("reflexion_entries.json")
-    entries = data.get("entries", [])
+    """List all reflexion entries across all skills (domain-scoped). Store first, JSON fallback (DEC-049)."""
+    entries: list[dict] = []
+
+    # Try store first
+    try:
+        from agentura_sdk.memory import get_memory_store
+        store = get_memory_store()
+        entries = store.get_all_reflexions()
+    except Exception:
+        pass
+
+    # Fallback to JSON files
+    if not entries:
+        data = _load_knowledge_file("reflexion_entries.json")
+        entries = data.get("entries", [])
 
     entries = _filter_by_domain(entries, domains)
     if skill:
@@ -1189,12 +1200,26 @@ def list_reflexions(skill: str | None = None, domains: set[str] | None = Depends
 
 @app.get("/api/v1/knowledge/corrections", response_model=list[KnowledgeCorrectionEntry])
 def list_corrections(skill: str | None = None, domains: set[str] | None = Depends(_get_domain_scope)):
-    """List all corrections across all skills (domain-scoped)."""
-    # JSON files are source of truth (CLI writes here directly)
-    data = _load_knowledge_file("corrections.json")
-    corrections = data.get("corrections", [])
-    refl_data = _load_knowledge_file("reflexion_entries.json")
-    refl_entries = refl_data.get("entries", [])
+    """List all corrections across all skills (domain-scoped). Store first, JSON fallback (DEC-049)."""
+    corrections: list[dict] = []
+    refl_entries: list[dict] = []
+
+    # Try store first
+    try:
+        from agentura_sdk.memory import get_memory_store
+        store = get_memory_store()
+        corrections = store.get_corrections()
+        refl_entries = store.get_all_reflexions()
+    except Exception:
+        pass
+
+    # Fallback to JSON files
+    if not corrections:
+        data = _load_knowledge_file("corrections.json")
+        corrections = data.get("corrections", [])
+    if not refl_entries:
+        refl_data = _load_knowledge_file("reflexion_entries.json")
+        refl_entries = refl_data.get("entries", [])
 
     corrections = _filter_by_domain(corrections, domains)
     if skill:
