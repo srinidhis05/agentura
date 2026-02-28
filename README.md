@@ -1,15 +1,28 @@
-# Agentura — Enterprise AI Plugin Marketplace
+# Agentura — AI That Gets Smarter, And Stays Yours
 
-[![CI](https://github.com/agentura-ai/agentura/actions/workflows/ci.yml/badge.svg)](https://github.com/agentura-ai/agentura/actions/workflows/ci.yml)
+[![CI](https://github.com/srinidhis05/agentura/actions/workflows/ci.yml/badge.svg)](https://github.com/srinidhis05/agentura/actions/workflows/ci.yml)
 
-> Build and deploy domain-specific AI plugins (Dev, HR, Productivity) with agent sandboxes, MCP integration, and self-improving feedback loops.
+> Self-hosted AI agent orchestrator with config-driven skills, isolated K8s execution, and a learning loop that compounds. Corrections become reflexion rules, reflexions become system prompts, and every execution deepens a knowledge base that lives on your infrastructure.
 
 ```
-Correction → Test → Reflexion → Re-injection → Better output
-                 (the loop that compounds)
+Correction → Reflexion → Prompt Injection → Better output
+              (the loop that compounds)
 ```
 
 ## Demo
+
+### Full Demo — Skills, Pipelines & Learning Loop
+
+https://github.com/srinidhis05/agentura/raw/main/docs/assets/Agentura-Final.mp4
+
+<details>
+<summary>What you're seeing</summary>
+
+1. **Skill execution** — Config-driven skills with guardrails and MCP tool access
+2. **Pipeline chaining** — Multi-skill workflows via YAML config (build → deploy)
+3. **Learning loop** — Corrections → reflexion rules → auto-generated tests → smarter next run
+4. **Dashboard** — Domain topology, execution history, knowledge layer
+</details>
 
 ### CLI — The Learning Loop in Action
 
@@ -24,85 +37,83 @@ https://github.com/user-attachments/assets/213bc72a-bbfe-477e-ad59-18bc1ba5360b
 4. **Re-run** — Same skill now includes the learned rule in its prompt
 </details>
 
-### Web UI — Chat + Dashboard
-
-https://github.com/user-attachments/assets/48519761-0369-4f5d-9d99-9e5bd9cfc146
-
-<details>
-<summary>What you're seeing</summary>
-
-1. **Chat interface** — Natural language routing to the right skill
-2. **Dashboard** — Domain topology, execution history, knowledge layer
-3. **Skill detail** — Full SKILL.md rendered with config, guardrails, and metrics
-</details>
-
 ## What Is This?
 
-Agentura is an **enterprise AI plugin marketplace** — like an app store for AI agent skills across your organization:
+Cloud AI forgets you between sessions. Agentura remembers everything.
+
+Skills are **Markdown + YAML config** — not Python code. You define behavior in `SKILL.md`, wire executor types, MCP tools, and guardrails in `agentura.config.yaml`, and chain skills into pipelines with a YAML file. The platform handles execution in isolated K8s pods, memory recall, and the learning loop.
 
 | Concept | What It Means |
 |---------|--------------|
-| **Domain** | Plugin category (Dev, HR, Productivity) |
-| **Skill** | A plugin (SKILL.md + config YAML) — no code required |
-| **Routing** | Natural language → auto-routes to the right plugin |
-| **MCP Tools** | External integrations (Slack, Jira, databases, APIs) |
-| **Guardrails** | Cost budgets, rate limits, human approval thresholds |
-| **Agent Skills** | Autonomous agents with sandboxed code execution and MCP tool access |
-| **Events** | Unified stream (executions, corrections, reflexions) |
-| **CLI** | `agentura` — manage plugins from the terminal |
+| **Skill** | SKILL.md (behavior) + config YAML (executor, tools, limits) — no code |
+| **Executor** | How the skill runs: `ptc` (tool-calling), `claude-code` (sandbox), or legacy (in-process) |
+| **Pipeline** | Multi-skill workflow in YAML — each step's output flows to the next |
+| **Domain** | Namespace for isolation (dev/, hr/, productivity/) |
+| **MCP Tools** | External integrations (kubectl, Slack, GitHub, databases) scoped per skill |
+| **Learning Loop** | Correction → reflexion rule → test → prompt injection on next run |
+| **Triggers** | Slack, GitHub webhooks, cron, REST API, CLI |
 
-**The difference**: Every execution feeds a learning loop. User corrections automatically generate regression tests, reflexion rules, and guardrails. After 6 months, your organization has 10,000+ test cases and measurable improvement trajectories — something no competitor offers.
+**The difference**: Every execution feeds a learning loop. Corrections generate reflexion rules that get injected into future prompts, plus DeepEval regression tests. Over time, your skills accumulate domain-specific guardrails stored in PostgreSQL — searchable, versioned, and yours.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│           Next.js Chat UI + Dashboard (3000)                 │
-│  Chat · Domain Picker · Executions · Knowledge · Analytics   │
+│          User / Chat Client                                   │
+│  Chat UI · CLI · Slack · REST API · GitHub Webhooks           │
 └──────────────────────────┬──────────────────────────────────┘
-                           │
+                           │ HTTP + SSE streaming
 ┌──────────────────────────▼──────────────────────────────────┐
 │         Go API Gateway (3001 / NodePort 30080)               │
-│  Auth · CORS · Rate Limit · Metrics · SSE Streaming          │
+│  Auth · CORS · Rate Limiting (RPS + Burst) · SSE Streaming   │
+│  Pipeline Router · Cron Scheduler · Webhook Handler           │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
 │           Python Skill Executor (8000)                       │
-│  Pydantic AI · Agent Executor · Skill Loader · Pipelines     │
+│  Executor Router (PTC/CC/Legacy) · Skill Loader · Pipelines  │
+│  Memory Recall (prompt injection) · Pipeline Engine           │
 └───────┬──────────────┬──────────────┬───────────────────────┘
-        │              │              │
+        │              │              │ creates per-execution pods
 ┌───────▼───────┐ ┌────▼────────┐ ┌──▼──────────────────────┐
-│ Sandbox Pods  │ │ MCP Servers │ │ PostgreSQL + Qdrant     │
-│ (per-agent    │ │ (k8s-mcp    │ │ (memory, executions,    │
-│  execution)   │ │  for kubectl)│ │  vector search)         │
+│ Agent Pods    │ │ MCP Servers │ │ PostgreSQL + Qdrant     │
+│ PTC Worker    │ │ kubectl     │ │ Executions, corrections │
+│ CC Worker     │ │ Slack       │ │ Reflexions, vector      │
+│ Deployed Apps │ │ GitHub      │ │ search (semantic recall)│
 └───────────────┘ └─────────────┘ └─────────────────────────┘
 ```
+
+### Three Executor Types
+
+| Executor | Config | Pod Size | Use Case |
+|----------|--------|----------|----------|
+| **PTC Worker** | `executor: ptc` | ~200MB, 1 CPU | Tool-calling via MCP (K8s deployer, API workflows) |
+| **Claude Code Worker** | `executor: claude-code` | ~800MB, 2 CPU | File I/O + bash + code editing (app builder, code gen) |
+| **Legacy** | No executor field | No extra pod | Simple prompt-response (email drafter, summarizer) |
 
 ## Quick Start
 
 ```bash
 # 1. Clone
-git clone https://github.com/agentura-ai/agentura.git
+git clone https://github.com/srinidhis05/agentura.git
 cd agentura
 
-# 2. Set your API key
-echo "OPENROUTER_API_KEY=sk-or-..." > .env
+# 2. Configure
+cp .env.example .env   # add your ANTHROPIC_API_KEY or OPENROUTER_API_KEY
 
-# 3a. Local development
-cd sdk && pip install -e ".[dev]"
-cd gateway && go build ./...
-cd web && npm install && npm run dev
-
-# 3b. Production (Kubernetes)
+# 3. Deploy to K8s (K3s / Kind / EKS / GKE)
 kubectl apply -f deploy/k8s/operator/
 kubectl get pods -n agentura   # verify all pods running
 
+# 4. Copy skills and start building
+kubectl cp skills/ executor:/skills/
+agentura run dev/app-builder --input '{"description": "build a counter app"}'
+
 # Gateway: http://localhost:30080
 # Web UI: kubectl port-forward -n agentura svc/web 3000:3000
-# Dashboard: http://localhost:3000/dashboard
 ```
 
-## The Learning Loop (Core Differentiator)
+## The Learning Loop
 
 Every correction makes the system smarter:
 
@@ -114,48 +125,97 @@ Run skill → User corrects output → Reflexion rule generated → Test auto-cr
 
 ```bash
 # 1. Run a skill
-agentura run hr/interview-questions --input role.json
+agentura run dev/app-builder --input '{"description": "build a todo app"}'
 
 # 2. Correct a mistake
-agentura correct hr/interview-questions \
-    --execution-id EXEC-20260219 \
-    --correction "Senior roles need system design questions, not just behavioral"
+agentura correct dev/app-builder \
+    --execution-id EXEC-20260228 \
+    --correction "Always use dark theme with purple accent"
 
-# 3. Next execution automatically includes the learned rule
+# What happens:
+# ✓ Correction stored in PostgreSQL
+# ✓ Reflexion generated: "User prefers dark mode with purple accent (#8b5cf6)"
+# ✓ Regression test written to tests/generated/test_correction_3.py
+
+# 3. Next execution automatically recalls the reflexion and injects it into the prompt
+agentura run dev/app-builder --input '{"description": "build a counter app"}'
+# → Agent now applies dark theme without being told
 ```
 
 See [docs/memory-system.md](docs/memory-system.md) for the full feedback loop, data schemas, and CLI reference.
 
-## Create a Skill in 5 Minutes
+## Create a Skill
 
-A skill is a Markdown file with YAML frontmatter. No Python required.
+A skill is a Markdown file (`SKILL.md`) + config YAML (`agentura.config.yaml`). No Python required.
+
+**SKILL.md** — defines behavior:
 
 ```markdown
-<!-- skills/hr/resume-screen/SKILL.md -->
 ---
-name: resume-screen
-role: specialist
-domain: hr
-trigger: api
-model: anthropic/claude-sonnet-4.5
-cost_budget_per_execution: "$0.05"
-timeout: 30s
+name: deployer
+role: agent
+domain: dev
+model: anthropic/claude-sonnet-4-5
 ---
 
-You are an HR resume screening specialist.
-
-## Task
-Given a resume and job description, evaluate candidate fit.
-
-## Output Schema
-Return JSON: { "fit_score": 0-100, "strengths": [...], "concerns": [...], "recommendation": "proceed|reject|discuss" }
+# Deployer Agent
+You receive app artifacts and deploy them to Kubernetes via kubectl.
 
 ## Guardrails
-- Never consider age, gender, ethnicity, or protected characteristics
-- Focus on skills match and experience relevance only
+- Always use NodePort services for external access
+- Never deploy to the default namespace
 ```
 
-That's it. The platform handles execution, logging, corrections, test generation, and learning.
+**agentura.config.yaml** — defines execution config:
+
+```yaml
+agent:
+  executor: ptc              # or claude-code, or omit for legacy
+  timeout: 120
+  max_iterations: 15
+  max_tokens: 16384
+
+mcp_tools:
+  - server: k8s
+    tools: [kubectl_apply, kubectl_get, kubectl_delete]
+
+triggers:
+  - type: api
+  - type: cron
+    schedule: "0 9 * * 1-5"
+
+display:
+  icon: "rocket"
+  color: "#f59e0b"
+  conversation_starters:
+    - "Deploy the latest build to staging"
+```
+
+**Pipeline YAML** — chain skills into workflows:
+
+```yaml
+# pipelines/build-deploy.yaml
+name: build-deploy
+steps:
+  - skill: dev/app-builder    # builds the app
+  - skill: dev/deployer       # deploys to K8s
+# app-builder artifacts automatically flow to deployer as input
+```
+
+New pipeline = new YAML file in `pipelines/`. Zero code changes.
+
+## Triggers
+
+Skills and pipelines can be triggered from multiple sources:
+
+| Trigger | How | Config |
+|---------|-----|--------|
+| **CLI** | `agentura run dev/app-builder` | Always available |
+| **REST API** | `POST /api/v1/skills/{domain}/{skill}/execute` | Always available |
+| **Slack** | @mention, DM, or `/agentura` slash command | `type: slack` in config |
+| **GitHub** | PR opened/updated triggers review pipeline | Webhook handler in gateway |
+| **Cron** | Gateway discovers cron triggers from config | `type: cron` + schedule |
+| **Webhooks** | HMAC-signed inbound from any external system | `POST /api/v1/channels/{channel}/inbound` |
 
 ## Project Structure
 
@@ -164,40 +224,38 @@ agentura/
 ├── sdk/                          # Python SDK + Skill Executor
 │   └── agentura_sdk/
 │       ├── server/app.py         # FastAPI server (all endpoints)
-│       ├── pipelines/
-│       │   ├── engine.py         # Generic pipeline executor (YAML-driven)
-│       │   └── build_deploy.py   # Backward-compat wrapper
+│       ├── pipelines/engine.py   # Generic pipeline executor (YAML-driven)
 │       ├── runner/
 │       │   ├── skill_loader.py   # Loads SKILL.md + DOMAIN.md + reflexions
 │       │   ├── local_runner.py   # Pydantic AI execution engine
 │       │   ├── agent_executor.py # Agent loop (tool calling, write-loop detection)
-│       │   ├── openrouter.py     # OpenRouter LLM provider
-│       │   └── config_loader.py  # YAML config parser
-│       ├── sandbox/              # Sandboxed execution backends
-│       │   ├── docker_sandbox.py # Docker sandbox (local dev)
-│       │   └── k8s_sandbox.py    # K8s sandbox (production)
+│       │   ├── claude_code_executor.py  # Claude Code worker pod executor
+│       │   └── openrouter.py     # OpenRouter LLM provider
+│       ├── sandbox/
+│       │   ├── k8s_sandbox.py    # K8s sandbox (production)
+│       │   └── claude_code_worker.py   # Worker pod lifecycle
+│       ├── memory/mem0_store.py  # CompositeStore (PostgreSQL + Qdrant)
 │       ├── cli/
 │       │   ├── run.py            # agentura run
 │       │   └── correct.py        # agentura correct (learning loop)
 │       └── testing/
-│           ├── deepeval_runner.py # Auto-generate DeepEval tests
-│           └── test_generator.py  # Auto-generate Promptfoo tests
+│           └── deepeval_runner.py # Auto-generate DeepEval tests
 │
 ├── gateway/                      # Go API Gateway
-│   ├── cmd/server/main.go        # Entry point
+│   ├── cmd/server/main.go
 │   └── internal/
-│       ├── handler/              # HTTP handlers (JSON passthrough)
-│       ├── adapter/executor/     # Python executor client
+│       ├── handler/              # HTTP handlers (skills, pipelines, webhooks)
+│       ├── adapter/executor/     # Python executor client (SSE streaming)
 │       └── middleware/           # Auth, CORS, rate limit, metrics
 │
-├── web/                          # Next.js Chat UI + Dashboard
+├── web/                          # Next.js Dashboard + Landing Page
 │   └── src/
+│       ├── app/(marketing)/      # Landing page (agenturaai.tech)
 │       ├── app/(chat)/           # Chat interface (/chat)
 │       ├── app/(dashboard)/      # Admin dashboard (/dashboard/*)
-│       ├── components/chat/      # Chat components (sidebar, messages, input)
-│       └── lib/                  # API client, chat state, command router
+│       └── lib/                  # API client, chat state
 │
-├── skills/                       # Skill definitions (10 skills, 4 domains)
+├── skills/                       # Skill definitions (config, not code)
 │   ├── platform/classifier/      # Routes to correct domain
 │   ├── dev/
 │   │   ├── triage/               # Domain router
@@ -212,7 +270,6 @@ agentura/
 │       ├── meeting-summarizer/   # Meeting notes + action items
 │       └── email-drafter/        # Professional email drafting
 │
-├── sandbox-runtime/              # Sandbox container (FastAPI tool server)
 ├── mcp-servers/k8s/              # K8s MCP server (kubectl operations)
 ├── deploy/k8s/operator/          # K8s deployment manifests
 ├── pipelines/                    # Pipeline definitions (YAML config)
@@ -222,22 +279,35 @@ agentura/
 └── GUARDRAILS.md                 # Anti-patterns and detection rules
 ```
 
-## Documentation
+## Security
 
-| Guide | Description |
-|-------|-------------|
-| [Skill Format](docs/skill-format.md) | SKILL.md specification — frontmatter, sections, 4-layer prompt hierarchy |
-| [SDLC](docs/sdlc.md) | Skill development lifecycle — ideate, define, build, validate, learn |
-| [Memory System](docs/memory-system.md) | Feedback loop, data schemas, memory store backends, CLI commands |
-| [Architecture](docs/architecture.md) | Core design principles — choreography, isolation, reconciliation |
-| [CLI Reference](docs/cli-reference.md) | CLI commands and operational workflows |
-| [Triggers & Channels](docs/triggers-and-channels.md) | Cron scheduling, Slack integration, webhook channels |
-| [Comparisons](docs/comparisons.md) | How Agentura compares to CrewAI, LangGraph, AutoGen, and others |
-| [Decisions](docs/decisions.md) | Architecture Decision Records (ADRs) |
+| Feature | Status |
+|---------|--------|
+| HMAC webhook verification (SHA-256) | Built |
+| JWT + domain-scoped RBAC | Built |
+| Ephemeral agent pods (created per-execution, destroyed after) | Built |
+| Rate limiting (RPS + burst control) | Built |
+| Scoped MCP tool bindings (per-skill tool access) | Built |
+| Memory governance (ACL, PII scanning, retention/TTL, audit) | Roadmap |
+
+## How It Compares
+
+| Feature | Agentura | CrewAI | LangGraph | AutoGen |
+|---------|----------|--------|-----------|---------|
+| Skills as config (no code) | SKILL.md + YAML | Python classes | Python graphs | Python agents |
+| Multi-skill pipelines | YAML config | Python (sequential/hierarchical) | Python graphs | Python conversations |
+| Learning loop | Correction → Reflexion → Test | None | None | None |
+| Auto test generation | DeepEval regression tests | None | None | None |
+| Domain isolation | Namespace-scoped domains | None | None | None |
+| MCP integration | Per-skill tool bindings | None | None | None |
+| Agent sandbox | Isolated K8s pods per execution | Shared process | Shared process | Shared process |
+| Multiple executor types | PTC / Claude Code / Legacy | Single runtime | Single runtime | Single runtime |
+| Trigger sources | Slack, GitHub, cron, webhooks, API | Code-only | Code-only | Code-only |
+| Self-hosted | K8s-native, Apache 2.0 | Cloud or self-hosted | Cloud or self-hosted | Self-hosted |
 
 ## API Endpoints
 
-### Skills (Workloads)
+### Skills
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/skills` | List all skills |
@@ -245,80 +315,53 @@ agentura/
 | POST | `/api/v1/skills/{domain}/{skill}/execute` | Execute a skill |
 | POST | `/api/v1/skills/{domain}/{skill}/correct` | Submit correction |
 
-### Knowledge (Learning Layer)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/knowledge/reflexions` | List reflexion rules |
-| GET | `/api/v1/knowledge/corrections` | List corrections |
-| GET | `/api/v1/knowledge/tests` | List generated tests |
-| GET | `/api/v1/knowledge/stats` | Learning metrics |
-| POST | `/api/v1/knowledge/validate/{domain}/{skill}` | Run tests + validate reflexions |
-
-### Domains (Namespaces)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/domains` | List domains with health |
-| GET | `/api/v1/domains/{domain}` | Domain detail + topology |
-
-### Pipelines (Multi-Skill Workflows)
+### Pipelines
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/pipelines` | List available pipelines |
 | POST | `/api/v1/pipelines/{name}/execute` | Run a pipeline |
 | POST | `/api/v1/pipelines/{name}/execute-stream` | Run with SSE streaming |
 
-New pipeline = new YAML file in `pipelines/`. Zero code changes across Python, Go, or TypeScript.
+### Knowledge
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/knowledge/reflexions` | List reflexion rules |
+| GET | `/api/v1/knowledge/corrections` | List corrections |
+| GET | `/api/v1/knowledge/tests` | List generated tests |
+| GET | `/api/v1/knowledge/stats` | Learning metrics |
 
 ### Platform
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/api/v1/domains` | List domains with health |
+| GET | `/api/v1/executions` | Execution history |
 | GET | `/api/v1/events` | Unified event stream |
 | GET | `/api/v1/platform/health` | Component health |
-| GET | `/api/v1/analytics` | Aggregate metrics |
-| GET | `/api/v1/executions` | Execution history |
-| GET | `/api/v1/executions/{id}` | Execution detail |
-
-## How It Compares
-
-| Feature | Agentura | Claude Plugins | CrewAI | LangGraph |
-|---------|--------|--------|--------|-----------|
-| Skills as config (no code) | SKILL.md + YAML | plugin.json + agents/ | Python (role/goal/backstory) | Python graphs |
-| Multi-skill pipelines | YAML config (new pipeline = new file) | None | Python (sequential/hierarchical) | Python graphs |
-| Learning loop | Correction → Test → Reflexion | None | None | None |
-| Auto test generation | DeepEval + Promptfoo | None | None | None |
-| Domain isolation | Domains with quotas | Per-plugin | None | None |
-| MCP integration | Registry + per-skill bindings | .mcp.json | None | None |
-| Role hierarchy | Manager → Specialist → Field | Single agent | Flat crew | Graph nodes |
-| Agent sandbox execution | Isolated K8s pods per agent | None | Shared process | Shared process |
-| Config-driven routing | LLM classifier + SKILL.md | Slash commands | Python | Python |
 
 ## Tech Stack
 
 | Component | Technology |
 |-----------|------------|
 | Skill Executor | Python 3.13, FastAPI, Pydantic AI |
-| Agent Executor | Tool-calling loop with write-loop detection |
 | API Gateway | Go 1.24, net/http, Prometheus |
-| Dashboard + Chat | Next.js 16, React 19, TanStack Query, Tailwind, shadcn/ui |
-| Sandbox Runtime | Python, FastAPI (isolated K8s pod per agent execution) |
+| Dashboard | Next.js 16, React 19, Tailwind, shadcn/ui |
+| Agent Pods | PTC (Python) and Claude Code (Python + Node.js 20) workers |
 | MCP Servers | K8s MCP (Go, kubectl operations) |
-| Memory | PostgreSQL 16 (CompositeStore) + Qdrant (in-memory vector search) |
-| LLM | Claude Sonnet 4.5 via OpenRouter (primary) or Anthropic SDK (fallback) |
+| Memory | PostgreSQL 16 + Qdrant (semantic vector search) |
+| LLM | Claude Sonnet 4.5 via OpenRouter or Anthropic SDK |
 | Runtime | Kubernetes (pods in `agentura` namespace) |
-| Testing | DeepEval (Apache), Promptfoo (MIT) |
+| Testing | DeepEval (auto-generated regression tests) |
 
-## Development
+## Documentation
 
-```bash
-# Python SDK
-cd sdk && pip install -e ".[dev]"
-
-# Go Gateway
-cd gateway && go build ./...
-
-# Next.js Dashboard
-cd web && npm install && npm run dev
-```
+| Guide | Description |
+|-------|-------------|
+| [Architecture](docs/architecture.md) | Core design principles — choreography, isolation, reconciliation |
+| [Skill Format](docs/skill-format.md) | SKILL.md specification — frontmatter, sections, prompt hierarchy |
+| [Memory System](docs/memory-system.md) | Feedback loop, data schemas, memory store backends |
+| [CLI Reference](docs/cli-reference.md) | CLI commands and operational workflows |
+| [Triggers & Channels](docs/triggers-and-channels.md) | Cron, Slack, webhooks |
+| [Comparisons](docs/comparisons.md) | Agentura vs CrewAI, LangGraph, AutoGen |
 
 ## License
 
@@ -326,4 +369,4 @@ Apache 2.0
 
 ---
 
-*Built by engineers who believe AI plugins should get smarter with every interaction, not just execute prompts.*
+*Self-hostable AI agent orchestration with memory that compounds.*
