@@ -71,6 +71,48 @@ CREATE INDEX IF NOT EXISTS idx_corrections_skill ON corrections(skill);
 CREATE INDEX IF NOT EXISTS idx_corrections_domain ON corrections(domain);
 CREATE INDEX IF NOT EXISTS idx_reflexions_skill ON reflexions(skill);
 CREATE INDEX IF NOT EXISTS idx_reflexions_domain ON reflexions(domain);
+
+CREATE TABLE IF NOT EXISTS fleet_sessions (
+    id SERIAL PRIMARY KEY,
+    session_id TEXT UNIQUE NOT NULL,
+    pipeline_name TEXT NOT NULL DEFAULT '',
+    trigger_type TEXT NOT NULL DEFAULT 'manual',
+    repo TEXT NOT NULL DEFAULT '',
+    pr_number INTEGER DEFAULT 0,
+    pr_url TEXT NOT NULL DEFAULT '',
+    head_sha TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    total_agents INTEGER DEFAULT 0,
+    completed_agents INTEGER DEFAULT 0,
+    failed_agents INTEGER DEFAULT 0,
+    total_cost_usd REAL DEFAULT 0.0,
+    input_data JSONB,
+    github_check_posted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS fleet_agents (
+    id SERIAL PRIMARY KEY,
+    agent_id TEXT UNIQUE NOT NULL,
+    session_id TEXT NOT NULL REFERENCES fleet_sessions(session_id),
+    skill_path TEXT NOT NULL DEFAULT '',
+    execution_id TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    pod_name TEXT DEFAULT '',
+    success BOOLEAN DEFAULT FALSE,
+    output JSONB,
+    cost_usd REAL DEFAULT 0.0,
+    latency_ms REAL DEFAULT 0.0,
+    error_message TEXT DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_fleet_sessions_status ON fleet_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_fleet_sessions_repo ON fleet_sessions(repo);
+CREATE INDEX IF NOT EXISTS idx_fleet_agents_session ON fleet_agents(session_id);
+CREATE INDEX IF NOT EXISTS idx_fleet_agents_status ON fleet_agents(status);
 """
 
 

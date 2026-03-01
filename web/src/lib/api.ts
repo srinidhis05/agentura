@@ -300,3 +300,100 @@ export async function executeBuildDeploy(input: {
 }): Promise<PipelineResult> {
   return executePipeline("build-deploy", input);
 }
+
+// Fleet API
+
+export interface FleetAgent {
+  agent_id: string;
+  session_id: string;
+  skill_path: string;
+  execution_id: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  pod_name: string;
+  success: boolean;
+  output: Record<string, unknown> | null;
+  cost_usd: number;
+  latency_ms: number;
+  error_message: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FleetSession {
+  session_id: string;
+  pipeline_name: string;
+  trigger_type: string;
+  repo: string;
+  pr_number: number;
+  pr_url: string;
+  head_sha: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  total_agents: number;
+  completed_agents: number;
+  failed_agents: number;
+  total_cost_usd: number;
+  input_data: Record<string, unknown> | null;
+  github_check_posted: boolean;
+  created_at: string;
+  updated_at: string;
+  agents?: FleetAgent[];
+}
+
+export function listFleetSessions(status?: string): Promise<FleetSession[]> {
+  const params = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : "";
+  return request<FleetSession[]>(`/api/v1/fleet/sessions${params}`);
+}
+
+export function getFleetSession(sessionId: string): Promise<FleetSession> {
+  return request<FleetSession>(`/api/v1/fleet/sessions/${sessionId}`);
+}
+
+export function cancelFleetSession(sessionId: string): Promise<{ session_id: string; status: string }> {
+  return request(`/api/v1/fleet/sessions/${sessionId}/cancel`, { method: "POST" });
+}
+
+export interface FleetSSEEvent {
+  type: "agent_update" | "session_done" | "error";
+  data: Record<string, unknown>;
+}
+
+export async function* streamFleetSession(
+  sessionId: string,
+): AsyncGenerator<FleetSSEEvent> {
+  const resp = await fetch(`${SSE_BASE}/api/v1/fleet/sessions/${sessionId}/stream`);
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`Fleet stream API ${resp.status}: ${body}`);
+  }
+
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop()!;
+
+    for (const frame of frames) {
+      if (!frame.trim()) continue;
+      let eventType = "";
+      let dataStr = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+        else if (line.startsWith("data: ")) dataStr = line.slice(6);
+      }
+      if (eventType && dataStr) {
+        try {
+          yield { type: eventType as FleetSSEEvent["type"], data: JSON.parse(dataStr) };
+        } catch {
+          // skip malformed frames
+        }
+      }
+    }
+  }
+}

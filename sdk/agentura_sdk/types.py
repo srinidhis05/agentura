@@ -19,6 +19,22 @@ class SkillLanguage(str, Enum):
     GO = "go"
 
 
+class FleetSessionStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class FleetAgentStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 # --- Skill metadata (parsed from SKILL.md frontmatter) ---
 
 class SkillMetadata(BaseModel):

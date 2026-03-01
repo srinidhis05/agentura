@@ -1,0 +1,35 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: pr-test-runner
+    path: pr-test-runner
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: pipeline
+        pattern: "github-pr-parallel step testing"
+
+agent:
+  executor: claude-code
+  max_iterations: 25
+  timeout: 300
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.35"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "PR Test Runner"
+  subtitle: "Test Execution & Coverage"
+  avatar: "TR"
+  color: "#10b981"
+  tags: ["Agent", "Testing", "PR Review"]

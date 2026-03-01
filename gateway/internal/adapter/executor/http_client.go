@@ -242,6 +242,42 @@ func (c *Client) FetchTriggers(ctx context.Context) ([]TriggerInfo, error) {
 	return triggers, nil
 }
 
+// ListFleetSessions returns fleet sessions as raw JSON passthrough.
+func (c *Client) ListFleetSessions(ctx context.Context, query string) (json.RawMessage, error) {
+	path := "/api/v1/fleet/sessions"
+	if query != "" {
+		path += "?" + query
+	}
+	return c.getJSON(ctx, path)
+}
+
+// GetFleetSession returns fleet session detail with agents as raw JSON passthrough.
+func (c *Client) GetFleetSession(ctx context.Context, sessionID string) (json.RawMessage, error) {
+	return c.getJSON(ctx, fmt.Sprintf("/api/v1/fleet/sessions/%s", sessionID))
+}
+
+// StreamGet sends a GET and returns the raw *http.Response for SSE streaming.
+// The caller is responsible for closing resp.Body.
+func (c *Client) StreamGet(ctx context.Context, path string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.streamingClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling executor: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("executor returned %d: %s", resp.StatusCode, body)
+	}
+
+	return resp, nil
+}
+
 // StreamPost sends a POST and returns the raw *http.Response for SSE streaming.
 // The caller is responsible for closing resp.Body.
 // Uses the streaming client (no timeout) so long-running SSE streams aren't killed.

@@ -9,6 +9,7 @@ from agentura_sdk.cli.approve_cmd import approve
 from agentura_sdk.cli.ask_cmd import ask
 from agentura_sdk.cli.correct import correct
 from agentura_sdk.cli.cortex_cmd import cortex
+from agentura_sdk.cli.fleet_cmd import fleet
 from agentura_sdk.cli.create import create
 from agentura_sdk.cli.describe_cmd import describe
 from agentura_sdk.cli.get_cmd import get
@@ -140,6 +141,7 @@ cli.add_command(replay)
 # Gateway operations
 cli.add_command(approve)
 cli.add_command(describe)
+cli.add_command(fleet)
 cli.add_command(get)
 cli.add_command(logs)
 cli.add_command(status)

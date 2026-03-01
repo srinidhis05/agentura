@@ -245,15 +245,23 @@ func (h *GitHubWebhookHandler) dispatchPRPipeline(event domain.GitHubPREvent) {
 		return
 	}
 
-	_, err = h.executor.PostRaw(ctx, "/api/v1/pipelines/github-pr", payload)
+	// Dispatch to parallel fleet pipeline (preferred) with fallback to sequential
+	_, err = h.executor.PostRaw(ctx, "/api/v1/pipelines/github-pr-parallel", payload)
 	if err != nil {
-		slog.Error("PR pipeline dispatch failed",
+		slog.Warn("parallel PR pipeline dispatch failed, falling back to sequential",
 			"error", err,
 			"delivery_id", event.DeliveryID,
-			"repo", event.Repo,
-			"pr", event.PRNumber,
 		)
-		return
+		_, err = h.executor.PostRaw(ctx, "/api/v1/pipelines/github-pr", payload)
+		if err != nil {
+			slog.Error("PR pipeline dispatch failed",
+				"error", err,
+				"delivery_id", event.DeliveryID,
+				"repo", event.Repo,
+				"pr", event.PRNumber,
+			)
+			return
+		}
 	}
 
 	slog.Info("PR pipeline dispatch completed",

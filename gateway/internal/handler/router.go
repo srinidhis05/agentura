@@ -20,6 +20,7 @@ type Handlers struct {
 	GitHub    *GitHubWebhookHandler
 	Trigger   *TriggerHandler
 	Pipeline  *PipelineHandler
+	Fleet     *FleetHandler
 }
 
 func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
@@ -89,6 +90,14 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 		api.HandleFunc("GET /api/v1/pipelines", h.Pipeline.ListPipelines)
 		api.HandleFunc("POST /api/v1/pipelines/{name}/execute", h.Pipeline.ExecutePipeline)
 		api.HandleFunc("POST /api/v1/pipelines/{name}/execute-stream", h.Pipeline.ExecutePipelineStream)
+	}
+
+	// Fleet sessions (proxied to Python executor)
+	if h.Fleet != nil {
+		api.HandleFunc("GET /api/v1/fleet/sessions", h.Fleet.ListSessions)
+		api.HandleFunc("GET /api/v1/fleet/sessions/{session_id}", h.Fleet.GetSession)
+		api.HandleFunc("POST /api/v1/fleet/sessions/{session_id}/cancel", h.Fleet.CancelSession)
+		api.HandleFunc("GET /api/v1/fleet/sessions/{session_id}/stream", h.Fleet.StreamSession)
 	}
 
 	// Webhook inbound — external channels POST here
