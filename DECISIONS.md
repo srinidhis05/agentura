@@ -131,3 +131,21 @@
 **Over**: Hardcoded in ptc-worker/main.py, per-skill env var override
 **Why**: Different skills need different token budgets — deployer needs 16K+ for embedded HTML, while simple MCP-only skills work fine with 4K. Config-driven aligns with DEC-047 (YAML config pattern).
 **Constraint**: SandboxConfig.max_tokens defaults to 16384; skills can override in agentura.config.yaml sandbox section
+
+## DEC-061: Parallel pipeline uses `phases` array in YAML (over DAG syntax)
+**Chose**: Flat `phases:` array with `type: parallel|sequential` + `fan_in_from`/`fan_out_from`
+**Over**: Full DAG syntax with edges, Airflow-style operator dependencies
+**Why**: Simpler to read/write for the 80% case (fan-out parallel, fan-in sequential). DAG syntax adds complexity without benefit for PR review pipelines. Backward-compatible with flat `steps:`.
+**Constraint**: Flat `steps:` auto-wraps in single sequential phase; `phases:` takes precedence when present
+
+## DEC-062: Fleet sessions tracked in PostgreSQL (over Redis/in-memory)
+**Chose**: `fleet_sessions` + `fleet_agents` tables in existing PostgreSQL DB
+**Over**: Redis for session state, in-memory with file persistence
+**Why**: Same DB as executions/corrections/reflexions — minimal ops. PostgreSQL handles the query patterns (list by status, join agents). No new infrastructure dependency.
+**Constraint**: Requires DATABASE_URL; fleet endpoints return empty/503 without it
+
+## DEC-063: GitHub Checks API for per-agent status (over single comment)
+**Chose**: One GitHub check run per parallel agent (Testing, SLT, Docs) + summary comment
+**Over**: Single comment with all results, only PR review comments
+**Why**: Each agent appears as a separate status check in the PR — developers see at-a-glance which checks passed/failed without reading comments. Summary comment provides detail.
+**Constraint**: Requires GitHub App token with `checks:write` permission

@@ -2331,6 +2331,115 @@ async def github_pr_pipeline(request: Request):
     return result
 
 
+@app.post("/api/v1/pipelines/github-pr-parallel")
+async def github_pr_parallel_pipeline(request: Request):
+    """Run the parallel PR review pipeline (fleet of concurrent agents)."""
+    data = await request.json()
+    from agentura_sdk.pipelines.github_pr_parallel import run_pr_parallel_pipeline
+
+    result = await run_pr_parallel_pipeline(data)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Fleet API — parallel pipeline session tracking
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/fleet/sessions")
+def list_fleet_sessions(status: str | None = None, limit: int = 50):
+    """List fleet sessions with optional status filter."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return []
+    from agentura_sdk.memory.fleet_store import FleetStore
+    store = FleetStore(dsn)
+    return store.list_sessions(status=status, limit=limit)
+
+
+@app.get("/api/v1/fleet/sessions/{session_id}")
+def get_fleet_session(session_id: str):
+    """Get fleet session detail with agents."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    from agentura_sdk.memory.fleet_store import FleetStore
+    store = FleetStore(dsn)
+    session = store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+    agents = store.get_session_agents(session_id)
+    return {**session, "agents": agents}
+
+
+@app.post("/api/v1/fleet/sessions/{session_id}/cancel")
+def cancel_fleet_session(session_id: str):
+    """Cancel a running fleet session."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    from agentura_sdk.memory.fleet_store import FleetStore
+    store = FleetStore(dsn)
+    session = store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+    if session["status"] not in ("pending", "running"):
+        raise HTTPException(status_code=409, detail=f"Session not cancellable: {session['status']}")
+    store.update_session_status(session_id, "cancelled")
+    return {"session_id": session_id, "status": "cancelled"}
+
+
+@app.get("/api/v1/fleet/sessions/{session_id}/stream")
+async def stream_fleet_session(session_id: str):
+    """SSE stream for live fleet session progress."""
+    import asyncio
+
+    from starlette.responses import StreamingResponse
+
+    from agentura_sdk.pipelines.engine import _sse
+
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+
+    from agentura_sdk.memory.fleet_store import FleetStore
+
+    async def event_generator():
+        store = FleetStore(dsn)
+        last_agents: dict[str, str] = {}
+        while True:
+            session = store.get_session(session_id)
+            if not session:
+                yield _sse("error", {"message": f"Session not found: {session_id}"})
+                return
+            agents = store.get_session_agents(session_id)
+            for agent in agents:
+                aid = agent["agent_id"]
+                current_status = agent["status"]
+                if last_agents.get(aid) != current_status:
+                    last_agents[aid] = current_status
+                    yield _sse("agent_update", {
+                        "agent_id": aid,
+                        "status": current_status,
+                        "success": agent.get("success", False),
+                        "cost_usd": agent.get("cost_usd", 0),
+                        "latency_ms": agent.get("latency_ms", 0),
+                        "error_message": agent.get("error_message", ""),
+                    })
+            if session["status"] in ("completed", "failed", "cancelled"):
+                yield _sse("session_done", {
+                    "session_id": session_id,
+                    "status": session["status"],
+                    "completed_agents": session.get("completed_agents", 0),
+                    "failed_agents": session.get("failed_agents", 0),
+                    "total_cost_usd": session.get("total_cost_usd", 0),
+                })
+                return
+            await asyncio.sleep(2)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 @app.get("/api/v1/pipelines")
 def list_pipelines_endpoint():
     """List all available pipeline definitions."""
@@ -2338,7 +2447,11 @@ def list_pipelines_endpoint():
 
     pipelines = list_pipelines()
     return [
-        {"name": p.name, "description": p.description, "steps": len(p.steps)}
+        {
+            "name": p.name,
+            "description": p.description,
+            "steps": len(p.steps) or sum(len(ph.steps) for ph in p.phases),
+        }
         for p in pipelines
     ]
 

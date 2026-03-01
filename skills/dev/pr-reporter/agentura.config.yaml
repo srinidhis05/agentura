@@ -1,0 +1,29 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: pr-reporter
+    path: pr-reporter
+    role: specialist
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.05"
+    triggers:
+      - type: pipeline
+        pattern: "github-pr-parallel step reporter"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.05"
+
+feedback:
+  capture_corrections: false
+  auto_generate_tests: false
+
+display:
+  title: "PR Reporter"
+  subtitle: "Result Aggregator"
+  avatar: "RP"
+  color: "#8b5cf6"
+  tags: ["Specialist", "Reporting", "PR Review"]
