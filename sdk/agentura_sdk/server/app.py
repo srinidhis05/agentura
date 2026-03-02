@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from agentura_sdk.runner.skill_loader import load_skill_md
-from agentura_sdk.types import SandboxConfig, SkillContext, SkillResult, SkillRole
+from agentura_sdk.types import SandboxConfig, SkillContext, SkillResult, SkillRole, VerifyConfig
 
 SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", "/skills"))
 KNOWLEDGE_DIR = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(".agentura"))
@@ -546,6 +546,18 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
             except Exception:
                 pass
 
+    # Load verify config (DEC-069)
+    verify_config = None
+    skill_config_check = root / "agentura.config.yaml"
+    if skill_config_check.exists():
+        try:
+            cfg_raw = yaml.safe_load(skill_config_check.read_text()) or {}
+            verify_raw = cfg_raw.get("verify", {})
+            if verify_raw and verify_raw.get("enabled"):
+                verify_config = VerifyConfig(**verify_raw)
+        except Exception:
+            pass
+
     ctx = SkillContext(
         skill_name=skill_md.metadata.name,
         domain=skill_md.metadata.domain,
@@ -555,6 +567,8 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
         input_data=input_data,
         mcp_bindings=mcp_bindings,
         sandbox_config=sandbox_config,
+        injected_reflexion_ids=skill_md.injected_reflexion_ids,
+        verify_config=verify_config,
     )
 
     if req.dry_run:
@@ -574,6 +588,13 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
     from agentura_sdk.runner.local_runner import execute_skill
 
     result = await execute_skill(ctx)
+
+    # Post-execution hook: incident-to-eval (DEC-067)
+    try:
+        from agentura_sdk.testing.incident_eval import maybe_generate_failure_tests
+        maybe_generate_failure_tests(ctx, result, SKILLS_DIR)
+    except Exception:
+        pass
 
     # Check human-in-the-loop approval requirement
     skill_config_path = root / "agentura.config.yaml"
@@ -676,6 +697,7 @@ async def execute_stream(domain: str, skill_name: str, req: ExecuteRequest):
         input_data=input_data,
         mcp_bindings=mcp_bindings,
         sandbox_config=sandbox_config,
+        injected_reflexion_ids=skill_md.injected_reflexion_ids,
     )
 
     # Route to PTC, Claude Code, or legacy agent executor
@@ -1080,6 +1102,11 @@ class KnowledgeReflexionEntry(BaseModel):
     validated_by_test: bool = False
     source_correction_id: str = ""
     created_at: str = ""
+    # MemRL utility fields (DEC-066)
+    utility_score: float = 0.5
+    times_injected: int = 0
+    times_helped: int = 0
+    source: str = "correction"
 
 
 class KnowledgeCorrectionEntry(BaseModel):
@@ -1193,6 +1220,10 @@ def list_reflexions(skill: str | None = None, domains: set[str] | None = Depends
             validated_by_test=e.get("validated_by_test", False),
             source_correction_id=e.get("correction_id", ""),
             created_at=e.get("created_at", ""),
+            utility_score=e.get("utility_score", 0.5),
+            times_injected=e.get("times_injected", 0),
+            times_helped=e.get("times_helped", 0),
+            source=e.get("source", "correction"),
         )
         for e in entries
     ]
@@ -1680,6 +1711,71 @@ def validate_tests(domain: str, skill_name: str):
         tests_passed=tests_passed,
         tests_failed=tests_failed,
         reflexions_validated=reflexions_validated,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cortex Synthesis API (DEC-068)
+# ---------------------------------------------------------------------------
+
+
+class SynthesizeRequest(BaseModel):
+    skill: str | None = None
+    since: str = "7d"
+    dry_run: bool = False
+    min_count: int = 3
+
+
+class SynthesizeCandidateResponse(BaseModel):
+    rule: str
+    applies_when: str
+    pattern_count: int
+    skill: str
+
+
+class SynthesizeResponse(BaseModel):
+    executions_analyzed: int = 0
+    skills_analyzed: int = 0
+    candidates: list[SynthesizeCandidateResponse] = Field(default_factory=list)
+    duplicates_skipped: int = 0
+    stored_count: int = 0
+
+
+@app.post("/api/v1/cortex/synthesize", response_model=SynthesizeResponse)
+def cortex_synthesize(req: SynthesizeRequest):
+    """Analyze execution history and generate reflexion rules from patterns."""
+    from agentura_sdk.cortex.synthesizer import synthesize
+
+    # Parse since string
+    since_val = req.since.strip().lower()
+    if since_val.endswith("d"):
+        since_hours = int(since_val[:-1]) * 24
+    elif since_val.endswith("h"):
+        since_hours = int(since_val[:-1])
+    else:
+        since_hours = int(since_val)
+
+    result = synthesize(
+        skill_filter=req.skill,
+        since_hours=since_hours,
+        dry_run=req.dry_run,
+        min_pattern_count=req.min_count,
+    )
+
+    return SynthesizeResponse(
+        executions_analyzed=result.executions_analyzed,
+        skills_analyzed=result.skills_analyzed,
+        candidates=[
+            SynthesizeCandidateResponse(
+                rule=c.rule,
+                applies_when=c.applies_when,
+                pattern_count=c.pattern_count,
+                skill=c.skill,
+            )
+            for c in result.candidates
+        ],
+        duplicates_skipped=result.duplicates_skipped,
+        stored_count=result.stored_count,
     )
 
 

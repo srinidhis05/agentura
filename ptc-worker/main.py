@@ -37,6 +37,8 @@ class PTCRequest(BaseModel):
     max_tokens: int = 16384
     mcp_servers: dict[str, dict] = Field(default_factory=dict)
     allowed_mcp_tools: list[str] = Field(default_factory=list)
+    verify_criteria: list[str] = Field(default_factory=list)
+    verify_max_retries: int = 1
 
 
 def _sse(event: str, data: dict) -> str:
@@ -267,6 +269,43 @@ async def execute_stream(request: PTCRequest):
             })
             return
 
+        # Self-critique verification (DEC-069)
+        verified = None
+        verify_issues: list[str] = []
+        if task_completed and req.verify_criteria:
+            try:
+                yield _sse("verify_start", {"criteria": req.verify_criteria})
+
+                output_text = json.dumps(final_output, indent=2)
+                criteria_block = "\n".join(f"- {c}" for c in req.verify_criteria)
+                verify_prompt = (
+                    f"## Post-Execution Verification\n\nReview the output below against these criteria:\n\n"
+                    f"{criteria_block}\n\n### Output to Verify\n\n{output_text[:4000]}\n\n"
+                    f"If ALL criteria are satisfied, respond with:\nVERIFIED: <confirmation>\n\n"
+                    f"If ANY criteria are NOT satisfied, respond with:\nISSUES: <numbered list>"
+                )
+                messages.append({"role": "user", "content": verify_prompt})
+                verify_response = client.messages.create(
+                    model=req.model,
+                    max_tokens=1024,
+                    system=req.system_prompt,
+                    messages=messages,
+                    temperature=0.0,
+                )
+                total_in += verify_response.usage.input_tokens
+                total_out += verify_response.usage.output_tokens
+                verify_text = verify_response.content[0].text if verify_response.content else ""
+
+                if verify_text.strip().upper().startswith("VERIFIED"):
+                    verified = True
+                    yield _sse("verify_pass", {"message": verify_text})
+                else:
+                    verified = False
+                    verify_issues = [verify_text[:500]]
+                    yield _sse("verify_fail", {"issues": verify_issues})
+            except Exception as vexc:
+                logger.debug("Verification failed: %s", vexc)
+
         latency_ms = (time.monotonic() - start) * 1000
         cost_usd = (total_in * 3.0 + total_out * 15.0) / 1_000_000
 
@@ -277,6 +316,8 @@ async def execute_stream(request: PTCRequest):
             "iterations_count": iteration_count,
             "task_result": final_output,
             "summary": final_output.get("summary", ""),
+            "verified": verified,
+            "verify_issues": verify_issues,
         })
 
     return StreamingResponse(

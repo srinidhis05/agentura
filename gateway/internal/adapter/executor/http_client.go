@@ -200,6 +200,11 @@ func (c *Client) GetPromptAssembly(ctx context.Context, domain, skill string) (j
 	return c.getJSON(ctx, fmt.Sprintf("/api/v1/memory/prompt-assembly/%s/%s", domain, skill))
 }
 
+// Synthesize runs cortex memory synthesis on the executor (DEC-068).
+func (c *Client) Synthesize(ctx context.Context, body json.RawMessage) (json.RawMessage, error) {
+	return c.postJSON(ctx, "/api/v1/cortex/synthesize", body)
+}
+
 // ApproveExecution approves or rejects a pending execution as raw JSON passthrough.
 func (c *Client) ApproveExecution(ctx context.Context, executionID string, body json.RawMessage) (json.RawMessage, error) {
 	return c.postJSON(ctx, fmt.Sprintf("/api/v1/executions/%s/approve", executionID), body)

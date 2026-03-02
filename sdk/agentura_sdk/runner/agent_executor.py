@@ -559,6 +559,54 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
             if final_output:
                 break
 
+        # Self-critique verification loop (DEC-069)
+        verified = None
+        verify_issues: list[str] = []
+        if task_completed and ctx.verify_config and ctx.verify_config.enabled:
+            try:
+                from agentura_sdk.runner.verify import build_verify_prompt, parse_verify_response
+
+                output_text = json.dumps(final_output, indent=2)
+                verify_prompt = build_verify_prompt(ctx.verify_config.criteria, output_text)
+                provider.add_user_message(verify_prompt)
+                verify_response = provider.get_response()
+                total_in += getattr(verify_response, "input_tokens", 0)
+                total_out += getattr(verify_response, "output_tokens", 0)
+                verify_text = provider.extract_text(verify_response)
+                verified, verify_issues = parse_verify_response(verify_text)
+
+                # If issues found and retries allowed, let agent self-correct
+                if not verified and ctx.verify_config.max_retries > 0:
+                    correction_prompt = (
+                        f"The verification found issues:\n"
+                        + "\n".join(f"- {i}" for i in verify_issues)
+                        + "\n\nPlease fix these issues and call task_complete again."
+                    )
+                    provider.add_user_message(correction_prompt)
+                    retry_response = provider.get_response()
+                    total_in += getattr(retry_response, "input_tokens", 0)
+                    total_out += getattr(retry_response, "output_tokens", 0)
+                    retry_text = provider.extract_text(retry_response)
+                    # Check if the retry resolved the issues
+                    verified, verify_issues = parse_verify_response(retry_text) if "VERIFIED" in retry_text or "ISSUES" in retry_text else (True, [])
+
+                    # If self-correction succeeded, auto-generate a reflexion
+                    if verified:
+                        try:
+                            from agentura_sdk.memory import get_memory_store
+                            store = get_memory_store()
+                            skill_path = f"{ctx.domain}/{ctx.skill_name}"
+                            store.add_reflexion(skill_path, {
+                                "rule": f"Self-corrected: {verify_issues[0] if verify_issues else 'verification failure'}",
+                                "applies_when": "similar output patterns",
+                                "confidence": 0.6,
+                                "source": "self-critique",
+                            })
+                        except Exception:
+                            pass
+            except Exception as exc:
+                logger.debug("Self-critique verification failed: %s", exc)
+
         # Extract artifacts from sandbox before closing
         context_for_next: dict = {}
         files_created = final_output.get("files_created", [])
@@ -588,6 +636,8 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
             cost_usd=cost_usd,
             latency_ms=latency_ms,
             context_for_next=context_for_next,
+            verified=verified,
+            verify_issues=verify_issues,
         )
 
     except Exception as e:

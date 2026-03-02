@@ -113,6 +113,31 @@ CREATE INDEX IF NOT EXISTS idx_fleet_sessions_status ON fleet_sessions(status);
 CREATE INDEX IF NOT EXISTS idx_fleet_sessions_repo ON fleet_sessions(repo);
 CREATE INDEX IF NOT EXISTS idx_fleet_agents_session ON fleet_agents(session_id);
 CREATE INDEX IF NOT EXISTS idx_fleet_agents_status ON fleet_agents(status);
+
+-- MemRL: utility-scored memory (DEC-066)
+ALTER TABLE reflexions ADD COLUMN IF NOT EXISTS utility_score REAL DEFAULT 0.5;
+ALTER TABLE reflexions ADD COLUMN IF NOT EXISTS times_injected INT DEFAULT 0;
+ALTER TABLE reflexions ADD COLUMN IF NOT EXISTS times_helped INT DEFAULT 0;
+ALTER TABLE reflexions ADD COLUMN IF NOT EXISTS last_scored_at TIMESTAMPTZ;
+ALTER TABLE reflexions ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'correction';
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS reflexions_injected TEXT[] DEFAULT '{}';
+
+-- Incident-to-eval synthesis (DEC-067)
+CREATE TABLE IF NOT EXISTS failure_cases (
+    id SERIAL PRIMARY KEY,
+    failure_case_id TEXT UNIQUE NOT NULL,
+    domain TEXT NOT NULL DEFAULT '',
+    workspace_id TEXT NOT NULL DEFAULT 'default',
+    skill TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'P0',
+    input_summary JSONB,
+    error_output JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_failure_cases_skill ON failure_cases(skill);
+CREATE INDEX IF NOT EXISTS idx_failure_cases_domain ON failure_cases(domain);
 """
 
 
@@ -367,7 +392,8 @@ class PgStore:
     def update_reflexion(self, reflexion_id: str, updates: dict) -> None:
         if not updates:
             return
-        allowed = {"rule", "applies_when", "confidence", "validated_by_test"}
+        allowed = {"rule", "applies_when", "confidence", "validated_by_test",
+                   "utility_score", "times_injected", "times_helped", "source"}
         set_parts = []
         values: list[object] = []
         for key, value in updates.items():
@@ -387,3 +413,122 @@ class PgStore:
             conn.commit()
         finally:
             self._pool.putconn(conn)
+
+    # --- MemRL: utility-scored memory (DEC-066) ---
+
+    def record_reflexion_injection(self, execution_id: str, reflexion_ids: list[str]) -> None:
+        """Record which reflexions were injected into an execution and increment times_injected."""
+        if not reflexion_ids:
+            return
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE executions SET reflexions_injected = %s WHERE execution_id = %s",
+                    (reflexion_ids, execution_id),
+                )
+                for rid in reflexion_ids:
+                    cur.execute(
+                        "UPDATE reflexions SET times_injected = times_injected + 1 WHERE reflexion_id = %s",
+                        (rid,),
+                    )
+            conn.commit()
+        finally:
+            self._pool.putconn(conn)
+
+    def record_execution_success(self, execution_id: str) -> None:
+        """Increment times_helped for reflexions injected into a successful execution, recalc utility."""
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT reflexions_injected FROM executions WHERE execution_id = %s",
+                    (execution_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return
+                injected = row.get("reflexions_injected") or []
+                if not injected:
+                    return
+                for rid in injected:
+                    cur.execute(
+                        """UPDATE reflexions
+                           SET times_helped = times_helped + 1,
+                               utility_score = (times_helped + 1 + 2)::REAL / (times_injected + 4)::REAL,
+                               last_scored_at = NOW()
+                           WHERE reflexion_id = %s""",
+                        (rid,),
+                    )
+            conn.commit()
+        finally:
+            self._pool.putconn(conn)
+
+    def get_top_reflexions(self, skill_path: str, limit: int = 5, min_score: float = 0.3) -> list[dict]:
+        """Retrieve reflexions sorted by utility score (Bayesian: (h+2)/(n+4))."""
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT * FROM reflexions
+                       WHERE skill = %s AND workspace_id = %s AND utility_score >= %s
+                       ORDER BY utility_score DESC, confidence DESC
+                       LIMIT %s""",
+                    (skill_path, self._workspace_id, min_score, limit),
+                )
+                return [self._deserialize_row(row) for row in cur.fetchall()]
+        finally:
+            self._pool.putconn(conn)
+
+    def decay_stale_reflexions(self, days: int = 30) -> int:
+        """Multiply utility_score by 0.9 for reflexions not scored in `days` days. Returns count updated."""
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE reflexions
+                       SET utility_score = utility_score * 0.9,
+                           last_scored_at = NOW()
+                       WHERE (last_scored_at IS NULL OR last_scored_at < NOW() - INTERVAL '%s days')
+                         AND times_injected > 0""",
+                    (days,),
+                )
+                count = cur.rowcount
+            conn.commit()
+            return count
+        finally:
+            self._pool.putconn(conn)
+
+    # --- Incident-to-eval: failure case storage (DEC-067) ---
+
+    def log_failure_case(self, skill_path: str, data: dict) -> str:
+        """Store a failure case for automatic test generation."""
+        domain = self._domain_from_skill(skill_path)
+        failure_case_id = data.get(
+            "failure_case_id",
+            f"FAIL-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+        )
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO failure_cases
+                       (failure_case_id, domain, workspace_id, skill, execution_id,
+                        severity, input_summary, error_output)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (failure_case_id) DO NOTHING""",
+                    (
+                        failure_case_id,
+                        domain,
+                        self._workspace_id,
+                        skill_path,
+                        data.get("execution_id", ""),
+                        data.get("severity", "P0"),
+                        self._serialize_json(data.get("input_summary")),
+                        self._serialize_json(data.get("error_output")),
+                    ),
+                )
+            conn.commit()
+        finally:
+            self._pool.putconn(conn)
+        return failure_case_id

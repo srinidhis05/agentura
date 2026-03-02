@@ -149,3 +149,47 @@
 **Over**: Single comment with all results, only PR review comments
 **Why**: Each agent appears as a separate status check in the PR — developers see at-a-glance which checks passed/failed without reading comments. Summary comment provides detail.
 **Constraint**: Requires GitHub App token with `checks:write` permission
+
+## DEC-064: Presigned URLs for artifact transfer (future — inspired by Browser Use)
+**Chose**: Sandbox/worker pods request presigned S3 URLs from executor for file upload/download; pods never hold cloud credentials
+**Over**: Current approach (artifacts embedded in SSE payload or extracted via kubectl cp)
+**Why**: Decouples artifact size from SSE payload limits; eliminates kubectl exec dependency; pods never see AWS credentials; scales to large artifacts (build outputs, test reports)
+**Constraint**: Requires S3 bucket + executor IAM role for generating presigned URLs; worker pods need outbound HTTPS to S3; scoped per-session (no cross-session access)
+**Status**: Future — not yet implemented
+
+## DEC-065: Environment stripping in worker pod entrypoints (future — inspired by Browser Use)
+**Chose**: Worker entrypoints read secrets (ANTHROPIC_API_KEY, etc.) into Python variables at startup, then delete them from os.environ before agent loop begins
+**Over**: Current approach (secrets remain in os.environ for pod lifetime, visible via kubectl describe)
+**Why**: Defense in depth — if agent code inspects os.environ or runs `env`, secrets are gone; combined with K8s Secrets (secretKeyRef) instead of plain env vars, reduces exposure surface
+**Constraint**: Must read all needed secrets before stripping; secrets still visible in K8s pod spec (address with K8s Secrets + RBAC on pod/describe); does not protect against /proc/self/environ reads (requires bytecode-only or seccomp)
+**Status**: Future — not yet implemented
+
+## DEC-066: MemRL uses Bayesian smoothing for utility scoring
+**Chose**: `(times_helped + 2) / (times_injected + 4)` Bayesian smoothing formula
+**Over**: Raw ratio `helped/injected`, exponential moving average, neural scoring
+**Why**: Cold-start safe (default 0.5), converges with evidence, no training data needed, single SQL expression
+**Constraint**: Minimum 4 injections before utility diverges meaningfully from default; `min_score=0.3` threshold for injection
+
+## DEC-067: Incident-to-eval uses fire-and-forget daemon threads
+**Chose**: Daemon thread for failure test generation, never blocks execution response
+**Over**: Synchronous post-processing, async task queue, background worker pod
+**Why**: Zero latency impact on execution path; test generation is best-effort, not critical path; daemon thread dies with process (no orphans)
+**Constraint**: Test generation failures are silently logged, never surfaced to user; requires `feedback.capture_failure_cases: true` in config
+
+## DEC-068: Memory synthesis uses cheap LLM with compact summaries
+**Chose**: Haiku via OpenRouter/Anthropic with max 20 entries per skill, 200-char error truncation
+**Over**: Full execution log context with expensive model, embedding-based clustering
+**Why**: Pattern extraction doesn't need deep reasoning; compact summaries keep token cost <$0.01 per synthesis run; deduplication against existing rules prevents bloat
+**Constraint**: `source: "synthesis"` with `confidence: 0.5`; requires manual promotion for high-confidence rules
+
+## DEC-069: Self-critique reuses same agent context (appended message)
+**Chose**: Append verification prompt to existing message history, same agent verifies its own output
+**Over**: Separate LLM call with fresh context, dedicated verifier agent
+**Why**: Maintains conversation coherence; agent can reference its own reasoning; saves cost (no context reconstruction); self-correction uses existing tool access
+**Constraint**: Verification uses `VERIFIED:` / `ISSUES:` protocol; max 1 retry by default; read-only tools in worker verification
+
+## DEC-070: Workflow evals use in-process mock MCP server
+**Chose**: In-process FastAPI server on random port with canned tool responses
+**Over**: Separate mock pod in K8s, record/replay proxy, stub functions
+**Why**: Enables CI without K8s cluster; zero infrastructure dependency; tracks tool calls for assertion checking; follows existing `/tools` + `/tools/call` MCP contract
+**Constraint**: Evals run with `executor=""` (legacy path, no worker pods); mock server dies with test process; judge assertions require LLM API key
