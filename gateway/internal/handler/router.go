@@ -60,6 +60,7 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 		api.HandleFunc("GET /api/v1/knowledge/stats", h.Knowledge.GetStats)
 		api.HandleFunc("POST /api/v1/knowledge/search/{domain}/{skill}", h.Knowledge.SemanticSearch)
 		api.HandleFunc("POST /api/v1/knowledge/validate/{domain}/{skill}", h.Knowledge.ValidateTests)
+		api.HandleFunc("POST /api/v1/cortex/synthesize", h.Knowledge.Synthesize)
 	}
 
 	// Domains (proxied to Python executor)

@@ -91,3 +91,20 @@ func (h *KnowledgeHandler) ValidateTests(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 	w.Write(raw)
 }
+
+// Synthesize proxies the cortex synthesis request to the executor (DEC-068).
+func (h *KnowledgeHandler) Synthesize(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+	raw, err := h.executor.Synthesize(r.Context(), json.RawMessage(body))
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(raw)
+}

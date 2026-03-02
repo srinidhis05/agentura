@@ -83,7 +83,7 @@ def _build_ptc_request(ctx: SkillContext) -> dict:
     if ctx.sandbox_config and ctx.sandbox_config.max_tokens:
         max_tokens = ctx.sandbox_config.max_tokens
 
-    return {
+    req = {
         "prompt": json.dumps(ctx.input_data, indent=2),
         "system_prompt": system_prompt,
         "model": _resolve_model(ctx.model),
@@ -92,6 +92,13 @@ def _build_ptc_request(ctx: SkillContext) -> dict:
         "mcp_servers": mcp_servers,
         "allowed_mcp_tools": allowed_mcp_tools,
     }
+
+    # Self-critique verification (DEC-069)
+    if ctx.verify_config and ctx.verify_config.enabled:
+        req["verify_criteria"] = ctx.verify_config.criteria
+        req["verify_max_retries"] = ctx.verify_config.max_retries
+
+    return req
 
 
 def _parse_sse_events(text: str) -> list[tuple[str, dict]]:

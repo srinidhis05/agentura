@@ -56,6 +56,19 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
         from agentura_sdk.memory import get_memory_store
         store = get_memory_store()
         store.log_execution(skill_path, entry)
+
+        # MemRL: track which reflexions were injected (DEC-066)
+        if ctx.injected_reflexion_ids:
+            try:
+                store.record_reflexion_injection(execution_id, ctx.injected_reflexion_ids)
+            except Exception:
+                pass
+        # MemRL: record success for utility scoring
+        if result.success and ctx.injected_reflexion_ids:
+            try:
+                store.record_execution_success(execution_id)
+            except Exception:
+                pass
     except Exception:
         # Fallback: write directly to JSON
         memory_file = _get_knowledge_dir() / "episodic_memory.json"
@@ -70,6 +83,26 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _post_execution_hook(ctx: SkillContext, result: SkillResult) -> None:
+    """Fire-and-forget post-execution actions (incident-to-eval, etc.)."""
+    try:
+        from agentura_sdk.testing.incident_eval import maybe_generate_failure_tests
+
+        skills_dir = Path(os.environ.get("SKILLS_DIR", "/skills"))
+        # Also try walking up from CWD
+        if not skills_dir.exists():
+            cwd = Path.cwd()
+            for parent in [cwd, *cwd.parents]:
+                candidate = parent / "skills"
+                if candidate.is_dir():
+                    skills_dir = candidate
+                    break
+
+        maybe_generate_failure_tests(ctx, result, skills_dir)
+    except Exception:
+        pass
 
 
 async def execute_skill(ctx: SkillContext) -> SkillResult:
@@ -127,6 +160,7 @@ async def _execute_via_openrouter(ctx: SkillContext) -> SkillResult:
         )
         execution_id = log_execution(ctx, skill_result)
         skill_result.reasoning_trace.append(f"Logged as {execution_id}")
+        _post_execution_hook(ctx, skill_result)
         return skill_result
 
     except Exception as e:
@@ -139,6 +173,7 @@ async def _execute_via_openrouter(ctx: SkillContext) -> SkillResult:
             latency_ms=latency_ms,
         )
         log_execution(ctx, skill_result)
+        _post_execution_hook(ctx, skill_result)
         return skill_result
 
 
@@ -186,6 +221,7 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
         )
         execution_id = log_execution(ctx, skill_result)
         skill_result.reasoning_trace.append(f"Logged as {execution_id}")
+        _post_execution_hook(ctx, skill_result)
         return skill_result
 
     except Exception as e:
@@ -198,4 +234,5 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
             latency_ms=latency_ms,
         )
         log_execution(ctx, skill_result)
+        _post_execution_hook(ctx, skill_result)
         return skill_result

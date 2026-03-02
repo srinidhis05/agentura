@@ -32,6 +32,8 @@ class AgentRequest(BaseModel):
     max_budget_usd: float | None = None
     mcp_servers: dict = Field(default_factory=dict)
     allowed_tools: list[str] = Field(default_factory=list)
+    verify_criteria: list[str] = Field(default_factory=list)
+    verify_max_retries: int = 1
 
 
 def _sse(event: str, data: dict) -> str:
@@ -139,6 +141,46 @@ async def execute_stream(request: AgentRequest):
                     except (UnicodeDecodeError, OSError):
                         artifacts[rel] = f"<binary: {fpath.stat().st_size} bytes>"
 
+            # Self-critique verification (DEC-069)
+            verified = None
+            verify_issues: list[str] = []
+            if not (result_msg and result_msg.is_error) and request.verify_criteria:
+                try:
+                    yield _sse("verify_start", {"criteria": request.verify_criteria})
+
+                    output_text = json.dumps(task_result, indent=2) if task_result else "\n".join(final_text_parts)
+                    criteria_block = "\n".join(f"- {c}" for c in request.verify_criteria)
+                    verify_prompt = (
+                        f"Verify the output against these criteria:\n{criteria_block}\n\n"
+                        f"Output:\n{output_text[:4000]}\n\n"
+                        f"Respond with VERIFIED: or ISSUES:"
+                    )
+                    # Use read-only tools for verification
+                    verify_options = ClaudeAgentOptions(
+                        system_prompt="You are verifying agent output. Only use Read and Bash (read-only) tools.",
+                        allowed_tools=["Read", "Bash"],
+                        permission_mode="bypassPermissions",
+                        cwd=WORK_DIR,
+                        max_turns=1,
+                        model=request.model,
+                    )
+                    async for msg in query(prompt=verify_prompt, options=verify_options):
+                        if isinstance(msg, ResultMessage):
+                            pass
+                        elif isinstance(msg, AssistantMessage):
+                            for block in msg.content:
+                                if isinstance(block, TextBlock):
+                                    vtext = block.text.strip()
+                                    if vtext.upper().startswith("VERIFIED"):
+                                        verified = True
+                                        yield _sse("verify_pass", {"message": vtext})
+                                    else:
+                                        verified = False
+                                        verify_issues = [vtext[:500]]
+                                        yield _sse("verify_fail", {"issues": verify_issues})
+                except Exception as vexc:
+                    logger.debug("Verification failed: %s", vexc)
+
             latency_ms = (time.monotonic() - start) * 1000
             cost_usd = result_msg.total_cost_usd if result_msg and result_msg.total_cost_usd else 0.0
             session_id = result_msg.session_id if result_msg else ""
@@ -153,6 +195,8 @@ async def execute_stream(request: AgentRequest):
                 "task_result": task_result,
                 "summary": "\n".join(final_text_parts),
                 "artifacts": artifacts,
+                "verified": verified,
+                "verify_issues": verify_issues,
             })
 
         except Exception as exc:
