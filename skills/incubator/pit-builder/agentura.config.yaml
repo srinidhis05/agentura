@@ -1,0 +1,45 @@
+domain:
+  name: incubator
+  description: "Feature incubation — Lovable prototypes to production code"
+  owner: "product-team"
+
+skills:
+  - name: pit-builder
+    path: pit-builder
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$2.00"
+    triggers:
+      - type: pipeline
+        pattern: "incubator-build step pit-builder"
+      - type: pipeline
+        pattern: "incubator-refine step pit-builder"
+
+agent:
+  executor: claude-code
+  max_iterations: 60
+  timeout: 900
+
+guardrails:
+  budget:
+    max_per_execution: "$3.00"
+    alert_at: "$2.00"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+  capture_failure_cases: true
+
+verify:
+  enabled: true
+  criteria:
+    - "Git branch was created and pushed to remote"
+    - "PR was created against the target branch"
+    - "./gradlew build -x test passed"
+
+display:
+  title: "Pit Builder"
+  subtitle: "Minipit Backend Agent"
+  avatar: "PB"
+  color: "#059669"
+  tags: ["Incubator", "Agent", "Backend", "Java"]
