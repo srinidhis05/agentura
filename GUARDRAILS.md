@@ -98,11 +98,11 @@ Only proceed to implementation if at least question 1 has a concrete, evidence-b
 **Rule**: ALWAYS check `"*" not in allowed_tools` before applying the tool name filter. `"*"` means allow all.
 **Detection**: Any tool filtering loop that doesn't handle `"*"` as a wildcard.
 
-## GR-022: Never commit marketing, social media, or internal strategy content to a public repo
-**Mistake**: Generated `docs/LINKEDIN_POST.md` containing product positioning, competitor comparisons, cost/latency metrics, and internal tool names (Granola, ClickUp, Slack workflows) — then committed and pushed it to the public repo.
-**Impact**: Exposed internal tooling choices, pricing data, and go-to-market strategy to anyone browsing the repo. Social media drafts in a codebase signal immaturity and leak competitive intent.
-**Rule**: NEVER commit marketing copy, social media drafts, investor pitches, internal strategy docs, or competitive analysis to a public repo. These belong in private docs (Notion, Google Docs, private repo). Before committing any `.md` file under `docs/`, verify it is technical documentation (architecture, onboarding, API reference), not business/marketing content.
-**Detection**: Any file under `docs/` containing LinkedIn, Twitter/X, social media, investor, pitch, or marketing language. Any committed file with `#AIAgents #OpenSource` style hashtags.
+## GR-022: Never commit marketing, strategy, or competitive analysis to a public repo
+**Mistake**: Committed `docs/LINKEDIN_POST.md`, `PRODUCT_VISION.md`, `ROADMAP.md`, `docs/comparisons.md`, `docs/OPENSOURCE_EDITION.md`, and `docs/DX_ROADMAP.md` to the public repo — all containing product positioning, competitor comparisons (Paperclip.ing, CrewAI, LangGraph), internal pricing tiers, go-to-market strategy, and competitive intelligence.
+**Impact**: Exposed internal strategy, competitive positioning, pricing data, and roadmap priorities to anyone browsing the repo. Competitor references (e.g. "Paperclip.ing meets Claude Code") reveal positioning intent.
+**Rule**: NEVER commit marketing copy, social media drafts, investor pitches, product vision docs, internal roadmaps, competitive analysis, or OSS-vs-Enterprise tier comparisons to a public repo. These belong in private docs (Notion, Google Docs, private repo). Before committing any `.md` file, verify it is technical documentation (architecture, onboarding, API reference), not business/strategy content. A feature comparison table in README.md is acceptable (standard for OSS); a dedicated competitive analysis doc is not.
+**Detection**: Any committed file containing: competitor names in positioning context, pricing tier comparisons, roadmap phases, go-to-market language, LinkedIn/Twitter drafts, or "Choose X if" competitive recommendations.
 
 ## GR-012: "Done" means deployed, not compiled
 **Mistake**: After writing UI changes and fixing a backend bug, verified only that `next build` succeeded. Did not build Docker images or restart K8s pods. Changes sat on disk for the rest of the session while the user assumed they were live.
