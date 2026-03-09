@@ -1,0 +1,54 @@
+domain:
+  name: examples
+  description: "Reference skill implementations for the Agentura platform"
+  owner: "platform-team"
+
+skills:
+  - name: daily-digest
+    path: daily-digest
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.30"
+    triggers:
+      - type: cron
+        cron: "0 9 * * 1-5"
+        description: "Every weekday at 9:00 AM"
+      - type: command
+        pattern: "daily status"
+      - type: command
+        pattern: "team digest"
+
+agent:
+  executor: ptc
+  timeout: 60
+  max_iterations: 10
+
+mcp_tools:
+  - server: tasks
+    tools: ["list_tasks", "get_task_stats"]
+  - server: calendar
+    tools: ["get_meetings"]
+  - server: messaging
+    tools: ["post_message"]
+
+guardrails:
+  budget:
+    max_per_execution: "$0.30"
+    alert_at: "$0.20"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "Digest contains real data from at least one source (not fabricated)"
+    - "Graceful degradation if a source is unavailable"
+
+display:
+  title: "Daily Digest"
+  subtitle: "Scheduled Status Report"
+  avatar: "DD"
+  color: "#f59e0b"
+  tags: ["Agent", "Cron", "Digest", "Automation"]
