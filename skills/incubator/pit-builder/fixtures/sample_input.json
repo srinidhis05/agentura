@@ -1,0 +1,93 @@
+{
+  "feature_name": "expense-tracker",
+  "pit_name": "expense_tracker",
+  "pit_name_hyphenated": "expense-tracker",
+  "backend_spec": {
+    "base_path": "/api/v1/expense-tracker",
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/expenses",
+        "description": "Create a new expense entry",
+        "auth": true,
+        "request_body": {
+          "amount": "BigDecimal",
+          "category": "String",
+          "description": "String",
+          "date": "LocalDate"
+        },
+        "response": {
+          "id": "String",
+          "amount": "BigDecimal",
+          "category": "String",
+          "description": "String",
+          "date": "LocalDate",
+          "created_at": "Instant"
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/expenses",
+        "description": "List expenses for the authenticated user, with optional category filter",
+        "auth": true,
+        "query_params": {
+          "category": "String (optional)",
+          "from": "LocalDate (optional)",
+          "to": "LocalDate (optional)"
+        },
+        "response": {
+          "expenses": "List<ExpenseResponse>",
+          "total": "BigDecimal",
+          "count": "int"
+        }
+      },
+      {
+        "method": "DELETE",
+        "path": "/expenses/{id}",
+        "description": "Delete an expense by ID",
+        "auth": true,
+        "response": {
+          "deleted": "boolean"
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/expenses/summary",
+        "description": "Get spending breakdown by category for a date range",
+        "auth": true,
+        "query_params": {
+          "from": "LocalDate",
+          "to": "LocalDate"
+        },
+        "response": {
+          "by_category": "Map<String, BigDecimal>",
+          "total": "BigDecimal",
+          "period_start": "LocalDate",
+          "period_end": "LocalDate"
+        }
+      }
+    ],
+    "documents": [
+      {
+        "name": "Expense",
+        "collection": "expenses",
+        "fields": {
+          "id": "String (@Id)",
+          "userId": "String (@Indexed)",
+          "amount": "BigDecimal",
+          "category": "String",
+          "description": "String",
+          "date": "LocalDate",
+          "createdAt": "Instant"
+        }
+      }
+    ],
+    "properties": {
+      "prefix": "expense-tracker",
+      "fields": {
+        "api-version": "1.0.0",
+        "max-expenses-per-user": 1000
+      }
+    }
+  }
+}
