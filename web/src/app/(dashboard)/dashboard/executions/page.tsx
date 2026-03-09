@@ -7,15 +7,7 @@ import { Button } from "@/components/ui/button";
 import { listExecutions, approveExecution } from "@/lib/api";
 import { formatOutput } from "@/lib/format-output";
 import { useState } from "react";
-
-const outcomeStyles: Record<string, string> = {
-  accepted: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  corrected: "bg-amber-50 text-amber-700 border-amber-200",
-  pending_review: "bg-blue-50 text-blue-700 border-blue-200",
-  pending_approval: "bg-orange-50 text-orange-700 border-orange-200",
-  approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  rejected: "bg-red-50 text-red-700 border-red-200",
-};
+import { outcomeStyles } from "@/lib/colors";
 
 type FilterTab = "all" | "pending_approval" | "accepted" | "corrected";
 
@@ -29,8 +21,11 @@ const filterTabs: { key: FilterTab; label: string }[] = [
 function StatusDot({ outcome }: { outcome: string }) {
   const color =
     outcome === "accepted" ? "bg-emerald-500" :
+    outcome === "executed" ? "bg-emerald-500" :
     outcome === "corrected" ? "bg-amber-500" :
     outcome === "pending_approval" ? "bg-orange-500" :
+    outcome === "approved" ? "bg-teal-500 animate-pulse" :
+    outcome === "approved_failed" ? "bg-rose-500" :
     outcome === "rejected" ? "bg-red-500" : "bg-blue-500";
   return <span className={`inline-block h-2 w-2 rounded-full ${color}`} />;
 }
@@ -52,10 +47,40 @@ export default function ExecutionsPage() {
   async function handleApproval(executionId: string, approved: boolean) {
     setApprovingId(executionId);
     try {
-      await approveExecution(executionId, approved, approvalNotes);
-      queryClient.invalidateQueries({ queryKey: ["executions"] });
+      const result = await approveExecution(executionId, approved, approvalNotes);
+
+      // Optimistic cache update — update outcome immediately
+      queryClient.setQueryData<typeof executions>(["executions"], (prev) => {
+        if (!prev) return prev;
+        return prev.map((e) =>
+          e.execution_id === executionId
+            ? { ...e, outcome: result.outcome, reviewer_notes: result.reviewer_notes }
+            : e
+        );
+      });
+
       setExpandedId(null);
       setApprovalNotes("");
+
+      // If tools are being executed, poll for completion
+      if (result.pending_tools_count && result.pending_tools_count > 0) {
+        const poll = setInterval(async () => {
+          await queryClient.invalidateQueries({ queryKey: ["executions"] });
+          const updated = queryClient.getQueryData<typeof executions>(["executions"]);
+          const entry = updated?.find((e) => e.execution_id === executionId);
+          if (entry && entry.outcome !== "approved") {
+            clearInterval(poll);
+          }
+        }, 2000);
+        // Stop polling after 60s
+        setTimeout(() => clearInterval(poll), 60000);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Handle 409 gracefully (already processed)
+      if (msg.includes("409")) {
+        queryClient.invalidateQueries({ queryKey: ["executions"] });
+      }
     } finally {
       setApprovingId(null);
     }
@@ -72,7 +97,7 @@ export default function ExecutionsPage() {
   if (error) {
     return (
       <div className="py-12 text-center">
-        <p className="text-sm text-red-400">Failed to load executions</p>
+        <p className="text-sm text-red-600 dark:text-red-400">Failed to load executions</p>
         <p className="mt-1 text-xs text-muted-foreground">{(error as Error).message}</p>
       </div>
     );
@@ -108,7 +133,7 @@ export default function ExecutionsPage() {
           >
             {tab.label}
             {tab.key === "pending_approval" && pendingCount > 0 && (
-              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-100 px-1 text-[10px] text-orange-600">
+              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-500/20 px-1 text-[10px] text-orange-700 dark:text-orange-400">
                 {pendingCount}
               </span>
             )}
@@ -127,7 +152,7 @@ export default function ExecutionsPage() {
             : `No ${activeFilter.replace("_", " ")} executions.`}
         </p>
       ) : (
-        <div className="rounded-xl border border-border bg-card">
+        <div className="rounded-xl border border-border bg-card shadow-sm">
           {/* Table header */}
           <div className="flex items-center gap-3 border-b border-border px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             <span className="w-4" />
@@ -147,6 +172,7 @@ export default function ExecutionsPage() {
               const isExpanded = expandedId === exec.execution_id;
               const [domain, ...rest] = exec.skill.split("/");
               const agent = rest.join("/") || exec.skill;
+              const pendingTools = exec.pending_approvals ?? [];
 
               return (
                 <div key={exec.execution_id}>
@@ -166,7 +192,7 @@ export default function ExecutionsPage() {
                       </span>
                       <span className="w-24 text-right">
                         <Badge variant="outline" className={`text-[9px] ${outcomeStyles[exec.outcome] ?? ""}`}>
-                          {exec.outcome.replace("_", " ")}
+                          {exec.outcome.replace(/_/g, " ")}
                         </Badge>
                       </span>
                       {isPending ? (
@@ -191,7 +217,28 @@ export default function ExecutionsPage() {
 
                   {/* Inline approval */}
                   {isPending && isExpanded && (
-                    <div className="border-t border-orange-200 bg-orange-50/50 px-4 py-3">
+                    <div className="border-t border-orange-200 dark:border-orange-500/20 bg-orange-50 dark:bg-orange-500/5 px-4 py-3">
+                      {/* Pending tools preview */}
+                      {pendingTools.length > 0 && (
+                        <div className="mb-3">
+                          <p className="mb-1.5 text-[10px] font-medium text-muted-foreground">
+                            Pending tool calls ({pendingTools.length})
+                          </p>
+                          <div className="space-y-1.5">
+                            {pendingTools.map((tool, i) => (
+                              <div key={i} className="rounded-lg bg-muted p-2">
+                                <span className="font-mono text-[11px] font-medium text-foreground">
+                                  {tool.tool}
+                                </span>
+                                <pre className="mt-1 max-h-16 overflow-auto whitespace-pre-wrap break-words text-[10px] text-muted-foreground">
+                                  {JSON.stringify(tool.arguments, null, 2)}
+                                </pre>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {exec.output_summary != null && (
                         <div className="mb-3">
                           <p className="mb-1 text-[10px] font-medium text-muted-foreground">Output preview</p>
@@ -204,7 +251,7 @@ export default function ExecutionsPage() {
                         value={approvalNotes}
                         onChange={(e) => setApprovalNotes(e.target.value)}
                         placeholder="Reviewer notes (optional)..."
-                        className="mb-3 w-full rounded-lg border border-border bg-white px-3 py-2 font-mono text-xs placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                        className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
                         rows={2}
                         onClick={(e) => e.preventDefault()}
                       />
@@ -215,12 +262,12 @@ export default function ExecutionsPage() {
                           disabled={approvingId === exec.execution_id}
                           onClick={() => handleApproval(exec.execution_id, true)}
                         >
-                          {approvingId === exec.execution_id ? "..." : "Approve"}
+                          {approvingId === exec.execution_id ? "..." : pendingTools.length > 0 ? `Approve & Execute (${pendingTools.length})` : "Approve"}
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 border-red-300 px-4 text-xs text-red-600 hover:bg-red-50"
+                          className="h-7 border-red-300 dark:border-red-500/30 px-4 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10"
                           disabled={approvingId === exec.execution_id}
                           onClick={() => handleApproval(exec.execution_id, false)}
                         >

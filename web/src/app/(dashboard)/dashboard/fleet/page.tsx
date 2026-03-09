@@ -5,14 +5,7 @@ import Link from "next/link";
 import { listFleetSessions } from "@/lib/api";
 import type { FleetSession } from "@/lib/api";
 import { useState } from "react";
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-gray-500",
-  running: "bg-blue-500 animate-pulse",
-  completed: "bg-emerald-500",
-  failed: "bg-red-500",
-  cancelled: "bg-amber-500",
-};
+import { fleetStatusDot } from "@/lib/colors";
 
 export default function FleetPage() {
   const [filter, setFilter] = useState<string>("all");
@@ -41,8 +34,8 @@ export default function FleetPage() {
               onClick={() => setFilter(s)}
               className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                 filter === s
-                  ? "bg-blue-500/20 text-blue-400"
-                  : "text-muted-foreground hover:bg-gray-800"
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400"
+                  : "text-muted-foreground hover:bg-muted dark:hover:bg-gray-800"
               }`}
             >
               {s}
@@ -54,14 +47,14 @@ export default function FleetPage() {
       {isLoading ? (
         <div className="py-20 text-center text-sm text-muted-foreground">Loading sessions...</div>
       ) : allSessions.length === 0 ? (
-        <div className="rounded-xl border border-border bg-card py-20 text-center">
+        <div className="rounded-xl border border-border bg-card shadow-sm py-20 text-center">
           <p className="text-sm text-muted-foreground">No fleet sessions yet.</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Fleet sessions are created when a PR triggers the parallel review pipeline.
           </p>
         </div>
       ) : (
-        <div className="rounded-xl border border-border bg-card">
+        <div className="rounded-xl border border-border bg-card shadow-sm">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted-foreground">
@@ -93,23 +86,23 @@ function SessionRow({ session }: { session: FleetSession }) {
   const progress = total > 0 ? ((completed + failed) / total) * 100 : 0;
 
   return (
-    <tr className="hover:bg-gray-900/50 transition-colors">
+    <tr className="hover:bg-muted/50 dark:hover:bg-gray-900/50 transition-colors">
       <td className="px-4 py-3">
         <Link
           href={`/dashboard/fleet/${session.session_id}`}
-          className="font-mono text-xs text-blue-400 hover:underline"
+          className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline"
         >
           {session.session_id}
         </Link>
       </td>
-      <td className="px-4 py-3 text-xs text-gray-300">{session.repo || "—"}</td>
+      <td className="px-4 py-3 text-xs text-muted-foreground">{session.repo || "—"}</td>
       <td className="px-4 py-3 text-xs">
         {session.pr_number ? (
           <a
             href={session.pr_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-400 hover:underline"
+            className="text-blue-600 dark:text-blue-400 hover:underline"
           >
             #{session.pr_number}
           </a>
@@ -119,13 +112,13 @@ function SessionRow({ session }: { session: FleetSession }) {
       </td>
       <td className="px-4 py-3">
         <span className="flex items-center gap-1.5">
-          <span className={`h-2 w-2 rounded-full ${STATUS_COLORS[session.status] ?? "bg-gray-500"}`} />
+          <span className={`h-2 w-2 rounded-full ${fleetStatusDot[session.status] ?? "bg-gray-500"}`} />
           <span className="text-xs">{session.status}</span>
         </span>
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
-          <div className="h-1.5 w-16 rounded-full bg-gray-800">
+          <div className="h-1.5 w-16 rounded-full bg-muted dark:bg-gray-800">
             <div
               className="h-1.5 rounded-full bg-emerald-500 transition-all"
               style={{ width: `${progress}%` }}
@@ -136,7 +129,7 @@ function SessionRow({ session }: { session: FleetSession }) {
           </span>
         </div>
       </td>
-      <td className="px-4 py-3 font-mono text-xs text-gray-400">
+      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
         ${(session.total_cost_usd ?? 0).toFixed(3)}
       </td>
       <td className="px-4 py-3 text-xs text-muted-foreground">

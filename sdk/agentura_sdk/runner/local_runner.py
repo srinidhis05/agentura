@@ -39,7 +39,12 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
     """Log execution to the memory store (JSON fallback or mem0)."""
     execution_id = f"EXEC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
     skill_path = f"{ctx.domain}/{ctx.skill_name}"
-    outcome = "accepted" if result.success else "error"
+    if result.approval_required:
+        outcome = "pending_approval"
+    elif result.success:
+        outcome = "accepted"
+    else:
+        outcome = "error"
     entry = {
         "execution_id": execution_id,
         "skill": skill_path,
@@ -56,6 +61,14 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
         from agentura_sdk.memory import get_memory_store
         store = get_memory_store()
         store.log_execution(skill_path, entry)
+
+        # Approval engine: store pending tool calls for post-approval execution
+        pending = result.output.get("pending_approvals") if isinstance(result.output, dict) else None
+        if pending:
+            try:
+                store.update_execution_pending_approvals(execution_id, pending)
+            except Exception:
+                pass
 
         # MemRL: track which reflexions were injected (DEC-066)
         if ctx.injected_reflexion_ids:
@@ -112,12 +125,18 @@ async def execute_skill(ctx: SkillContext) -> SkillResult:
         if _should_use_ptc(ctx):
             from agentura_sdk.runner.ptc_executor import execute_ptc
             logger.info("Routing agent skill %s to PTC executor", ctx.skill_name)
-            return await execute_ptc(ctx)
+            result = await execute_ptc(ctx)
+            log_execution(ctx, result)
+            _post_execution_hook(ctx, result)
+            return result
         from agentura_sdk.runner.claude_code_executor import _should_use_claude_code
         if _should_use_claude_code(ctx):
             from agentura_sdk.runner.claude_code_executor import execute_claude_code
             logger.info("Routing agent skill %s to Claude Code SDK", ctx.skill_name)
-            return await execute_claude_code(ctx)
+            result = await execute_claude_code(ctx)
+            log_execution(ctx, result)
+            _post_execution_hook(ctx, result)
+            return result
         from agentura_sdk.runner.agent_executor import execute_agent
         return await execute_agent(ctx)
     if os.environ.get("OPENROUTER_API_KEY"):
