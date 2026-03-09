@@ -108,6 +108,10 @@ def _build_worker_env(ctx: SkillContext) -> dict[str, str]:
         env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
     if os.environ.get("OPENROUTER_API_KEY"):
         env["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
+    if os.environ.get("GITHUB_TOKEN"):
+        env["GITHUB_TOKEN"] = os.environ["GITHUB_TOKEN"]
+    # Pass continuation config so worker retries if TASK_RESULT.json missing
+    env["MAX_CONTINUATIONS"] = os.environ.get("MAX_CONTINUATIONS", "3")
     return env
 
 
@@ -129,7 +133,10 @@ def _build_agent_request(ctx: SkillContext) -> dict:
         server_url = binding.get("url", "")
         if not server_name or not server_url:
             continue
-        mcp_servers[server_name] = {"type": "http", "url": server_url}
+        server_cfg: dict = {"type": "http", "url": server_url}
+        if binding.get("headers"):
+            server_cfg["headers"] = binding["headers"]
+        mcp_servers[server_name] = server_cfg
         for tool_name in binding.get("tools", []):
             allowed_mcp_tools.append(f"mcp__{server_name}__{tool_name}")
 
@@ -140,7 +147,7 @@ def _build_agent_request(ctx: SkillContext) -> dict:
 
     system_prompt = _build_system_prompt(ctx)
 
-    return {
+    req = {
         "prompt": json.dumps(ctx.input_data, indent=2),
         "system_prompt": system_prompt,
         "model": _resolve_model(ctx.model),
@@ -149,6 +156,13 @@ def _build_agent_request(ctx: SkillContext) -> dict:
         "mcp_servers": mcp_servers,
         "allowed_tools": allowed_tools,
     }
+
+    # Self-critique verification (DEC-069)
+    if ctx.verify_config and ctx.verify_config.enabled:
+        req["verify_criteria"] = ctx.verify_config.criteria
+        req["verify_max_retries"] = ctx.verify_config.max_retries
+
+    return req
 
 
 def _parse_sse_events(text: str) -> list[tuple[str, dict]]:

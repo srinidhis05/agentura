@@ -1,0 +1,56 @@
+domain:
+  name: examples
+  description: "Reference skill implementations for the Agentura platform"
+  owner: "platform-team"
+
+skills:
+  - name: meeting-processor
+    path: meeting-processor
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: command
+        pattern: "process meeting for {project}"
+        extract: {"project_slug": "{project}"}
+      - type: command
+        pattern: "{project} meeting update"
+        extract: {"project_slug": "{project}"}
+
+agent:
+  executor: ptc
+  timeout: 120
+  max_iterations: 20
+
+# MCP tools — replace server names with your actual MCP server IDs
+# See docs/SKILL_ONBOARDING.md for MCP setup guide
+mcp_tools:
+  - server: calendar
+    tools: ["*"]
+  - server: tasks
+    tools: ["*"]
+  - server: messaging
+    tools: ["post_message", "post_thread"]
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.35"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+  capture_failure_cases: true
+
+verify:
+  enabled: true
+  criteria:
+    - "Action items extracted from actual meeting transcript (not fabricated)"
+    - "Tasks created in project management tool OR graceful degradation noted"
+
+display:
+  title: "Meeting Processor"
+  subtitle: "Notes → Tasks + Summary"
+  avatar: "MP"
+  color: "#10b981"
+  tags: ["Agent", "MCP", "Meetings", "Automation"]

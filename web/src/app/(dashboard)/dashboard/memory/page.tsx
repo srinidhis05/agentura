@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button";
 import { getMemoryStatus, memorySearch, listReflexions, listCorrections } from "@/lib/api";
 
 const backendColors: Record<string, string> = {
-  postgresql: "text-blue-700 bg-blue-50 border-blue-200",
-  pg: "text-blue-700 bg-blue-50 border-blue-200",
-  mem0: "text-violet-700 bg-violet-50 border-violet-200",
-  json: "text-amber-700 bg-amber-50 border-amber-200",
+  postgresql: "text-blue-700 bg-blue-50 border-blue-200 dark:text-blue-400 dark:bg-blue-500/10 dark:border-blue-500/20",
+  pg: "text-blue-700 bg-blue-50 border-blue-200 dark:text-blue-400 dark:bg-blue-500/10 dark:border-blue-500/20",
+  mem0: "text-violet-700 bg-violet-50 border-violet-200 dark:text-violet-400 dark:bg-violet-500/10 dark:border-violet-500/20",
+  json: "text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-400 dark:bg-amber-500/10 dark:border-amber-500/20",
 };
 
 function getBackendStyle(backend: string): string {
@@ -19,7 +19,7 @@ function getBackendStyle(backend: string): string {
   for (const [k, v] of Object.entries(backendColors)) {
     if (key.includes(k)) return v;
   }
-  return "text-gray-700 bg-gray-50 border-gray-200";
+  return "text-gray-700 bg-gray-50 border-gray-200 dark:text-gray-400 dark:bg-gray-500/10 dark:border-gray-500/20";
 }
 
 export default function MemoryPage() {
@@ -108,7 +108,7 @@ export default function MemoryPage() {
               <CardTitle className="text-xs font-medium text-muted-foreground">Total Memories</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-emerald-600">{status.total_memories}</p>
+              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{status.total_memories}</p>
               <div className="mt-1 flex gap-3 text-[10px] text-muted-foreground">
                 <span>{status.execution_memories} exec</span>
                 <span>{status.correction_memories} corr</span>
@@ -122,9 +122,9 @@ export default function MemoryPage() {
               <CardTitle className="text-xs font-medium text-muted-foreground">Reflexion Rules</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-violet-600">{allReflexions.length}</p>
+              <p className="text-2xl font-bold text-violet-600 dark:text-violet-400">{allReflexions.length}</p>
               <div className="mt-1 text-[10px] text-muted-foreground">
-                <span className="text-emerald-600">{validatedCount} validated</span>
+                <span className="text-emerald-600 dark:text-emerald-400">{validatedCount} validated</span>
                 <span className="mx-1">/</span>
                 <span>{allReflexions.length - validatedCount} pending</span>
               </div>
@@ -136,7 +136,7 @@ export default function MemoryPage() {
               <CardTitle className="text-xs font-medium text-muted-foreground">Skills Tracked</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-amber-600">{status.skills_tracked.length}</p>
+              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{status.skills_tracked.length}</p>
               <div className="mt-1 flex flex-wrap gap-1">
                 {status.skills_tracked.slice(0, 6).map((s) => (
                   <span key={s} className="rounded bg-muted px-1 py-0.5 font-mono text-[9px]">
@@ -200,7 +200,7 @@ export default function MemoryPage() {
                           {(result.skill as string) ?? ""}
                         </span>
                         {result.score != null && (
-                          <span className="ml-auto text-[10px] text-emerald-600">
+                          <span className="ml-auto text-[10px] text-emerald-600 dark:text-emerald-400">
                             {((result.score as number) * 100).toFixed(0)}% match
                           </span>
                         )}
@@ -239,10 +239,10 @@ export default function MemoryPage() {
                     className="rounded-md border border-border p-3"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] text-violet-600">{r.reflexion_id}</span>
+                      <span className="font-mono text-[10px] text-violet-700 dark:text-violet-400">{r.reflexion_id}</span>
                       <span className="font-mono text-[10px] text-muted-foreground">{r.skill}</span>
                       {r.validated_by_test && (
-                        <Badge variant="outline" className="text-[8px] bg-emerald-50 text-emerald-700 border-emerald-200">
+                        <Badge variant="outline" className="text-[8px] bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20">
                           validated
                         </Badge>
                       )}
@@ -284,10 +284,10 @@ export default function MemoryPage() {
                     className="rounded-md border border-border p-3"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] text-amber-600">{c.correction_id}</span>
+                      <span className="font-mono text-[10px] text-amber-700 dark:text-amber-400">{c.correction_id}</span>
                       <span className="font-mono text-[10px] text-muted-foreground">{c.skill}</span>
                       {c.generated_reflexion_id && (
-                        <Badge variant="outline" className="text-[8px] bg-violet-50 text-violet-700 border-violet-200">
+                        <Badge variant="outline" className="text-[8px] bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-500/10 dark:text-violet-400 dark:border-violet-500/20">
                           reflexion
                         </Badge>
                       )}
@@ -315,7 +315,6 @@ export default function MemoryPage() {
               {skillsWithMemory.map((skill) => {
                 const reflexionCount = allReflexions.filter((r) => r.skill === skill).length;
                 const correctionCount = allCorrections.filter((c) => c.skill === skill).length;
-                const domain = skill.split("/")[0];
                 return (
                   <div
                     key={skill}
@@ -324,10 +323,10 @@ export default function MemoryPage() {
                     <span className="font-mono text-xs">{skill}</span>
                     <div className="flex gap-2 text-[10px]">
                       {reflexionCount > 0 && (
-                        <span className="text-violet-600">{reflexionCount} refl</span>
+                        <span className="text-violet-700 dark:text-violet-400">{reflexionCount} refl</span>
                       )}
                       {correctionCount > 0 && (
-                        <span className="text-amber-600">{correctionCount} corr</span>
+                        <span className="text-amber-700 dark:text-amber-400">{correctionCount} corr</span>
                       )}
                     </div>
                   </div>

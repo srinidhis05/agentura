@@ -1,0 +1,19 @@
+name: spec-analyzer
+display_name: "Spec Analyzer"
+domain: incubator
+role: specialist
+executor: claude-code
+model: anthropic/claude-sonnet-4-5-20250929
+reports_to: incubator-lead
+status: idle
+skills:
+  - incubator/analyze-spec
+budget:
+  monthly_limit_usd: 15
+  per_execution_limit: 0.50
+  alert_at_percent: 80
+delegation:
+  can_assign_to: []
+  max_concurrent_tickets: 3
+  autonomy_level: silent
+mcp_tools: []

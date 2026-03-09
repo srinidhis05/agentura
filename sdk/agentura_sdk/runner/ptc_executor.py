@@ -66,14 +66,20 @@ def _build_ptc_request(ctx: SkillContext) -> dict:
     # MCP server mapping — pass URLs so the worker can call them directly
     mcp_servers: dict = {}
     allowed_mcp_tools: list[str] = []
+    approval_tools: list[str] = []
     for binding in ctx.mcp_bindings:
         server_name = binding.get("server", "")
         server_url = binding.get("url", "")
         if not server_name or not server_url:
             continue
-        mcp_servers[server_name] = {"url": server_url}
+        server_cfg: dict = {"url": server_url}
+        if binding.get("headers"):
+            server_cfg["headers"] = binding["headers"]
+        mcp_servers[server_name] = server_cfg
         for tool_name in binding.get("tools", []):
             allowed_mcp_tools.append(tool_name)
+        for tool_name in binding.get("approval_required", []):
+            approval_tools.append(tool_name)
 
     from agentura_sdk.runner.agent_executor import _build_prompt_with_memory
 
@@ -83,7 +89,7 @@ def _build_ptc_request(ctx: SkillContext) -> dict:
     if ctx.sandbox_config and ctx.sandbox_config.max_tokens:
         max_tokens = ctx.sandbox_config.max_tokens
 
-    return {
+    req = {
         "prompt": json.dumps(ctx.input_data, indent=2),
         "system_prompt": system_prompt,
         "model": _resolve_model(ctx.model),
@@ -91,7 +97,15 @@ def _build_ptc_request(ctx: SkillContext) -> dict:
         "max_tokens": max_tokens,
         "mcp_servers": mcp_servers,
         "allowed_mcp_tools": allowed_mcp_tools,
+        "approval_tools": approval_tools,
     }
+
+    # Self-critique verification (DEC-069)
+    if ctx.verify_config and ctx.verify_config.enabled:
+        req["verify_criteria"] = ctx.verify_config.criteria
+        req["verify_max_retries"] = ctx.verify_config.max_retries
+
+    return req
 
 
 def _parse_sse_events(text: str) -> list[tuple[str, dict]]:
@@ -162,8 +176,21 @@ async def execute_ptc(ctx: SkillContext) -> SkillResult:
         cost_usd = result_data.get("cost_usd", 0.0)
         task_result = result_data.get("task_result", {})
 
-        output = task_result or {"summary": result_data.get("summary", "")}
+        # Surface error messages from worker (e.g. "No MCP tools discovered")
+        error_msg = result_data.get("error", "")
+        if error_msg and not task_result:
+            output = {"error": error_msg, "summary": error_msg}
+        else:
+            output = task_result or {"summary": result_data.get("summary", "")}
         output["iterations_count"] = len(iterations)
+
+        # Check if worker flagged any pending approvals (e.g. email gates)
+        pending = result_data.get("pending_approvals", [])
+        approval_required = len(pending) > 0
+        pending_action = ""
+        if pending:
+            tool_names = ", ".join(p.get("tool", "unknown") for p in pending)
+            pending_action = f"Approve {len(pending)} action(s): {tool_names}"
 
         return SkillResult(
             skill_name=ctx.skill_name,
@@ -176,6 +203,8 @@ async def execute_ptc(ctx: SkillContext) -> SkillResult:
             model_used=ctx.model,
             cost_usd=cost_usd,
             latency_ms=latency_ms,
+            approval_required=approval_required,
+            pending_action=pending_action,
         )
 
     except Exception as e:
@@ -245,8 +274,20 @@ async def execute_ptc_streaming(
         cost_usd = result_data.get("cost_usd", 0.0)
         task_result = result_data.get("task_result", {})
 
-        output = task_result or {"summary": result_data.get("summary", "")}
+        error_msg = result_data.get("error", "")
+        if error_msg and not task_result:
+            output = {"error": error_msg, "summary": error_msg}
+        else:
+            output = task_result or {"summary": result_data.get("summary", "")}
         output["iterations_count"] = len(iterations)
+
+        # Check if worker flagged any pending approvals (e.g. email gates)
+        pending = result_data.get("pending_approvals", [])
+        approval_required = len(pending) > 0
+        pending_action = ""
+        if pending:
+            tool_names = ", ".join(p.get("tool", "unknown") for p in pending)
+            pending_action = f"Approve {len(pending)} action(s): {tool_names}"
 
         yield SkillResult(
             skill_name=ctx.skill_name,
@@ -259,6 +300,8 @@ async def execute_ptc_streaming(
             model_used=ctx.model,
             cost_usd=cost_usd,
             latency_ms=latency_ms,
+            approval_required=approval_required,
+            pending_action=pending_action,
         )
 
     except Exception as e:

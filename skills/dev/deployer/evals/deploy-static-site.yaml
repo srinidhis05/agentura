@@ -1,0 +1,21 @@
+name: deploy-static-site
+prompt: "Deploy the todo app to K8s"
+input_data:
+  artifacts:
+    index.html: "<html><body><h1>Todo App</h1></body></html>"
+    style.css: "body { font-family: sans-serif; }"
+mock_tools:
+  kubectl_apply:
+    response: "deployment.apps/todo-list created\nservice/todo-list created"
+  kubectl_get:
+    response: "NAME        READY   STATUS    RESTARTS   AGE\ntodo-list   1/1     Running   0          5s"
+expected_tools:
+  - kubectl_apply
+forbidden_tools:
+  - kubectl_delete
+assertions:
+  - type: output-contains
+    value: "deployed"
+  - type: output-not-contains
+    value: "error"
+max_retries: 3

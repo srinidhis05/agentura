@@ -1,0 +1,44 @@
+domain:
+  name: incubator
+  description: "Feature incubation — Lovable prototypes to production code"
+  owner: "product-team"
+
+skills:
+  - name: quality-gate
+    path: quality-gate
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: pipeline
+        pattern: "incubator-build step quality-gate"
+      - type: pipeline
+        pattern: "incubator-refine step quality-gate"
+
+agent:
+  executor: claude-code
+  max_iterations: 15
+  timeout: 300
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.35"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+  capture_failure_cases: true
+
+verify:
+  enabled: true
+  criteria:
+    - "Both repos were cloned and checked out at the correct branches"
+    - "Build commands were executed and results reported"
+
+display:
+  title: "Quality Gate"
+  subtitle: "Convention & Build Checker"
+  avatar: "QG"
+  color: "#dc2626"
+  tags: ["Incubator", "Agent", "Quality"]

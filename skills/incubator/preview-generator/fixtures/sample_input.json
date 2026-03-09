@@ -1,0 +1,38 @@
+{
+  "feature_name": "expense-tracker",
+  "pit_name_hyphenated": "expense-tracker",
+  "mobile_spec": {
+    "feature_package": "expense_tracker",
+    "screens": [
+      {
+        "name": "ExpenseListScreen",
+        "description": "List of expenses with running total at top, filter chips for categories, each item shows amount/category/description/date with swipe-to-delete"
+      },
+      {
+        "name": "AddExpenseScreen",
+        "description": "Form with amount input, category dropdown, description text field, date picker"
+      },
+      {
+        "name": "ExpenseSummaryScreen",
+        "description": "Pie chart showing spending by category for selected month"
+      }
+    ],
+    "navigation": {
+      "start_destination": "expense_list",
+      "routes": [
+        { "route": "expense_list", "screen": "ExpenseListScreen" },
+        { "route": "add_expense", "screen": "AddExpenseScreen" },
+        { "route": "expense_summary", "screen": "ExpenseSummaryScreen" }
+      ]
+    }
+  },
+  "backend_spec": {
+    "base_path": "/api/v1/expense-tracker",
+    "endpoints": [
+      { "method": "POST", "path": "/expenses", "description": "Create expense" },
+      { "method": "GET", "path": "/expenses", "description": "List expenses" },
+      { "method": "DELETE", "path": "/expenses/{id}", "description": "Delete expense" },
+      { "method": "GET", "path": "/expenses/summary", "description": "Spending breakdown" }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: pr-slt-validator
+    path: pr-slt-validator
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: pipeline
+        pattern: "github-pr-parallel step slt"
+
+agent:
+  executor: claude-code
+  max_iterations: 20
+  timeout: 300
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.35"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+  capture_failure_cases: true
+
+verify:
+  enabled: true
+  criteria:
+    - "API compatibility checks were performed against the service contract"
+    - "Output clearly states pass or fail with specific findings"
+
+display:
+  title: "SLT Validator"
+  subtitle: "Service-Level Testing"
+  avatar: "SL"
+  color: "#f59e0b"
+  tags: ["Agent", "SLT", "API Compat"]

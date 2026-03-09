@@ -131,3 +131,53 @@ async def get_comment_reactions(
         content = r.get("content", "unknown")
         counts[content] = counts.get(content, 0) + 1
     return counts
+
+
+# ---------------------------------------------------------------------------
+# GitHub Checks API — per-agent status on PRs
+# ---------------------------------------------------------------------------
+
+
+async def create_check_run(
+    repo: str,
+    head_sha: str,
+    name: str,
+    status: str = "queued",
+    token: str | None = None,
+) -> dict:
+    """Create a check run on a commit. Returns the check run object."""
+    token = token or get_token()
+    url = f"{GITHUB_API}/repos/{repo}/check-runs"
+    payload = {
+        "name": name,
+        "head_sha": head_sha,
+        "status": status,
+    }
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        resp = await client.post(url, headers=_headers(token), json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def update_check_run(
+    repo: str,
+    check_run_id: int,
+    status: str | None = None,
+    conclusion: str | None = None,
+    output: dict | None = None,
+    token: str | None = None,
+) -> dict:
+    """Update a check run. conclusion: success|failure|neutral|cancelled|timed_out."""
+    token = token or get_token()
+    url = f"{GITHUB_API}/repos/{repo}/check-runs/{check_run_id}"
+    payload: dict = {}
+    if status:
+        payload["status"] = status
+    if conclusion:
+        payload["conclusion"] = conclusion
+    if output:
+        payload["output"] = output
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        resp = await client.patch(url, headers=_headers(token), json=payload)
+        resp.raise_for_status()
+        return resp.json()

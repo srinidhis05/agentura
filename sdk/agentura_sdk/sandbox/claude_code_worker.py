@@ -6,6 +6,7 @@ with higher resource limits (2Gi RAM, 2 CPU) for agent workloads.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -80,6 +81,15 @@ def _build_worker_manifest(
     )
 
 
+def _create_and_wait(pod_name: str, env_vars: dict[str, str] | None) -> str:
+    """Blocking helper — runs in thread to avoid freezing the event loop."""
+    api = client.CoreV1Api()
+    manifest = _build_worker_manifest(pod_name, env_vars)
+    api.create_namespaced_pod(namespace=NAMESPACE, body=manifest)
+    logger.info("Created worker pod %s", pod_name)
+    return _wait_for_ready(api, pod_name, NAMESPACE)
+
+
 async def create(
     cfg: SandboxConfig,
     env_vars: dict[str, str] | None = None,
@@ -89,13 +99,7 @@ async def create(
     _load_k8s_config()
 
     pod_name = f"cc-worker-{int(time.time() * 1000) % 10_000_000:07d}"
-    api = client.CoreV1Api()
-
-    manifest = _build_worker_manifest(pod_name, env_vars)
-    api.create_namespaced_pod(namespace=NAMESPACE, body=manifest)
-    logger.info("Created worker pod %s", pod_name)
-
-    pod_ip = _wait_for_ready(api, pod_name, NAMESPACE)
+    pod_ip = await asyncio.to_thread(_create_and_wait, pod_name, env_vars)
     logger.info("Worker pod %s ready at %s", pod_name, pod_ip)
     return K8sSandbox(pod_name=pod_name, pod_ip=pod_ip, namespace=NAMESPACE)
 

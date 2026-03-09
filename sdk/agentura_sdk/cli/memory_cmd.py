@@ -106,3 +106,61 @@ def memory_prompt(skill_path: str, fmt: str):
 
     prompt = data.get("prompt", "")
     console.print(prompt if prompt else "[yellow]No prompt assembly available.[/]")
+
+
+@memory.command("reflexions")
+@click.option("--skill", default=None, help="Filter by skill path (domain/name).")
+@click.option("-o", "--output", "fmt", type=click.Choice(["table", "json"]), default="table")
+def memory_reflexions(skill: str | None, fmt: str):
+    """Show reflexion rules with MemRL utility scores."""
+    from agentura_sdk.memory import get_memory_store
+
+    console = Console()
+    store = get_memory_store()
+    entries = store.get_all_reflexions()
+
+    if skill:
+        entries = [e for e in entries if e.get("skill") == skill]
+
+    if fmt == "json":
+        console.print_json(json.dumps(entries, indent=2, default=str))
+        return
+
+    if not entries:
+        console.print("[yellow]No reflexion entries found.[/]")
+        return
+
+    table = Table(title="Reflexion Rules (MemRL)")
+    table.add_column("ID", style="dim", no_wrap=True)
+    table.add_column("Skill", style="cyan")
+    table.add_column("Rule", max_width=50)
+    table.add_column("Utility", justify="right")
+    table.add_column("Inj", justify="right", style="dim")
+    table.add_column("Helped", justify="right", style="dim")
+    table.add_column("Conf", justify="right")
+    table.add_column("Valid", justify="center")
+    table.add_column("Source", style="dim")
+
+    for e in entries:
+        utility = e.get("utility_score", 0.5)
+        pct = f"{utility:.0%}"
+        if utility >= 0.6:
+            color = "green"
+        elif utility >= 0.3:
+            color = "yellow"
+        else:
+            color = "red"
+
+        table.add_row(
+            e.get("reflexion_id", ""),
+            e.get("skill", ""),
+            (e.get("rule", "") or "")[:50],
+            f"[{color}]{pct}[/{color}]",
+            str(e.get("times_injected", 0)),
+            str(e.get("times_helped", 0)),
+            f"{e.get('confidence', 0):.0%}",
+            "[green]Y[/]" if e.get("validated_by_test") else "[dim]N[/]",
+            e.get("source", "correction"),
+        )
+
+    console.print(table)

@@ -1,5 +1,6 @@
-"""agentura create skill <domain>/<name> — Scaffold a new skill."""
+"""agentura create skill|agent <domain>/<name> — Scaffold skills and agents."""
 
+import os
 from datetime import date
 from pathlib import Path
 
@@ -14,9 +15,12 @@ HANDLER_EXTENSIONS = {
 }
 
 
+AGENCY_DIR = Path(os.environ.get("AGENCY_DIR", "agency"))
+
+
 @click.group()
 def create():
-    """Scaffold new skills and domains."""
+    """Scaffold new skills, agents, and domains."""
     pass
 
 
@@ -134,3 +138,85 @@ def create_skill(skill_path: str, lang: str, role: str, skills_dir: str | None):
     console.print(f"  {'4' if is_new_domain else '3'}. agentura validate {skill_path}")
     console.print(f"  {'5' if is_new_domain else '4'}. agentura run {skill_path} --dry-run")
     console.print(f"  {'6' if is_new_domain else '5'}. agentura test {skill_path}")
+
+
+@create.command("agent")
+@click.argument("agent_path")
+@click.option(
+    "--role",
+    type=click.Choice(["manager", "specialist", "field"]),
+    default="specialist",
+    help="Agent role (default: specialist).",
+)
+@click.option(
+    "--executor",
+    type=click.Choice(["claude-code", "ptc"]),
+    default="claude-code",
+    help="Executor type (default: claude-code).",
+)
+@click.option(
+    "--model",
+    default="anthropic/claude-sonnet-4-5-20250929",
+    help="Model to use.",
+)
+@click.option(
+    "--agency-dir",
+    type=click.Path(),
+    default=None,
+    help="Root directory for agents (default: agency/).",
+)
+def create_agent(agent_path: str, role: str, executor: str, model: str, agency_dir: str | None):
+    """Create a new agent scaffold.
+
+    AGENT_PATH should be domain/agent-name, e.g. ecm/my-agent.
+    """
+    console = Console()
+
+    parts = agent_path.strip("/").split("/")
+    if len(parts) != 2:
+        console.print("[red]Error: agent path must be domain/name (e.g. ecm/my-agent)[/]")
+        raise SystemExit(1)
+
+    domain, agent_name = parts
+    root_dir = Path(agency_dir) if agency_dir else AGENCY_DIR
+    agent_dir = root_dir / domain / agent_name
+
+    if agent_dir.exists():
+        console.print(f"[red]Error: {agent_dir} already exists[/]")
+        raise SystemExit(1)
+
+    agent_dir.mkdir(parents=True, exist_ok=True)
+
+    env = Environment(
+        loader=PackageLoader("agentura_sdk", "templates"),
+        keep_trailing_newline=True,
+    )
+
+    display_name = agent_name.replace("-", " ").title()
+    context = {
+        "domain": domain,
+        "agent_name": agent_name,
+        "display_name": display_name,
+        "role": role,
+        "executor": executor,
+        "model": model,
+    }
+
+    files = {
+        agent_dir / "agent.yaml": "agent.yaml.j2",
+        agent_dir / "SOUL.md": "soul.md.j2",
+    }
+
+    for filepath, template_name in files.items():
+        template = env.get_template(template_name)
+        filepath.write_text(template.render(**context))
+
+    console.print(f"\n[green bold]Agent created:[/] {agent_dir}\n")
+    console.print("Files:")
+    for filepath in sorted(files.keys()):
+        console.print(f"  {filepath.relative_to(root_dir)}")
+
+    console.print(f"\n[cyan]Next steps:[/]")
+    console.print(f"  1. Edit {agent_dir}/agent.yaml — configure skills, budget, delegation")
+    console.print(f"  2. Edit {agent_dir}/SOUL.md — define personality and working style")
+    console.print(f"  3. Assign skills: add skill paths to the skills[] list in agent.yaml")

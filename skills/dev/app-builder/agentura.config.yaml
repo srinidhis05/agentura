@@ -27,6 +27,13 @@ guardrails:
 feedback:
   capture_corrections: true
   auto_generate_tests: false
+  capture_failure_cases: true
+
+verify:
+  enabled: true
+  criteria:
+    - "Output contains working application files (not empty or placeholder)"
+    - "Summary describes what was built and how to access it"
 
 display:
   title: "App Builder"
