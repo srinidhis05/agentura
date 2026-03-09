@@ -7,14 +7,7 @@ import { getFleetSession, cancelFleetSession } from "@/lib/api";
 import type { FleetAgent } from "@/lib/api";
 import { useFleetStream } from "@/hooks/use-fleet-stream";
 import { useState } from "react";
-
-const STATUS_BADGE: Record<string, { bg: string; text: string }> = {
-  pending: { bg: "bg-gray-500/15", text: "text-gray-400" },
-  running: { bg: "bg-blue-500/15", text: "text-blue-400" },
-  completed: { bg: "bg-emerald-500/15", text: "text-emerald-400" },
-  failed: { bg: "bg-red-500/15", text: "text-red-400" },
-  cancelled: { bg: "bg-amber-500/15", text: "text-amber-400" },
-};
+import { fleetStatusColors } from "@/lib/colors";
 
 export default function FleetSessionDetailPage() {
   const { session_id } = useParams<{ session_id: string }>();
@@ -45,7 +38,6 @@ export default function FleetSessionDetailPage() {
 
   const agents = session.agents ?? [];
 
-  // Merge live SSE updates with DB agents
   const mergedAgents = agents.map((agent) => {
     const live = liveAgents[agent.agent_id];
     if (live) {
@@ -54,7 +46,7 @@ export default function FleetSessionDetailPage() {
     return agent;
   });
 
-  const badge = STATUS_BADGE[session.status] ?? STATUS_BADGE.pending;
+  const badge = fleetStatusColors[session.status] ?? fleetStatusColors.pending;
 
   return (
     <div className="space-y-6">
@@ -78,7 +70,7 @@ export default function FleetSessionDetailPage() {
                 href={session.pr_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-400 hover:underline"
+                className="text-blue-600 dark:text-blue-400 hover:underline"
               >
                 PR #{session.pr_number}
               </a>
@@ -89,7 +81,7 @@ export default function FleetSessionDetailPage() {
           <button
             onClick={handleCancel}
             disabled={cancelling}
-            className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs font-medium text-red-400 hover:bg-red-500/20 disabled:opacity-50"
+            className="rounded-lg border border-red-300 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-4 py-2 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 disabled:opacity-50"
           >
             {cancelling ? "Cancelling..." : "Cancel Session"}
           </button>
@@ -118,7 +110,7 @@ export default function FleetSessionDetailPage() {
       {mergedAgents.length > 0 && (
         <div>
           <h2 className="text-lg font-semibold">Execution Timeline</h2>
-          <div className="mt-4 rounded-xl border border-border bg-card p-4">
+          <div className="mt-4 rounded-xl border border-border bg-card shadow-sm p-4">
             <Timeline agents={mergedAgents} sessionCreated={session.created_at} />
           </div>
         </div>
@@ -128,9 +120,13 @@ export default function FleetSessionDetailPage() {
 }
 
 function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
-  const textColor = color === "emerald" ? "text-emerald-400" : color === "red" ? "text-red-400" : "text-foreground";
+  const textColor = color === "emerald"
+    ? "text-emerald-600 dark:text-emerald-400"
+    : color === "red"
+    ? "text-red-600 dark:text-red-400"
+    : "text-foreground";
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="rounded-xl border border-border bg-card shadow-sm p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-1 text-2xl font-bold ${textColor}`}>{value}</p>
     </div>
@@ -138,11 +134,10 @@ function StatCard({ label, value, color }: { label: string; value: string; color
 }
 
 function AgentCard({ agent }: { agent: FleetAgent }) {
-  const badge = STATUS_BADGE[agent.status] ?? STATUS_BADGE.pending;
-  const skillName = agent.skill_path.split("/").pop() ?? agent.agent_id;
+  const badge = fleetStatusColors[agent.status] ?? fleetStatusColors.pending;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+    <div className="rounded-xl border border-border bg-card shadow-sm p-4 space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold">{agent.agent_id}</span>
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${badge.bg} ${badge.text}`}>
@@ -161,14 +156,14 @@ function AgentCard({ agent }: { agent: FleetAgent }) {
         </div>
       </div>
       {agent.error_message && (
-        <div className="rounded-lg bg-red-500/10 p-2 text-xs text-red-400">
+        <div className="rounded-lg bg-red-50 dark:bg-red-500/10 p-2 text-xs text-red-700 dark:text-red-400">
           {agent.error_message}
         </div>
       )}
       {agent.execution_id && agent.execution_id !== "" && (
         <Link
           href={`/dashboard/executions/${agent.execution_id}`}
-          className="block text-[10px] text-blue-400 hover:underline"
+          className="block text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
         >
           View execution {agent.execution_id}
         </Link>
@@ -178,19 +173,18 @@ function AgentCard({ agent }: { agent: FleetAgent }) {
 }
 
 function Timeline({ agents, sessionCreated }: { agents: FleetAgent[]; sessionCreated: string }) {
-  const baseTime = new Date(sessionCreated).getTime();
   const maxLatency = Math.max(...agents.map((a) => a.latency_ms || 0), 1);
 
   return (
     <div className="space-y-2">
       {agents.map((agent) => {
         const width = maxLatency > 0 ? ((agent.latency_ms || 0) / maxLatency) * 100 : 0;
-        const color = agent.success ? "bg-emerald-500" : agent.status === "running" ? "bg-blue-500" : agent.status === "failed" ? "bg-red-500" : "bg-gray-600";
+        const color = agent.success ? "bg-emerald-500" : agent.status === "running" ? "bg-blue-500" : agent.status === "failed" ? "bg-red-500" : "bg-gray-400 dark:bg-gray-600";
         return (
           <div key={agent.agent_id} className="flex items-center gap-3">
             <span className="w-16 text-right text-[10px] text-muted-foreground">{agent.agent_id}</span>
             <div className="flex-1">
-              <div className="h-5 rounded bg-gray-800">
+              <div className="h-5 rounded bg-muted dark:bg-gray-800">
                 <div
                   className={`h-5 rounded ${color} flex items-center px-2 transition-all`}
                   style={{ width: `${Math.max(width, 2)}%` }}

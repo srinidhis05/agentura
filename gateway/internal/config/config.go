@@ -30,6 +30,63 @@ type TriggersConfig struct {
 	Cron     CronConfig          `yaml:"cron"`
 	Webhook  WebhookConfig       `yaml:"webhook"`
 	GitHub   GitHubWebhookConfig `yaml:"github"`
+	Slack    SlackConfig         `yaml:"slack"`
+}
+
+type SlackConfig struct {
+	Enabled bool             `yaml:"enabled"`
+	Apps    []SlackAppConfig `yaml:"apps"`
+}
+
+type SlackAppConfig struct {
+	Name             string            `yaml:"name"`
+	SigningSecret    string            `yaml:"signing_secret"`
+	BotToken         string            `yaml:"bot_token"`
+	AppToken         string            `yaml:"app_token"`         // xapp-... for Socket Mode
+	Mode             string            `yaml:"mode"`              // "http" (default) or "socket"
+	DomainScope      string            `yaml:"domain_scope"`
+	AllowedSkills    []string          `yaml:"allowed_skills"`
+	AllowedPipelines []string          `yaml:"allowed_pipelines"`
+	DM               SlackDMPolicy     `yaml:"dm"`
+	Channels         []SlackChannelACL `yaml:"channels"`
+	AckReaction      string              `yaml:"ack_reaction"`      // emoji shortcode (e.g. "eyes")
+	TypingReaction   string              `yaml:"typing_reaction"`   // shown during processing
+	Events           SlackEventConfig    `yaml:"events"`
+	Commands         []SlackCommandAlias `yaml:"commands"`
+}
+
+// SlackCommandAlias maps a natural language pattern to a skill execution.
+type SlackCommandAlias struct {
+	Pattern     string            `yaml:"pattern"`     // e.g. "order {order_id}"
+	Skill       string            `yaml:"skill"`       // skill name (domain inferred from app)
+	Extract     map[string]string `yaml:"extract"`     // optional param extraction overrides
+	Description string            `yaml:"description"` // shown in help
+}
+
+// SlackDMPolicy controls how the bot handles direct messages.
+type SlackDMPolicy struct {
+	Policy    string   `yaml:"policy"`    // "open" | "allowlist" | "pairing" | "disabled"
+	Allowlist []string `yaml:"allowlist"` // Slack user IDs allowed to DM
+}
+
+// SlackChannelACL controls per-channel access.
+type SlackChannelACL struct {
+	ID            string   `yaml:"id"`              // channel ID (C...)
+	Name          string   `yaml:"name"`            // human-readable
+	Policy        string   `yaml:"policy"`          // "open" | "allowlist" | "disabled"
+	UserAllowlist []string `yaml:"user_allowlist"`  // user IDs allowed in this channel
+	MentionOnly   bool     `yaml:"mention_only"`    // only respond to @mentions
+}
+
+// SlackEventConfig controls which event types are processed.
+type SlackEventConfig struct {
+	Message       bool `yaml:"message"`        // message.channels, message.im, etc.
+	AppMention    bool `yaml:"app_mention"`     // @bot mentions
+	Reaction      bool `yaml:"reaction"`        // reaction_added, reaction_removed
+	MemberJoin    bool `yaml:"member_join"`     // member_joined_channel
+	MemberLeave   bool `yaml:"member_leave"`    // member_left_channel
+	ChannelRename bool `yaml:"channel_rename"`  // channel_rename
+	Pin           bool `yaml:"pin"`             // pin_added, pin_removed
 }
 
 type GitHubWebhookConfig struct {

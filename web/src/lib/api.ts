@@ -23,6 +23,12 @@ import type {
   MemorySearchResult,
   PromptAssembly,
   ApprovalResponse,
+  AgentInfo,
+  OrgChartNode,
+  TicketInfo,
+  TicketStats,
+  HeartbeatRun,
+  HeartbeatScheduleEntry,
 } from "./types";
 
 // In dev mode, Next.js rewrites /api/* to the executor. In production, use the gateway.
@@ -290,6 +296,92 @@ export async function* executePipelineStream(
       }
     }
   }
+}
+
+// Agent Registry API
+
+export function listAgents(params?: { domain?: string; status?: string }): Promise<AgentInfo[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.domain) searchParams.set("domain", params.domain);
+  if (params?.status) searchParams.set("status", params.status);
+  const qs = searchParams.toString();
+  return request<AgentInfo[]>(`/api/v1/agents${qs ? `?${qs}` : ""}`);
+}
+
+export function getAgent(agentId: string): Promise<AgentInfo> {
+  return request<AgentInfo>(`/api/v1/agents/${agentId}`);
+}
+
+export function getOrgChart(): Promise<OrgChartNode[]> {
+  return request<OrgChartNode[]>("/api/v1/agents/org-chart");
+}
+
+export function createAgent(data: Partial<AgentInfo>): Promise<{ id: string; name: string }> {
+  return request("/api/v1/agents", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function updateAgent(agentId: string, data: Partial<AgentInfo>): Promise<{ id: string; updated: boolean }> {
+  return request(`/api/v1/agents/${agentId}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+export function deleteAgent(agentId: string): Promise<{ id: string; status: string }> {
+  return request(`/api/v1/agents/${agentId}`, { method: "DELETE" });
+}
+
+export function delegateTicket(agentId: string, data: { title: string; description: string; priority?: number }): Promise<{ ticket_id: string }> {
+  return request(`/api/v1/agents/${agentId}/delegate`, { method: "POST", body: JSON.stringify(data) });
+}
+
+// Ticket API
+
+export function listTickets(params?: { domain?: string; status?: string; assigned_to?: string; limit?: number }): Promise<TicketInfo[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.domain) searchParams.set("domain", params.domain);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.assigned_to) searchParams.set("assigned_to", params.assigned_to);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  const qs = searchParams.toString();
+  return request<TicketInfo[]>(`/api/v1/tickets${qs ? `?${qs}` : ""}`);
+}
+
+export function getTicket(ticketId: string): Promise<TicketInfo> {
+  return request<TicketInfo>(`/api/v1/tickets/${ticketId}`);
+}
+
+export function getTicketStats(domain?: string): Promise<TicketStats> {
+  const qs = domain ? `?domain=${encodeURIComponent(domain)}` : "";
+  return request<TicketStats>(`/api/v1/tickets/stats${qs}`);
+}
+
+export function createTicket(data: Partial<TicketInfo>): Promise<{ id: string }> {
+  return request("/api/v1/tickets", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function updateTicket(ticketId: string, data: Partial<TicketInfo>): Promise<{ id: string; updated: boolean }> {
+  return request(`/api/v1/tickets/${ticketId}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+// Heartbeat API
+
+export function listHeartbeatRuns(params?: { agent_id?: string; status?: string; limit?: number }): Promise<HeartbeatRun[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.agent_id) searchParams.set("agent_id", params.agent_id);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  const qs = searchParams.toString();
+  return request<HeartbeatRun[]>(`/api/v1/heartbeats${qs ? `?${qs}` : ""}`);
+}
+
+export function getHeartbeatRun(runId: string): Promise<HeartbeatRun> {
+  return request<HeartbeatRun>(`/api/v1/heartbeats/${runId}`);
+}
+
+export function getHeartbeatSchedule(): Promise<HeartbeatScheduleEntry[]> {
+  return request<HeartbeatScheduleEntry[]>("/api/v1/heartbeats/schedule");
+}
+
+export function triggerHeartbeat(agentId: string): Promise<HeartbeatRun> {
+  return request<HeartbeatRun>(`/api/v1/heartbeats/${agentId}/trigger`, { method: "POST" });
 }
 
 /** @deprecated Use executePipeline("build-deploy", input) instead. */

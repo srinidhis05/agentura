@@ -11,6 +11,7 @@ from agentura_sdk.cli.correct import correct
 from agentura_sdk.cli.cortex_cmd import cortex
 from agentura_sdk.cli.fleet_cmd import fleet
 from agentura_sdk.cli.create import create
+from agentura_sdk.cli.deploy import deploy
 from agentura_sdk.cli.describe_cmd import describe
 from agentura_sdk.cli.get_cmd import get
 from agentura_sdk.cli.index_cmd import index
@@ -44,6 +45,8 @@ def cli():
       agentura index <repo-path>               Index a service → knowledge graph
       agentura correct <domain>/<name>         Submit correction → auto-gen tests
       agentura test <domain>/<name>            Run DeepEval + Promptfoo tests
+      agentura deploy <domain>/<name>          Validate + sync to K8s pod
+      agentura deploy --all                    Deploy all skills
       agentura apply -f <path>                 Deploy skills to gateway
 
     \b
@@ -133,6 +136,7 @@ cli.add_command(correct)
 cli.add_command(cortex)
 cli.add_command(index)
 cli.add_command(create)
+cli.add_command(deploy)
 cli.add_command(run)
 cli.add_command(test)
 cli.add_command(validate)

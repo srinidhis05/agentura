@@ -33,7 +33,7 @@ metrics:
 
 executor:
   url: "${EXECUTOR_URL}"
-  timeout: 600
+  timeout: 1200
 
 execution:
   mode: "${EXECUTION_MODE}"
@@ -66,3 +66,116 @@ triggers:
   github:
     enabled: true
     secret: "${GITHUB_WEBHOOK_SECRET}"
+  slack:
+    enabled: true
+    apps:
+      - name: incubator
+        signing_secret: "${SLACK_INCUBATOR_SIGNING_SECRET}"
+        bot_token: "${SLACK_INCUBATOR_BOT_TOKEN}"
+        app_token: "${SLACK_INCUBATOR_APP_TOKEN}"
+        mode: "http"
+        domain_scope: "incubator"
+        allowed_skills: ["*"]
+        allowed_pipelines: ["incubator-analyze", "incubator-build", "incubator-refine", "incubator-ship"]
+        ack_reaction: "eyes"
+        typing_reaction: "hourglass_flowing_sand"
+        dm:
+          policy: "open"
+        events:
+          message: true
+          app_mention: true
+          reaction: true
+          member_join: true
+          member_leave: false
+          channel_rename: true
+          pin: true
+      - name: ecm
+        signing_secret: "${SLACK_ECM_SIGNING_SECRET}"
+        bot_token: "${SLACK_ECM_BOT_TOKEN}"
+        app_token: "${SLACK_ECM_APP_TOKEN}"
+        mode: "socket"
+        domain_scope: "ecm"
+        allowed_skills: ["*"]
+        ack_reaction: "eyes"
+        typing_reaction: "hourglass_flowing_sand"
+        dm:
+          policy: "open"
+          allowlist: []
+        events:
+          message: true
+          app_mention: true
+          reaction: true
+        commands:
+          - pattern: "order {order_id}"
+            skill: "process-stuck-order"
+            description: "Full order diagnosis with runbook steps"
+          - pattern: "triage"
+            skill: "triage"
+            description: "Triage stuck orders, score priority, assign to agents"
+          - pattern: "triage last {days} days"
+            skill: "triage"
+            extract: {"time_range_days": "{days}"}
+            description: "Triage with custom time range"
+          - pattern: "stuck at {category}"
+            skill: "process-stuck-order"
+            description: "List orders stuck at a category"
+          - pattern: "list {category}"
+            skill: "process-stuck-order"
+            description: "List orders for a category"
+          - pattern: "dashboard"
+            skill: "ecm-daily-flow"
+            description: "Daily ECM backlog dashboard"
+          - pattern: "patterns"
+            skill: "pattern-intelligence"
+            description: "Analyze recurring stuck patterns"
+      - name: pm
+        signing_secret: "${SLACK_PM_SIGNING_SECRET}"
+        bot_token: "${SLACK_PM_BOT_TOKEN}"
+        app_token: "${SLACK_PM_APP_TOKEN}"
+        mode: "socket"
+        domain_scope: "pm"
+        allowed_skills: ["*"]
+        ack_reaction: "eyes"
+        typing_reaction: "hourglass_flowing_sand"
+        dm:
+          policy: "open"
+        events:
+          message: true
+          app_mention: true
+          reaction: true
+        commands:
+          - pattern: "update {project} meeting"
+            skill: "meeting-update"
+            extract: {"project_slug": "{project}"}
+            description: "Process meeting notes → Notion + Slack + Email + ClickUp"
+          - pattern: "{project} update"
+            skill: "meeting-update"
+            extract: {"project_slug": "{project}"}
+            description: "Process meeting notes for a project"
+          - pattern: "setup {project}"
+            skill: "project-setup"
+            extract: {"project_slug": "{project}"}
+            description: "Initialize a new project config"
+          - pattern: "daily status"
+            skill: "pm-heartbeat"
+            description: "Daily project status digest (Granola + ClickUp)"
+          - pattern: "pm status"
+            skill: "pm-heartbeat"
+            description: "Project status overview"
+          - pattern: "check {project}"
+            skill: "pm-heartbeat"
+            extract: {"project_slug": "{project}"}
+            description: "Check status for a specific project"
+      - name: ge
+        signing_secret: "${SLACK_GE_SIGNING_SECRET}"
+        bot_token: "${SLACK_GE_BOT_TOKEN}"
+        mode: "http"
+        domain_scope: "ge"
+        allowed_skills: ["*"]
+        ack_reaction: "eyes"
+        dm:
+          policy: "pairing"
+        events:
+          message: true
+          app_mention: true
+          reaction: true

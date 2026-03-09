@@ -36,6 +36,11 @@ class MemoryStore(Protocol):
     def get_top_reflexions(self, skill_path: str, limit: int = 5, min_score: float = 0.3) -> list[dict]: ...
     # Incident-to-eval (DEC-067)
     def log_failure_case(self, skill_path: str, data: dict) -> str: ...
+    # Approval engine
+    def get_execution_by_id(self, execution_id: str) -> dict | None: ...
+    def approve_execution_atomic(self, execution_id: str, new_outcome: str, reviewer_notes: str = "") -> tuple[str, dict | None]: ...
+    def update_execution_output(self, execution_id: str, output_summary: object, outcome: str | None = None) -> bool: ...
+    def update_execution_pending_approvals(self, execution_id: str, pending_approvals: list[dict]) -> bool: ...
 
 
 _store_instance: MemoryStore | None = None
@@ -125,6 +130,28 @@ class CompositeStore:
         if hasattr(self._pg, "log_failure_case"):
             return self._pg.log_failure_case(skill_path, data)
         return ""
+
+    def get_execution_by_id(self, execution_id: str) -> dict | None:
+        if hasattr(self._pg, "get_execution_by_id"):
+            return self._pg.get_execution_by_id(execution_id)
+        return None
+
+    def approve_execution_atomic(
+        self, execution_id: str, new_outcome: str, reviewer_notes: str = ""
+    ) -> tuple[str, dict | None]:
+        if hasattr(self._pg, "approve_execution_atomic"):
+            return self._pg.approve_execution_atomic(execution_id, new_outcome, reviewer_notes)
+        return ("not_found", None)
+
+    def update_execution_output(self, execution_id: str, output_summary: object, outcome: str | None = None) -> bool:
+        if hasattr(self._pg, "update_execution_output"):
+            return self._pg.update_execution_output(execution_id, output_summary, outcome)
+        return False
+
+    def update_execution_pending_approvals(self, execution_id: str, pending_approvals: list[dict]) -> bool:
+        if hasattr(self._pg, "update_execution_pending_approvals"):
+            return self._pg.update_execution_pending_approvals(execution_id, pending_approvals)
+        return False
 
     @property
     def pg(self):

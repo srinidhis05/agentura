@@ -244,6 +244,9 @@ def _parse_metadata(data: dict) -> SkillMetadata:
         ),
         timeout=str(data.get("timeout", "60s")),
         routes_to=data.get("routes_to", []),
+        triggers=data.get("triggers", []),
+        mcp_tools=data.get("mcp_tools", []),
+        display=data.get("display", {}),
     )
 
 

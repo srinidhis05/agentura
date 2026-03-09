@@ -193,3 +193,45 @@
 **Over**: Separate mock pod in K8s, record/replay proxy, stub functions
 **Why**: Enables CI without K8s cluster; zero infrastructure dependency; tracks tool calls for assertion checking; follows existing `/tools` + `/tools/call` MCP contract
 **Constraint**: Evals run with `executor=""` (legacy path, no worker pods); mock server dies with test process; judge assertions require LLM API key
+
+## DEC-076: Skill naming convention — every domain MUST have a "triage" skill
+**Chose**: Rename `triage-and-assign` → `triage` to match Web UI convention
+**Over**: Updating chat-router.ts to be dynamic
+**Why**: `chat-router.ts` hardcodes `executeSkill(domain, "triage", ...)` — every domain must have a skill literally named `triage`
+**Constraint**: Skill name in `agentura.config.yaml` must be `triage`, not a variant
+
+## DEC-077: Multi-worker uvicorn (4 workers) for executor stability
+**Chose**: `uvicorn.run("...app:app", workers=4)` with `asyncio.to_thread()` for blocking K8s calls
+**Over**: Single-worker with health check bypass, sidecar health pod
+**Why**: Single-worker uvicorn freezes health checks during long agent executions (blocking `_wait_for_ready` in K8s watch). 4 workers ensure at least one can respond to probes.
+**Constraint**: `UVICORN_WORKERS` env var; multi-worker requires app as import string, not object
+
+## DEC-078: Gateway HTTP transport with connection recycling for K8s pod IP changes
+**Chose**: Custom `http.Transport` with `IdleConnTimeout: 30s`, `KeepAlive: 15s`
+**Over**: Default transport (indefinite connection caching)
+**Why**: When executor pod restarts, Go HTTP client caches stale TCP connections to old pod IP → `connection refused`. Short idle timeout forces reconnection.
+**Constraint**: After executor pod restart, gateway/web pods MUST also be restarted (GR-017)
+
+## DEC-079: Domain-scoped Slack bots auto-route unmatched messages to triage skill
+**Chose**: `dispatchAuto` routes to `{domain}/triage` with user text as input
+**Over**: Showing help text for unmatched messages
+**Why**: Users expect conversational behavior. When a bot produces output with context, follow-up messages should be handled, not rejected with "I didn't recognize that command"
+**Constraint**: Only for domain-scoped bots (`DomainScope != ""`); non-scoped bots still show help
+
+## DEC-080: Per-server MCP endpoints over single aggregated endpoint (2026-03-08)
+**Chose**: Individual `/mcp-connect/{server-id}` endpoints per MCP tool (Granola, Notion, Gmail, ClickUp)
+**Over**: Single aggregated Obot MCP gateway endpoint
+**Why**: Obot deploys each MCP server as a separate nanobot pod; no aggregation endpoint exists. Each server has its own session state.
+**Constraint**: Each MCP server MUST have its own `MCP_{NAME}_URL` env var and separate initialize→session flow
+
+## DEC-081: MCP Streamable HTTP session protocol for Obot (2026-03-08)
+**Chose**: POST initialize (no session header) → read `Mcp-Session-Id` from response header → use in all subsequent requests
+**Over**: Client-generated session IDs, X-Session-Id header, stateless requests
+**Why**: Obot's MCP connect proxy requires server-issued session IDs; client-generated IDs return 405
+**Constraint**: ALWAYS call `initialize` before `tools/list`; ALWAYS pass `Mcp-Session-Id` from response in subsequent calls
+
+## DEC-082: PTC worker pods use hostNetwork + Default DNS for VPN-routed MCP access (2026-03-08)
+**Chose**: `hostNetwork: true` + `dnsPolicy: Default` on PTC worker pods
+**Over**: Cluster networking with CoreDNS, VPN sidecar, in-cluster proxy
+**Why**: MCP servers (Obot) are on a remote K8s cluster reachable via VPN on the host. Cluster DNS resolves to wrong IP (internal cluster IP, not VPN-routable). Host DNS + host network = VPN routes work.
+**Constraint**: Only one PTC worker per node at a time (port 8080 conflict with hostNetwork); future fix: random port assignment

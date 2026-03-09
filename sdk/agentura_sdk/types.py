@@ -47,6 +47,10 @@ class SkillMetadata(BaseModel):
     cost_budget_per_execution: str = "$0.10"
     timeout: str = "60s"
     routes_to: list[dict[str, str]] = Field(default_factory=list)
+    # Optional config fields — used as fallback when agentura.config.yaml is missing
+    triggers: list[dict[str, Any]] = Field(default_factory=list)
+    mcp_tools: list[str] = Field(default_factory=list)
+    display: dict[str, Any] = Field(default_factory=dict)
 
 
 # --- Agent/sandbox config ---

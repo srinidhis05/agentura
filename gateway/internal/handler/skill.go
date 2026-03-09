@@ -94,6 +94,22 @@ func (h *SkillHandler) GetAnalytics(w http.ResponseWriter, r *http.Request) {
 	w.Write(raw)
 }
 
+func (h *SkillHandler) UploadSkill(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+	raw, err := h.executor.UploadSkill(r.Context(), json.RawMessage(body))
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	w.Write(raw)
+}
+
 func (h *SkillHandler) ExecuteSkill(w http.ResponseWriter, r *http.Request) {
 	domain := r.PathValue("domain")
 	skill := r.PathValue("skill")
@@ -145,7 +161,8 @@ func (h *SkillHandler) ApproveExecution(w http.ResponseWriter, r *http.Request) 
 
 	raw, err := h.executor.ApproveExecution(r.Context(), execID, json.RawMessage(body))
 	if err != nil {
-		httputil.RespondError(w, http.StatusBadGateway, err.Error())
+		code := httputil.ExtractStatusCode(err, http.StatusBadGateway)
+		httputil.RespondError(w, code, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

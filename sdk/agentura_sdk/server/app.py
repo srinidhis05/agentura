@@ -31,7 +31,62 @@ _CACHE_TTL = 5.0  # seconds
 _knowledge_cache: dict[str, tuple[float, dict]] = {}
 _domain_config_cache: dict[str, tuple[float, dict]] = {}
 
+import logging
+
+_logger = logging.getLogger("agentura.server")
+
 app = FastAPI(title="Agentura Skill Executor", version="0.1.0")
+
+
+@app.on_event("startup")
+async def validate_all_skills_on_startup():
+    """Fail-fast: validate every skill at startup so broken configs are caught
+    before the first LLM call, not after $0.50 of spend."""
+    if not SKILLS_DIR.exists():
+        _logger.warning("Skills directory not found: %s — skipping startup validation", SKILLS_DIR)
+        return
+
+    errors = []
+    skills_checked = 0
+    for domain_dir in sorted(SKILLS_DIR.iterdir()):
+        if not domain_dir.is_dir() or domain_dir.name.startswith(".") or domain_dir.name in SKIP_DIRS:
+            continue
+        for skill_dir in sorted(domain_dir.iterdir()):
+            if not skill_dir.is_dir() or skill_dir.name.startswith("."):
+                continue
+            skills_checked += 1
+            config_path = skill_dir / "agentura.config.yaml"
+            skill_path = skill_dir / "SKILL.md"
+            skill_id = f"{domain_dir.name}/{skill_dir.name}"
+
+            if not skill_path.exists():
+                errors.append(f"{skill_id}: missing SKILL.md")
+            if not config_path.exists():
+                errors.append(f"{skill_id}: missing agentura.config.yaml")
+                continue
+
+            # Validate config structure
+            try:
+                cfg_raw = yaml.safe_load(config_path.read_text()) or {}
+                # GR-018: mcp_tools must be dicts
+                for i, entry in enumerate(cfg_raw.get("mcp_tools", [])):
+                    if isinstance(entry, str):
+                        errors.append(f"{skill_id}: mcp_tools[{i}] is string '{entry}' — must be dict (GR-018)")
+                # Agent role needs executor
+                skills_list = cfg_raw.get("skills", [])
+                role = skills_list[0].get("role", "specialist") if skills_list else "specialist"
+                agent_section = cfg_raw.get("agent", {}) or cfg_raw.get("sandbox", {})
+                if role == "agent" and not agent_section:
+                    errors.append(f"{skill_id}: role=agent but no 'agent:' section with executor")
+            except Exception as e:
+                errors.append(f"{skill_id}: invalid config YAML — {e}")
+
+    if errors:
+        _logger.error("Startup validation: %d error(s) in %d skills", len(errors), skills_checked)
+        for err in errors:
+            _logger.error("  %s", err)
+    else:
+        _logger.info("Startup validation: %d skills checked, all valid", skills_checked)
 
 # Auth middleware — validates X-User-ID + X-Domain-Scope from gateway
 from agentura_sdk.server.auth import AuthMiddleware, get_auth_required
@@ -265,7 +320,24 @@ def _build_skill_info(skill_dir: Path, domain_dir: Path) -> SkillInfo | None:
     body = loaded.raw_content
     config = _load_domain_config(domain_dir)
     domain_cfg = config.get("domain", {})
-    mcp_tools = [t.get("server", "") for t in config.get("mcp_tools", [])]
+
+    # Skill-level config file (may not exist for single-file skills)
+    skill_cfg_path = skill_dir / "agentura.config.yaml"
+    has_config_file = skill_cfg_path.exists()
+
+    # Load skill-level config once (reused for mcp_tools, deploy_status, display)
+    skill_cfg: dict = {}
+    if has_config_file:
+        try:
+            skill_cfg = yaml.safe_load(skill_cfg_path.read_text()) or {}
+        except Exception:
+            pass
+
+    # MCP tools: prefer skill config file, fall back to frontmatter
+    if has_config_file:
+        mcp_tools = [t.get("server", "") for t in skill_cfg.get("mcp_tools", [])]
+    else:
+        mcp_tools = loaded.metadata.mcp_tools
 
     # Lifecycle: derive from execution history + file metadata
     skill_path = f"{loaded.metadata.domain}/{loaded.metadata.name}"
@@ -283,15 +355,10 @@ def _build_skill_info(skill_dir: Path, domain_dir: Path) -> SkillInfo | None:
             deploy_status = s.get("deploy_status", "active")
             break
 
-    # Display metadata from skill-level config
-    skill_cfg_path = skill_dir / "agentura.config.yaml"
-    display = {}
-    if skill_cfg_path.exists():
-        try:
-            skill_cfg = yaml.safe_load(skill_cfg_path.read_text()) or {}
-            display = skill_cfg.get("display", {})
-        except Exception:
-            pass
+    # Display metadata: prefer skill config file, fall back to frontmatter
+    display = skill_cfg.get("display", {}) if has_config_file else {}
+    if not display and loaded.metadata.display:
+        display = loaded.metadata.display
 
     # Auto-generate display fields if not configured
     skill_name = loaded.metadata.name
@@ -414,8 +481,19 @@ def get_skill(domain: str, skill_name: str):
     body = loaded.raw_content
     config = _load_domain_config(domain_dir)
     domain_cfg = config.get("domain", {})
-    mcp_tools = [t.get("server", "") for t in config.get("mcp_tools", [])]
     feedback_cfg = config.get("feedback", {})
+
+    # Load skill-level config (reused for mcp_tools, display, deploy_status)
+    skill_config_path = skill_dir / "agentura.config.yaml"
+    skill_cfg: dict = {}
+    if skill_config_path.exists():
+        try:
+            skill_cfg = yaml.safe_load(skill_config_path.read_text()) or {}
+        except Exception:
+            pass
+
+    # MCP tools from skill-level config
+    mcp_tools = [t.get("server", "") for t in skill_cfg.get("mcp_tools", [])]
 
     # Find triggers for this specific skill
     triggers: list[dict[str, Any]] = []
@@ -438,14 +516,7 @@ def get_skill(domain: str, skill_name: str):
             break
 
     # Display metadata from skill-level config
-    skill_config_path = skill_dir / "agentura.config.yaml"
-    display = {}
-    if skill_config_path.exists():
-        try:
-            skill_cfg_detail = yaml.safe_load(skill_config_path.read_text()) or {}
-            display = skill_cfg_detail.get("display", {})
-        except Exception:
-            pass
+    display = skill_cfg.get("display", {})
 
     display_title = display.get("title", "") or skill_name.replace("-", " ").title()
     display_avatar = display.get("avatar", "") or skill_name[:2].upper()
@@ -500,6 +571,17 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
 
     skill_md = load_skill_md(skill_md_path)
 
+    # GR-009: Reject empty input_data when skill expects input fields
+    has_input_section = "## Input" in skill_md.system_prompt or "## input" in skill_md.system_prompt.lower()
+    if not req.input_data and has_input_section and not req.dry_run:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Skill '{domain}/{skill_name}' expects input_data but received empty. "
+                "Wrap your payload in {\"input_data\": {...}}. See GR-009."
+            ),
+        )
+
     # Build input: explicit > fixture > empty
     input_data = req.input_data
     if not input_data:
@@ -538,11 +620,20 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
                     env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
                     server_url = os.environ.get(env_key, "")
                     if server_url:
-                        mcp_bindings.append({
+                        binding: dict = {
                             "server": server_name,
                             "url": server_url,
                             "tools": mcp_ref.get("tools", []),
-                        })
+                        }
+                        # Auth: check for MCP_{SERVER}_API_KEY env var
+                        auth_key = f"MCP_{server_name.upper().replace('-', '_')}_API_KEY"
+                        api_key = os.environ.get(auth_key, "")
+                        if api_key:
+                            binding["headers"] = {"Authorization": f"Bearer {api_key}"}
+                        # Tools requiring human approval before execution
+                        if mcp_ref.get("approval_required"):
+                            binding["approval_required"] = mcp_ref["approval_required"]
+                        mcp_bindings.append(binding)
             except Exception:
                 pass
 
@@ -609,10 +700,6 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
         except Exception:
             pass
 
-    # If approval is required, update the execution entry outcome to pending_approval
-    if result.approval_required:
-        _update_execution_outcome_to_pending_approval(domain, skill_name)
-
     # Dispatch post-execution notifications (Slack, etc.)
     try:
         from agentura_sdk.notifications import dispatch_notifications
@@ -670,11 +757,18 @@ async def execute_stream(domain: str, skill_name: str, req: ExecuteRequest):
                 env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
                 server_url = os.environ.get(env_key, "")
                 if server_url:
-                    mcp_bindings.append({
+                    binding: dict = {
                         "server": server_name,
                         "url": server_url,
                         "tools": mcp_ref.get("tools", []),
-                    })
+                    }
+                    auth_key = f"MCP_{server_name.upper().replace('-', '_')}_API_KEY"
+                    api_key = os.environ.get(auth_key, "")
+                    if api_key:
+                        binding["headers"] = {"Authorization": f"Bearer {api_key}"}
+                    if mcp_ref.get("approval_required"):
+                        binding["approval_required"] = mcp_ref["approval_required"]
+                    mcp_bindings.append(binding)
         except Exception:
             pass
 
@@ -719,8 +813,14 @@ async def execute_stream(domain: str, skill_name: str, req: ExecuteRequest):
             if isinstance(event, AgentIterationType):
                 yield f"event: iteration\ndata: {event.model_dump_json()}\n\n"
             else:
-                # Final SkillResult
-                yield f"event: result\ndata: {event.model_dump_json()}\n\n"
+                # Final SkillResult — record execution and check approvals
+                result = event
+                try:
+                    from agentura_sdk.runner.local_runner import log_execution
+                    log_execution(ctx, result)
+                except Exception:
+                    pass
+                yield f"event: result\ndata: {result.model_dump_json()}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -801,32 +901,6 @@ def correct(domain: str, skill_name: str, req: CorrectRequest):
     }
 
 
-def _update_execution_outcome_to_pending_approval(domain: str, skill_name: str) -> None:
-    """Set the most recent execution for this skill to pending_approval."""
-    skill_path = f"{domain}/{skill_name}"
-    for p in [
-        KNOWLEDGE_DIR / "episodic_memory.json",
-        Path.cwd() / ".agentura" / "episodic_memory.json",
-        Path("/skills") / ".agentura" / "episodic_memory.json",
-    ]:
-        if not p.exists():
-            continue
-        try:
-            data = _json.loads(p.read_text())
-            entries = data.get("entries", [])
-            # Find the most recent entry for this skill
-            for entry in reversed(entries):
-                if entry.get("skill") == skill_path:
-                    entry["outcome"] = "pending_approval"
-                    break
-            p.write_text(_json.dumps(data, indent=2))
-            # Invalidate knowledge cache
-            _knowledge_cache.pop("episodic_memory.json", None)
-            return
-        except Exception:
-            continue
-
-
 class ApprovalRequest(BaseModel):
     approved: bool
     reviewer_notes: str = ""
@@ -834,45 +908,209 @@ class ApprovalRequest(BaseModel):
 
 @app.post("/api/v1/executions/{execution_id}/approve")
 def approve_execution(execution_id: str, req: ApprovalRequest):
-    """Approve or reject a pending execution."""
-    for p in [
-        KNOWLEDGE_DIR / "episodic_memory.json",
-        Path.cwd() / ".agentura" / "episodic_memory.json",
-        Path("/skills") / ".agentura" / "episodic_memory.json",
-    ]:
-        if not p.exists():
+    """Approve or reject a pending execution (atomic, idempotent)."""
+    import asyncio
+
+    new_outcome = "approved" if req.approved else "rejected"
+
+    from agentura_sdk.memory import get_memory_store
+    store = get_memory_store()
+    pg = getattr(store, "pg", store)
+
+    if not hasattr(pg, "approve_execution_atomic"):
+        raise HTTPException(status_code=501, detail="Approval requires PostgreSQL store")
+
+    status, row = pg.approve_execution_atomic(execution_id, new_outcome, req.reviewer_notes)
+
+    if status == "not_found":
+        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+
+    if status == "already_processed":
+        return {
+            "execution_id": execution_id,
+            "outcome": row.get("outcome", new_outcome),
+            "reviewer_notes": row.get("reviewer_notes", ""),
+            "execution_status": "already_processed",
+        }
+
+    if status == "wrong_state":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Execution {execution_id} is not pending approval (current: {row.get('outcome')})",
+        )
+
+    # Success — CAS updated the row
+    response: dict = {
+        "execution_id": execution_id,
+        "outcome": new_outcome,
+        "reviewer_notes": req.reviewer_notes,
+        "execution_status": "processed",
+    }
+
+    # Post-approval: fire tool execution for approved actions
+    if new_outcome == "approved":
+        pending = row.get("pending_approvals") or []
+        if pending:
+            skill_path = row.get("skill", "")
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(_execute_pending_tools(execution_id, skill_path, pending, pg))
+                else:
+                    asyncio.run(_execute_pending_tools(execution_id, skill_path, pending, pg))
+            except RuntimeError:
+                # No event loop — run synchronously in a new one
+                asyncio.run(_execute_pending_tools(execution_id, skill_path, pending, pg))
+            response["pending_tools_count"] = len(pending)
+
+    return response
+
+
+async def _execute_pending_tools(
+    execution_id: str,
+    skill_path: str,
+    pending_approvals: list[dict],
+    pg_store,
+) -> None:
+    """Execute approved pending tool calls via MCP and update execution output."""
+    import httpx
+    import logging
+
+    logger = logging.getLogger(__name__)
+    tool_results: list[dict] = []
+
+    # Resolve MCP server URLs from skill config if tools don't have server URL embedded
+    server_map = _resolve_mcp_servers_for_skill(skill_path)
+
+    for approval in pending_approvals:
+        tool_name = approval.get("tool", "")
+        arguments = approval.get("arguments", {})
+        server_url = approval.get("server", "") or server_map.get(tool_name, "")
+
+        if not server_url:
+            tool_results.append({
+                "tool": tool_name,
+                "success": False,
+                "error": f"No MCP server URL found for tool '{tool_name}'",
+            })
             continue
+
         try:
-            data = _json.loads(p.read_text())
-            entries = data.get("entries", [])
-            entry = next((e for e in entries if e.get("execution_id") == execution_id), None)
-            if not entry:
-                continue
+            output = await _call_mcp_tool_async(server_url, tool_name, arguments)
+            tool_results.append({"tool": tool_name, "success": True, "output": output})
+        except Exception as exc:
+            logger.error("Post-approval tool call failed: %s(%s) → %s", tool_name, arguments, exc)
+            tool_results.append({"tool": tool_name, "success": False, "error": str(exc)})
 
-            if entry.get("outcome") != "pending_approval":
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Execution {execution_id} is not pending approval (current: {entry.get('outcome')})",
-                )
+    all_ok = all(r.get("success") for r in tool_results)
+    final_outcome = "executed" if all_ok else "approved_failed"
 
-            entry["outcome"] = "approved" if req.approved else "rejected"
-            entry["reviewer_notes"] = req.reviewer_notes
-            p.write_text(_json.dumps(data, indent=2))
+    # Merge tool results into the execution's output_summary
+    try:
+        existing = pg_store.get_execution_by_id(execution_id)
+        output = existing.get("output_summary") or {} if existing else {}
+        if not isinstance(output, dict):
+            output = {"raw_output": output}
+        output["approval_tool_results"] = tool_results
+        pg_store.update_execution_output(execution_id, output, outcome=final_outcome)
+    except Exception as exc:
+        logger.error("Failed to update execution output after tool execution: %s", exc)
 
-            # Invalidate knowledge cache
-            _knowledge_cache.pop("episodic_memory.json", None)
 
-            return {
-                "execution_id": execution_id,
-                "outcome": entry["outcome"],
-                "reviewer_notes": req.reviewer_notes,
-            }
-        except HTTPException:
-            raise
-        except Exception:
-            continue
+def _resolve_mcp_servers_for_skill(skill_path: str) -> dict[str, str]:
+    """Read agentura.config.yaml for a skill and resolve MCP server URLs."""
+    if not skill_path or "/" not in skill_path:
+        return {}
+    parts = skill_path.split("/")
+    skill_dir = SKILLS_DIR
+    for p in parts:
+        skill_dir = skill_dir / p
+    config_path = skill_dir / "agentura.config.yaml"
+    if not config_path.exists():
+        return {}
 
-    raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+    result: dict[str, str] = {}
+    try:
+        cfg = yaml.safe_load(config_path.read_text()) or {}
+        for mcp_ref in cfg.get("mcp_tools", []):
+            server_name = mcp_ref.get("server", "")
+            env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
+            server_url = os.environ.get(env_key, "")
+            if server_url:
+                for tool_name in mcp_ref.get("tools", []):
+                    if tool_name != "*":
+                        result[tool_name] = server_url
+    except Exception:
+        pass
+    return result
+
+
+async def _call_mcp_tool_async(server_url: str, tool_name: str, arguments: dict) -> str:
+    """Call an MCP tool via Streamable HTTP protocol (async)."""
+    import httpx
+
+    # Resolve auth header from env vars
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    # Check for API key matching server URL pattern
+    for key, val in os.environ.items():
+        if key.startswith("MCP_") and key.endswith("_API_KEY") and val:
+            url_key = key.replace("_API_KEY", "_URL")
+            if os.environ.get(url_key) == server_url:
+                headers["Authorization"] = f"Bearer {val}"
+                break
+
+    timeout = int(os.environ.get("MCP_CALL_TIMEOUT", "60"))
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        # Initialize to get session
+        init_resp = await client.post(
+            server_url,
+            json={
+                "jsonrpc": "2.0", "id": 0, "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "agentura-approval", "version": "1.0"},
+                },
+            },
+            headers=headers,
+        )
+        init_resp.raise_for_status()
+        session_id = init_resp.headers.get("Mcp-Session-Id", "")
+        if session_id:
+            headers["Mcp-Session-Id"] = session_id
+
+        # Call tool
+        resp = await client.post(
+            server_url,
+            json={
+                "jsonrpc": "2.0", "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool_name, "arguments": arguments},
+            },
+            headers=headers,
+        )
+        resp.raise_for_status()
+
+        # Parse SSE or JSON response
+        text = resp.text
+        data: dict = {}
+        for line in text.strip().split("\n"):
+            if line.startswith("data: "):
+                data = _json.loads(line[6:])
+                break
+        if not data:
+            data = _json.loads(text)
+
+        result = data.get("result", {})
+        if result.get("isError"):
+            texts = [c.get("text", "") for c in result.get("content", [])]
+            raise RuntimeError(f"MCP tool error: {' '.join(texts)}")
+        texts = [c.get("text", "") for c in result.get("content", []) if c.get("type") == "text"]
+        return "\n".join(texts)
 
 
 # ---------------------------------------------------------------------------
@@ -893,6 +1131,7 @@ class ExecutionEntry(BaseModel):
     correction_generated_test: bool = False
     reflexion_applied: str | None = None
     reviewer_notes: str = ""
+    pending_approvals: list[dict] = Field(default_factory=list)
 
 
 class CorrectionEntry(BaseModel):
@@ -1002,29 +1241,55 @@ def list_executions(
 @app.get("/api/v1/executions/{execution_id}", response_model=ExecutionDetail)
 def get_execution(execution_id: str, domains: set[str] | None = Depends(_get_domain_scope)):
     """Get execution detail with linked corrections and reflexions (domain-scoped)."""
-    data = _load_knowledge_file("episodic_memory.json")
-    entries = _filter_by_domain(data.get("entries", []), domains)
-    entry = next((e for e in entries if e.get("execution_id") == execution_id), None)
+    entry: dict | None = None
+    store_corrections: list[dict] = []
+    store_reflexions: list[dict] = []
+
+    # Try the store first (PostgreSQL/Composite)
+    try:
+        from agentura_sdk.memory import get_memory_store
+
+        store = get_memory_store()
+        all_execs = store.get_executions()
+        all_execs = _filter_by_domain(all_execs, domains)
+        entry = next((e for e in all_execs if e.get("execution_id") == execution_id), None)
+        if entry:
+            store_corrections = _filter_by_domain(store.get_corrections(), domains)
+            store_corrections = [c for c in store_corrections if c.get("execution_id") == execution_id]
+            corr_ids = {c.get("correction_id") for c in store_corrections}
+            store_reflexions = [r for r in store.get_all_reflexions() if r.get("correction_id") in corr_ids]
+    except Exception:
+        pass
+
+    # Fallback to JSON files
+    if not entry:
+        data = _load_knowledge_file("episodic_memory.json")
+        entries = _filter_by_domain(data.get("entries", []), domains)
+        entry = next((e for e in entries if e.get("execution_id") == execution_id), None)
+        if entry:
+            corr_data = _load_knowledge_file("corrections.json")
+            store_corrections = [
+                c for c in corr_data.get("corrections", [])
+                if c.get("execution_id") == execution_id
+            ]
+            corr_ids = {c.get("correction_id") for c in store_corrections}
+            refl_data = _load_knowledge_file("reflexion_entries.json")
+            store_reflexions = [
+                r for r in refl_data.get("entries", [])
+                if r.get("correction_id") in corr_ids
+            ]
+
     if not entry:
         raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
 
     execution = ExecutionEntry(**{k: v for k, v in entry.items() if k in ExecutionEntry.model_fields})
-
-    # Find linked corrections
-    corr_data = _load_knowledge_file("corrections.json")
     corrections = [
         CorrectionEntry(**{k: v for k, v in c.items() if k in CorrectionEntry.model_fields})
-        for c in corr_data.get("corrections", [])
-        if c.get("execution_id") == execution_id
+        for c in store_corrections
     ]
-
-    # Find linked reflexions (via correction_ids)
-    corr_ids = {c.correction_id for c in corrections}
-    refl_data = _load_knowledge_file("reflexion_entries.json")
     reflexions = [
         ReflexionEntry(**{k: v for k, v in r.items() if k in ReflexionEntry.model_fields})
-        for r in refl_data.get("entries", [])
-        if r.get("correction_id") in corr_ids
+        for r in store_reflexions
     ]
 
     return ExecutionDetail(execution=execution, corrections=corrections, reflexions=reflexions)
@@ -2583,13 +2848,447 @@ async def execute_pipeline_stream(name: str, req: ExecuteRequest):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+# ---------------------------------------------------------------------------
+# Agent Registry API
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/agents")
+def list_agents(domain: str | None = None, status: str | None = None):
+    """List registered agents with optional filters."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return []
+    from agentura_sdk.memory.agent_store import AgentStore
+    store = AgentStore(dsn)
+    return store.list_agents(domain=domain, status=status)
+
+
+@app.get("/api/v1/agents/org-chart")
+def get_org_chart():
+    """Get org chart tree (recursive reports_to hierarchy)."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return []
+    from agentura_sdk.memory.agent_store import AgentStore
+    store = AgentStore(dsn)
+    return store.get_org_tree()
+
+
+@app.get("/api/v1/agents/{agent_id}")
+def get_agent(agent_id: str):
+    """Get agent detail."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    from agentura_sdk.memory.agent_store import AgentStore
+    store = AgentStore(dsn)
+    agent = store.get_agent(agent_id)
+    if not agent:
+        agent = store.get_agent_by_name(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
+    return agent
+
+
+@app.post("/api/v1/agents")
+async def create_agent(request: Request):
+    """Create a new agent."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    data = await request.json()
+    from agentura_sdk.memory.agent_store import AgentStore
+    store = AgentStore(dsn)
+    agent_id = store.create_agent(**data)
+    return {"id": agent_id, "name": data.get("name", "")}
+
+
+@app.put("/api/v1/agents/{agent_id}")
+async def update_agent(agent_id: str, request: Request):
+    """Update an agent."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    data = await request.json()
+    from agentura_sdk.memory.agent_store import AgentStore
+    store = AgentStore(dsn)
+    store.update_agent(agent_id, **data)
+    return {"id": agent_id, "updated": True}
+
+
+@app.delete("/api/v1/agents/{agent_id}")
+def delete_agent(agent_id: str):
+    """Soft-delete an agent (set status=terminated)."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    from agentura_sdk.memory.agent_store import AgentStore
+    store = AgentStore(dsn)
+    store.delete_agent(agent_id)
+    return {"id": agent_id, "status": "terminated"}
+
+
+@app.post("/api/v1/agents/{agent_id}/delegate")
+async def delegate_ticket(agent_id: str, request: Request):
+    """Delegate a ticket to a subordinate agent."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    data = await request.json()
+    target_name = data.get("target_agent")
+    if not target_name:
+        raise HTTPException(status_code=400, detail="target_agent required")
+
+    from agentura_sdk.memory.agent_store import AgentStore
+    from agentura_sdk.memory.ticket_store import TicketStore
+    agent_store = AgentStore(dsn)
+    ticket_store = TicketStore(dsn)
+
+    agent = agent_store.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
+
+    # Validate delegation permissions
+    delegation = (agent.get("config") or {}).get("delegation", {})
+    allowed = delegation.get("can_assign_to", [])
+    if allowed and target_name not in allowed:
+        raise HTTPException(status_code=403, detail=f"Cannot delegate to {target_name}")
+
+    target = agent_store.get_agent_by_name(target_name)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Target agent not found: {target_name}")
+
+    # Check concurrent ticket limit
+    max_concurrent = delegation.get("max_concurrent_tickets", 10)
+    current_tickets = ticket_store.list_tickets(
+        assigned_to=target["id"], status="in_progress",
+    )
+    if len(current_tickets) >= max_concurrent:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{target_name} at capacity ({max_concurrent} concurrent tickets)",
+        )
+
+    ticket_id = ticket_store.create_ticket(
+        title=data.get("title", "Delegated task"),
+        domain=agent.get("domain", ""),
+        assigned_to=target["id"],
+        created_by=agent_id,
+        priority=data.get("priority", 3),
+        input_data=data.get("input_data", {}),
+    )
+    return {"ticket_id": ticket_id, "assigned_to": target_name}
+
+
+# ---------------------------------------------------------------------------
+# Ticket API
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/tickets")
+def list_tickets(
+    domain: str | None = None,
+    status: str | None = None,
+    assigned_to: str | None = None,
+    limit: int = 50,
+):
+    """List tickets with optional filters."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return []
+    from agentura_sdk.memory.ticket_store import TicketStore
+    store = TicketStore(dsn)
+    return store.list_tickets(domain=domain, status=status, assigned_to=assigned_to, limit=limit)
+
+
+@app.get("/api/v1/tickets/stats")
+def get_ticket_stats(domain: str | None = None):
+    """Get aggregate ticket stats."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return {"total": 0, "open": 0, "in_progress": 0, "resolved": 0, "escalated": 0}
+    from agentura_sdk.memory.ticket_store import TicketStore
+    store = TicketStore(dsn)
+    return store.get_ticket_stats(domain=domain)
+
+
+@app.get("/api/v1/tickets/{ticket_id}")
+def get_ticket(ticket_id: str):
+    """Get ticket detail with sub-tickets."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    from agentura_sdk.memory.ticket_store import TicketStore
+    store = TicketStore(dsn)
+    ticket = store.get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket not found: {ticket_id}")
+    sub_tickets = store.get_sub_tickets(ticket_id)
+    return {**ticket, "sub_tickets": sub_tickets}
+
+
+@app.post("/api/v1/tickets")
+async def create_ticket(request: Request):
+    """Create a new ticket."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    data = await request.json()
+    from agentura_sdk.memory.ticket_store import TicketStore
+    store = TicketStore(dsn)
+    ticket_id = store.create_ticket(**data)
+    return {"id": ticket_id}
+
+
+@app.put("/api/v1/tickets/{ticket_id}")
+async def update_ticket(ticket_id: str, request: Request):
+    """Update a ticket."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    data = await request.json()
+    from agentura_sdk.memory.ticket_store import TicketStore
+    store = TicketStore(dsn)
+    store.update_ticket(ticket_id, **data)
+    return {"id": ticket_id, "updated": True}
+
+
+@app.post("/api/v1/tickets/{ticket_id}/trace")
+async def add_ticket_trace(ticket_id: str, request: Request):
+    """Append an immutable trace entry to a ticket."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    entry = await request.json()
+    from agentura_sdk.memory.ticket_store import TicketStore
+    store = TicketStore(dsn)
+    store.add_trace_entry(ticket_id, entry)
+    return {"id": ticket_id, "trace_appended": True}
+
+
+# ---------------------------------------------------------------------------
+# Ticket Checkout (Atomic Locking)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/tickets/checkout")
+async def checkout_ticket(request: Request):
+    """Atomically claim the next available ticket using FOR UPDATE SKIP LOCKED."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    data = await request.json()
+    agent_id = data.get("agent_id")
+    if not agent_id:
+        raise HTTPException(status_code=400, detail="agent_id is required")
+    from agentura_sdk.memory.ticket_store import TicketStore
+    store = TicketStore(dsn)
+    ticket = store.checkout_ticket(
+        agent_id=agent_id,
+        domain=data.get("domain"),
+        ticket_id=data.get("ticket_id"),
+    )
+    if not ticket:
+        return {"checked_out": False, "ticket": None}
+    return {"checked_out": True, "ticket": ticket}
+
+
+@app.post("/api/v1/tickets/{ticket_id}/release")
+async def release_ticket(ticket_id: str, request: Request):
+    """Release a checked-out ticket back to the open pool."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    data = await request.json()
+    agent_id = data.get("agent_id")
+    if not agent_id:
+        raise HTTPException(status_code=400, detail="agent_id is required")
+    from agentura_sdk.memory.ticket_store import TicketStore
+    store = TicketStore(dsn)
+    released = store.release_ticket(ticket_id, agent_id)
+    if not released:
+        raise HTTPException(status_code=409, detail="Ticket not checked out by this agent")
+    return {"id": ticket_id, "released": True}
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat API
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/heartbeats")
+def list_heartbeat_runs(
+    agent_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+):
+    """List heartbeat runs with optional filters."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return []
+    from agentura_sdk.memory.heartbeat_store import HeartbeatStore
+    store = HeartbeatStore(dsn)
+    return store.list_runs(agent_id=agent_id, status=status, limit=limit)
+
+
+@app.get("/api/v1/heartbeats/schedule")
+def get_heartbeat_schedule():
+    """List all scheduled heartbeats with latest run info."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return []
+    from agentura_sdk.memory.heartbeat_store import HeartbeatStore
+    store = HeartbeatStore(dsn)
+    return store.get_schedule()
+
+
+@app.get("/api/v1/heartbeats/{run_id}")
+def get_heartbeat_run(run_id: str):
+    """Get heartbeat run detail."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    from agentura_sdk.memory.heartbeat_store import HeartbeatStore
+    store = HeartbeatStore(dsn)
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Heartbeat run not found: {run_id}")
+    return run
+
+
+@app.post("/api/v1/heartbeats/{agent_id}/trigger")
+def trigger_heartbeat(agent_id: str):
+    """Manually trigger a heartbeat for an agent."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    from agentura_sdk.agency.heartbeat import HeartbeatScheduler
+    scheduler = HeartbeatScheduler(dsn)
+    result = scheduler.trigger(agent_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Agent sync on startup
+# ---------------------------------------------------------------------------
+
+
+@app.on_event("startup")
+def sync_agents_on_startup():
+    """Sync agent definitions from agency/ directory to DB on server start."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return
+    try:
+        from agentura_sdk.agency.loader import sync_agents_to_db
+        count = sync_agents_to_db(dsn)
+        if count:
+            import logging
+            logging.getLogger(__name__).info("Synced %d agents from agency/ to DB", count)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Agent sync failed (non-fatal): %s", e)
+
+
+# ---------------------------------------------------------------------------
+# File watchers — hot-reload skills and agents on file changes
+# ---------------------------------------------------------------------------
+
+AGENCY_DIR = Path(os.environ.get("AGENCY_DIR", "/agency"))
+
+
+def _on_skill_change(path: str) -> None:
+    """Invalidate skill caches when a skill file changes."""
+    import logging
+    logging.getLogger(__name__).info("Skill change detected: %s — cache invalidated", path)
+    _knowledge_cache.clear()
+    _domain_config_cache.clear()
+
+
+def _on_agency_change(path: str) -> None:
+    """Re-sync agents to DB when agency files change."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return
+    import logging
+    log = logging.getLogger(__name__)
+    try:
+        from agentura_sdk.agency.loader import sync_agents_to_db
+        count = sync_agents_to_db(dsn)
+        log.info("Agency change detected: %s — re-synced %d agents", path, count)
+    except Exception as e:
+        log.warning("Agency re-sync failed: %s", e)
+
+
+@app.on_event("startup")
+def start_file_watchers():
+    """Start file watchers for skills/ and agency/ directories."""
+    try:
+        from agentura_sdk.server.skill_watcher import start_agency_watcher, start_skill_watcher
+        start_skill_watcher(SKILLS_DIR, _on_skill_change)
+        start_agency_watcher(AGENCY_DIR, _on_agency_change)
+    except ImportError:
+        import logging
+        logging.getLogger(__name__).info("watchdog not installed — file watchers disabled")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("File watcher startup failed (non-fatal): %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Skill upload endpoint
+# ---------------------------------------------------------------------------
+
+
+class SkillUploadRequest(BaseModel):
+    domain: str
+    name: str
+    skill_md: str
+    config_yaml: str | None = None
+
+
+@app.post("/api/v1/skills/upload")
+def upload_skill(req: SkillUploadRequest):
+    """Write a SKILL.md (and optional config.yaml) to disk, invalidate caches."""
+    skill_dir = SKILLS_DIR / req.domain / req.name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+
+    (skill_dir / "SKILL.md").write_text(req.skill_md)
+    if req.config_yaml:
+        (skill_dir / "agentura.config.yaml").write_text(req.config_yaml)
+
+    # Invalidate caches so the new skill appears immediately
+    _knowledge_cache.clear()
+    _domain_config_cache.clear()
+
+    # Return the skill info
+    domain_dir = SKILLS_DIR / req.domain
+    info = _build_skill_info(skill_dir, domain_dir)
+    if info:
+        return info.model_dump()
+    return {"domain": req.domain, "name": req.name, "status": "created"}
+
+
 def main():
     """Entry point for agentura-server command."""
     import uvicorn
 
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
-    uvicorn.run(app, host=host, port=port)
+    workers = int(os.environ.get("UVICORN_WORKERS", "4"))
+
+    # Multi-worker: each worker gets its own event loop, so long-running
+    # executions in one worker don't block health checks in another.
+    # Import string required for multi-worker mode.
+    uvicorn.run(
+        "agentura_sdk.server.app:app",
+        host=host,
+        port=port,
+        workers=workers,
+    )
 
 
 if __name__ == "__main__":

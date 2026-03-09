@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { useTheme } from "@/hooks/use-theme";
+import { listAgents, listHeartbeatRuns } from "@/lib/api";
+import { useState } from "react";
+import { statusDot } from "@/lib/colors";
 
 const navItems = [
   {
@@ -43,6 +49,24 @@ const navItems = [
     ),
   },
   {
+    href: "/dashboard/heartbeats",
+    label: "Heartbeats",
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12h3l3-9 3 18 3-9h3" />
+      </svg>
+    ),
+  },
+  {
+    href: "/dashboard/org-chart",
+    label: "Org Chart",
+    icon: (
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+      </svg>
+    ),
+  },
+  {
     href: "/dashboard/memory",
     label: "Memory",
     icon: (
@@ -55,6 +79,25 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { isDark, toggle } = useTheme();
+  const [agentsOpen, setAgentsOpen] = useState(true);
+
+  const { data: agents = [] } = useQuery({
+    queryKey: ["sidebar-agents"],
+    queryFn: () => listAgents(),
+    refetchInterval: 15000,
+  });
+
+  const { data: heartbeats = [] } = useQuery({
+    queryKey: ["sidebar-heartbeats"],
+    queryFn: () => listHeartbeatRuns({ status: "running", limit: 50 }),
+    refetchInterval: 8000,
+  });
+
+  const liveByAgent = new Map<string, number>();
+  for (const hb of heartbeats) {
+    liveByAgent.set(hb.agent_id, (liveByAgent.get(hb.agent_id) || 0) + 1);
+  }
 
   return (
     <aside className="flex h-screen w-52 flex-col border-r border-border bg-sidebar">
@@ -71,7 +114,7 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3">
+      <nav className="flex-1 overflow-y-auto px-3 scrollbar-none">
         <div className="space-y-0.5">
           {navItems.map((item) => {
             const active =
@@ -83,7 +126,7 @@ export function Sidebar() {
                 className={cn(
                   "flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors",
                   active
-                    ? "bg-sidebar-accent text-sidebar-primary"
+                    ? "border-l-2 border-l-sidebar-primary bg-sidebar-accent text-sidebar-primary"
                     : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
                 )}
               >
@@ -93,16 +136,98 @@ export function Sidebar() {
             );
           })}
         </div>
+
+        {/* Collapsible Agents Section */}
+        {agents.length > 0 && (
+          <div className="mt-4">
+            <button
+              onClick={() => setAgentsOpen(!agentsOpen)}
+              className="flex items-center gap-1 w-full px-3 py-1"
+            >
+              <svg
+                className={cn(
+                  "h-3 w-3 text-muted-foreground transition-transform",
+                  agentsOpen && "rotate-90"
+                )}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
+                Agents
+              </span>
+              {heartbeats.length > 0 && (
+                <span className="ml-auto flex items-center gap-1">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute h-full w-full rounded-full bg-blue-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
+                  </span>
+                  <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400 tabular-nums">
+                    {heartbeats.length}
+                  </span>
+                </span>
+              )}
+            </button>
+
+            {agentsOpen && (
+              <div className="mt-0.5 space-y-0">
+                {agents.map((agent) => {
+                  const isActive = pathname === `/dashboard/agents/${agent.id}`;
+                  const liveCount = liveByAgent.get(agent.id) || 0;
+                  return (
+                    <Link
+                      key={agent.id}
+                      href={`/dashboard/agents/${agent.id}`}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 text-[13px] rounded-md transition-colors",
+                        isActive
+                          ? "bg-sidebar-accent text-foreground"
+                          : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+                      )}
+                    >
+                      <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusDot[agent.status] || statusDot.idle}`} />
+                      <span className="flex-1 truncate">
+                        {agent.display_name || agent.name}
+                      </span>
+                      {liveCount > 0 && (
+                        <span className="ml-auto flex items-center gap-1 shrink-0">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute h-full w-full rounded-full bg-blue-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
+                          </span>
+                          <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400 tabular-nums">
+                            {liveCount}
+                          </span>
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* Footer */}
       <div className="border-t border-border px-5 py-4 space-y-3">
-        <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-          </svg>
-          Dark Mode
-        </div>
+        <label className="flex items-center justify-between cursor-pointer">
+          <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+            {isDark ? (
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            )}
+            {isDark ? "Dark" : "Light"}
+          </div>
+          <Switch checked={isDark} onCheckedChange={toggle} />
+        </label>
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-muted-foreground">Version</span>
           <span className="font-mono text-[10px] text-muted-foreground">v1.2.4</span>

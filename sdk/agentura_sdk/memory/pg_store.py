@@ -138,6 +138,9 @@ CREATE TABLE IF NOT EXISTS failure_cases (
 
 CREATE INDEX IF NOT EXISTS idx_failure_cases_skill ON failure_cases(skill);
 CREATE INDEX IF NOT EXISTS idx_failure_cases_domain ON failure_cases(domain);
+
+-- Approval engine: pending tool calls stored per execution
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS pending_approvals JSONB DEFAULT '[]'::jsonb;
 """
 
 
@@ -175,7 +178,7 @@ class PgStore:
 
     def _deserialize_row(self, row: dict) -> dict:
         d = dict(row)
-        for field in ("input_summary", "output_summary", "original_output"):
+        for field in ("input_summary", "output_summary", "original_output", "pending_approvals"):
             val = d.get(field)
             if isinstance(val, str):
                 try:
@@ -224,6 +227,98 @@ class PgStore:
         finally:
             self._pool.putconn(conn)
         return execution_id
+
+    def get_execution_by_id(self, execution_id: str) -> dict | None:
+        """Single-row SELECT by execution_id. Returns deserialized row or None."""
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT * FROM executions WHERE execution_id = %s AND workspace_id = %s",
+                    (execution_id, self._workspace_id),
+                )
+                row = cur.fetchone()
+                return self._deserialize_row(row) if row else None
+        finally:
+            self._pool.putconn(conn)
+
+    def approve_execution_atomic(
+        self, execution_id: str, new_outcome: str, reviewer_notes: str = ""
+    ) -> tuple[str, dict | None]:
+        """Atomic compare-and-swap: only updates if current outcome is pending_approval.
+
+        Returns:
+            ("approved"|"rejected", row) — success
+            ("already_processed", row) — idempotent: already in target state
+            ("wrong_state", row) — execution exists but in unexpected state
+            ("not_found", None) — no such execution
+        """
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                # Atomic CAS: only update if currently pending_approval
+                cur.execute(
+                    """UPDATE executions
+                       SET outcome = %s, reviewer_notes = %s
+                       WHERE execution_id = %s AND workspace_id = %s AND outcome = 'pending_approval'
+                       RETURNING *""",
+                    (new_outcome, reviewer_notes, execution_id, self._workspace_id),
+                )
+                row = cur.fetchone()
+                if row:
+                    conn.commit()
+                    return (new_outcome, self._deserialize_row(row))
+
+                # CAS failed — check why
+                conn.rollback()
+                cur.execute(
+                    "SELECT * FROM executions WHERE execution_id = %s AND workspace_id = %s",
+                    (execution_id, self._workspace_id),
+                )
+                existing = cur.fetchone()
+                if not existing:
+                    return ("not_found", None)
+
+                existing_row = self._deserialize_row(existing)
+                if existing_row.get("outcome") == new_outcome:
+                    return ("already_processed", existing_row)
+                return ("wrong_state", existing_row)
+        finally:
+            self._pool.putconn(conn)
+
+    def update_execution_output(self, execution_id: str, output_summary: object, outcome: str | None = None) -> bool:
+        """Update output_summary (and optionally outcome) for an execution. Returns True if found."""
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                if outcome:
+                    cur.execute(
+                        "UPDATE executions SET output_summary = %s, outcome = %s WHERE execution_id = %s AND workspace_id = %s",
+                        (self._serialize_json(output_summary), outcome, execution_id, self._workspace_id),
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE executions SET output_summary = %s WHERE execution_id = %s AND workspace_id = %s",
+                        (self._serialize_json(output_summary), execution_id, self._workspace_id),
+                    )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            self._pool.putconn(conn)
+
+    def update_execution_pending_approvals(self, execution_id: str, pending_approvals: list[dict]) -> bool:
+        """Store pending_approvals JSON array for an execution."""
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE executions SET pending_approvals = %s WHERE execution_id = %s AND workspace_id = %s",
+                    (self._serialize_json(pending_approvals), execution_id, self._workspace_id),
+                )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            self._pool.putconn(conn)
 
     def add_correction(self, skill_path: str, data: dict) -> str:
         domain = self._domain_from_skill(skill_path)
