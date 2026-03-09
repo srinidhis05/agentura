@@ -98,6 +98,12 @@ Only proceed to implementation if at least question 1 has a concrete, evidence-b
 **Rule**: ALWAYS check `"*" not in allowed_tools` before applying the tool name filter. `"*"` means allow all.
 **Detection**: Any tool filtering loop that doesn't handle `"*"` as a wildcard.
 
+## GR-022: Never commit marketing, social media, or internal strategy content to a public repo
+**Mistake**: Generated `docs/LINKEDIN_POST.md` containing product positioning, competitor comparisons, cost/latency metrics, and internal tool names (Granola, ClickUp, Slack workflows) — then committed and pushed it to the public repo.
+**Impact**: Exposed internal tooling choices, pricing data, and go-to-market strategy to anyone browsing the repo. Social media drafts in a codebase signal immaturity and leak competitive intent.
+**Rule**: NEVER commit marketing copy, social media drafts, investor pitches, internal strategy docs, or competitive analysis to a public repo. These belong in private docs (Notion, Google Docs, private repo). Before committing any `.md` file under `docs/`, verify it is technical documentation (architecture, onboarding, API reference), not business/marketing content.
+**Detection**: Any file under `docs/` containing LinkedIn, Twitter/X, social media, investor, pitch, or marketing language. Any committed file with `#AIAgents #OpenSource` style hashtags.
+
 ## GR-012: "Done" means deployed, not compiled
 **Mistake**: After writing UI changes and fixing a backend bug, verified only that `next build` succeeded. Did not build Docker images or restart K8s pods. Changes sat on disk for the rest of the session while the user assumed they were live.
 **Impact**: User had to explicitly ask "are the changes deployed?" — wasted time, eroded trust.
