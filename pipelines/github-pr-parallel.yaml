@@ -1,5 +1,5 @@
 name: github-pr-parallel
-description: "Parallel PR review — testing, SLT validation, and docs generation run concurrently"
+description: "Parallel PR review — code review, testing, SLT validation, and docs generation run concurrently"
 trigger:
   type: github_pr
   actions: [opened, synchronize]
@@ -8,6 +8,9 @@ phases:
   - name: analyze
     type: parallel
     steps:
+      - skill: dev/pr-code-reviewer
+        agent_id: reviewer
+        required: true
       - skill: dev/pr-test-runner
         agent_id: testing
         required: true

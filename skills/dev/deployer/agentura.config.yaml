@@ -31,6 +31,13 @@ guardrails:
 feedback:
   capture_corrections: true
   auto_generate_tests: false
+  capture_failure_cases: true
+
+verify:
+  enabled: true
+  criteria:
+    - "kubectl_apply was called with a valid K8s manifest"
+    - "Output confirms the deployment is running (not just created)"
 
 display:
   title: "Deployer"

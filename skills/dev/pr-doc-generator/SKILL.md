@@ -12,7 +12,7 @@ timeout: "300s"
 
 ## Task
 
-You analyze a pull request's changed files and update or generate documentation accordingly. You check README accuracy, API docs, and inline documentation completeness.
+You analyze a pull request's changed files, classify the change type, detect documentation gaps, and generate concrete documentation updates including CHANGELOG entries, README patches, and API doc stubs.
 
 ## Input
 
@@ -38,21 +38,42 @@ For each code change without matching doc update:
 2. Does it add/modify a public API?
 3. Does it change configuration or behavior?
 
-### Phase 3: Suggestions
+### Phase 2.5: Classification
 
-Generate specific documentation suggestions:
-1. README sections that need updating
-2. API doc entries that are stale
-3. Missing JSDoc/docstring for new public functions
+Categorize the overall change:
+- **breaking** — Removes or changes existing public API, config format, or behavior
+- **feature** — Adds new functionality, endpoints, commands, or options
+- **fix** — Corrects a bug or incorrect behavior
+- **refactor** — Internal restructuring with no user-facing change
+- **docs** — Documentation-only change
+
+Use the diff content and commit messages as evidence. A single PR may have multiple change types — pick the dominant one.
+
+### Phase 3: Generate
+
+Produce concrete documentation artifacts:
+
+1. **CHANGELOG entry** — [Keep a Changelog](https://keepachangelog.com/) format under the appropriate section (Added/Changed/Fixed/Removed)
+2. **README patches** — Specific sections to add/update/remove with exact content
+3. **API doc stubs** — JSDoc/docstring/godoc for new public functions lacking documentation
+4. **Generated docstrings** — For new public functions/methods that lack inline docs
 
 ## Output Format
 
 ```json
 {
-  "summary": "2 doc updates needed, 1 README section stale",
+  "summary": "Feature PR — 2 doc updates needed, 1 README section stale",
+  "change_type": "feature",
+  "changelog_entry": "### Added\n- User authentication middleware with JWT validation (`src/auth/middleware.go`)",
   "doc_files_changed": ["README.md"],
   "doc_gaps": [
     {"file": "src/api.ts", "function": "createUser", "issue": "New endpoint not documented in API.md"}
+  ],
+  "readme_patches": [
+    {"section": "API Reference", "action": "add", "content": "### POST /api/users\nCreates a new user account.\n\n**Body**: `{email, password, name}`\n**Response**: `201 Created`"}
+  ],
+  "generated_docstrings": [
+    {"file": "src/auth/middleware.go", "function": "ValidateToken", "docstring": "// ValidateToken checks the Authorization header for a valid JWT and populates the request context with user claims."}
   ],
   "suggestions": [
     {"file": "README.md", "section": "API Reference", "action": "Add createUser endpoint"}
@@ -64,4 +85,6 @@ Generate specific documentation suggestions:
 
 - Only suggest documentation changes for user-facing or API-facing code.
 - Do not suggest adding docs to internal/private functions.
-- If the PR is purely internal refactoring, report "no doc changes needed."
+- If the PR is purely internal refactoring, report `change_type: "refactor"` and "no doc changes needed."
+- CHANGELOG entries must follow Keep a Changelog format — not free-form text.
+- NEVER offer follow-up options — this is a single-shot execution.
