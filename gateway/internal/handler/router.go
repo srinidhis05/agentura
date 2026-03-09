@@ -18,9 +18,13 @@ type Handlers struct {
 	Memory    *MemoryHandler
 	Webhook   *WebhookHandler
 	GitHub    *GitHubWebhookHandler
+	Slack     *SlackWebhookHandler
 	Trigger   *TriggerHandler
 	Pipeline  *PipelineHandler
 	Fleet     *FleetHandler
+	Agent     *AgentHandler
+	Ticket    *TicketHandler
+	Heartbeat *HeartbeatHandler
 }
 
 func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
@@ -50,6 +54,7 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 		api.HandleFunc("GET /api/v1/executions/{execution_id}", h.Skill.GetExecution)
 		api.HandleFunc("POST /api/v1/executions/{execution_id}/approve", h.Skill.ApproveExecution)
 		api.HandleFunc("GET /api/v1/analytics", h.Skill.GetAnalytics)
+		api.HandleFunc("POST /api/v1/skills/upload", h.Skill.UploadSkill)
 	}
 
 	// Knowledge Layer (proxied to Python executor)
@@ -101,6 +106,37 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 		api.HandleFunc("GET /api/v1/fleet/sessions/{session_id}/stream", h.Fleet.StreamSession)
 	}
 
+	// Agent registry (proxied to Python executor)
+	if h.Agent != nil {
+		api.HandleFunc("GET /api/v1/agents", h.Agent.ListAgents)
+		api.HandleFunc("GET /api/v1/agents/org-chart", h.Agent.GetOrgChart)
+		api.HandleFunc("GET /api/v1/agents/{agent_id}", h.Agent.GetAgent)
+		api.HandleFunc("POST /api/v1/agents", h.Agent.CreateAgent)
+		api.HandleFunc("PUT /api/v1/agents/{agent_id}", h.Agent.UpdateAgent)
+		api.HandleFunc("DELETE /api/v1/agents/{agent_id}", h.Agent.DeleteAgent)
+		api.HandleFunc("POST /api/v1/agents/{agent_id}/delegate", h.Agent.DelegateTicket)
+	}
+
+	// Tickets (proxied to Python executor)
+	if h.Ticket != nil {
+		api.HandleFunc("GET /api/v1/tickets", h.Ticket.ListTickets)
+		api.HandleFunc("GET /api/v1/tickets/stats", h.Ticket.GetTicketStats)
+		api.HandleFunc("POST /api/v1/tickets/checkout", h.Ticket.CheckoutTicket)
+		api.HandleFunc("GET /api/v1/tickets/{ticket_id}", h.Ticket.GetTicket)
+		api.HandleFunc("POST /api/v1/tickets", h.Ticket.CreateTicket)
+		api.HandleFunc("PUT /api/v1/tickets/{ticket_id}", h.Ticket.UpdateTicket)
+		api.HandleFunc("POST /api/v1/tickets/{ticket_id}/trace", h.Ticket.AddTrace)
+		api.HandleFunc("POST /api/v1/tickets/{ticket_id}/release", h.Ticket.ReleaseTicket)
+	}
+
+	// Heartbeats (proxied to Python executor)
+	if h.Heartbeat != nil {
+		api.HandleFunc("GET /api/v1/heartbeats", h.Heartbeat.ListRuns)
+		api.HandleFunc("GET /api/v1/heartbeats/schedule", h.Heartbeat.GetSchedule)
+		api.HandleFunc("GET /api/v1/heartbeats/{run_id}", h.Heartbeat.GetRun)
+		api.HandleFunc("POST /api/v1/heartbeats/{agent_id}/trigger", h.Heartbeat.TriggerHeartbeat)
+	}
+
 	// Webhook inbound — external channels POST here
 	if h.Webhook != nil {
 		api.HandleFunc("POST /api/v1/channels/{channel}/inbound", h.Webhook.Inbound)
@@ -109,6 +145,11 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 	// GitHub webhook — no auth (uses signature verification)
 	if h.GitHub != nil {
 		mux.HandleFunc("POST /api/v1/webhooks/github", h.GitHub.Handle)
+	}
+
+	// Slack webhook — no auth (uses Slack signing secret verification)
+	if h.Slack != nil {
+		mux.HandleFunc("POST /api/v1/webhooks/slack", h.Slack.Handle)
 	}
 
 	// Trigger status — cron scheduler info

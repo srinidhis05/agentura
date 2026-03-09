@@ -10,15 +10,7 @@ import { getExecution, approveExecution } from "@/lib/api";
 import { formatOutput } from "@/lib/format-output";
 import { TraceTimeline } from "@/components/trace/trace-timeline";
 import { useState } from "react";
-
-const outcomeStyles: Record<string, string> = {
-  accepted: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  corrected: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  pending_review: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  pending_approval: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-  approved: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  rejected: "bg-red-500/10 text-red-400 border-red-500/20",
-};
+import { outcomeStyles } from "@/lib/colors";
 
 export default function ExecutionDetailPage() {
   const params = useParams<{ id: string }>();
@@ -29,14 +21,35 @@ export default function ExecutionDetailPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["execution", params.id],
     queryFn: () => getExecution(params.id),
+    refetchInterval: (query) => {
+      const outcome = query.state.data?.execution?.outcome;
+      // Poll while outcome is "approved" (tools executing)
+      return outcome === "approved" ? 2000 : false;
+    },
   });
 
   async function handleApproval(approved: boolean) {
     setApproving(true);
     try {
-      await approveExecution(params.id, approved, approvalNotes);
-      queryClient.invalidateQueries({ queryKey: ["execution", params.id] });
+      const result = await approveExecution(params.id, approved, approvalNotes);
+
+      // Optimistic update
+      queryClient.setQueryData(["execution", params.id], (prev: typeof data) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          execution: { ...prev.execution, outcome: result.outcome, reviewer_notes: result.reviewer_notes },
+        };
+      });
+
       setApprovalNotes("");
+
+      // If tools are executing, polling is handled by refetchInterval
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("409")) {
+        queryClient.invalidateQueries({ queryKey: ["execution", params.id] });
+      }
     } finally {
       setApproving(false);
     }
@@ -56,6 +69,9 @@ export default function ExecutionDetailPage() {
 
   const { execution: exec, corrections, reflexions } = data;
   const hasChain = corrections.length > 0 || reflexions.length > 0;
+  const pendingTools = exec.pending_approvals ?? [];
+  const outputObj = typeof exec.output_summary === "object" && exec.output_summary !== null ? exec.output_summary as Record<string, unknown> : null;
+  const toolResults = (outputObj?.approval_tool_results ?? []) as { tool: string; success: boolean; output?: string; error?: string }[];
 
   return (
     <div className="space-y-6">
@@ -64,7 +80,7 @@ export default function ExecutionDetailPage() {
         <div className="flex items-center gap-3">
           <h2 className="font-mono text-lg font-bold">{exec.execution_id}</h2>
           <Badge variant="outline" className={outcomeStyles[exec.outcome] ?? ""}>
-            {exec.outcome}
+            {exec.outcome.replace(/_/g, " ")}
           </Badge>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -74,10 +90,28 @@ export default function ExecutionDetailPage() {
 
       {/* Inline approval form for pending executions */}
       {exec.outcome === "pending_approval" && (
-        <Card className="border-orange-500/20 bg-orange-500/5">
+        <Card className="border-orange-300 dark:border-orange-500/20 bg-orange-50 dark:bg-orange-500/5">
           <CardContent className="py-4">
             <div className="space-y-3">
-              <p className="text-xs font-medium text-orange-400">This execution requires approval</p>
+              <p className="text-xs font-medium text-orange-700 dark:text-orange-400">This execution requires approval</p>
+
+              {/* Pending tool calls */}
+              {pendingTools.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Pending tool calls ({pendingTools.length})
+                  </p>
+                  {pendingTools.map((tool, i) => (
+                    <div key={i} className="rounded-lg border border-orange-200 dark:border-orange-500/20 bg-background p-3">
+                      <span className="font-mono text-xs font-medium">{tool.tool}</span>
+                      <pre className="mt-1.5 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-[10px] text-muted-foreground">
+                        {JSON.stringify(tool.arguments, null, 2)}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <textarea
                 value={approvalNotes}
                 onChange={(e) => setApprovalNotes(e.target.value)}
@@ -92,12 +126,12 @@ export default function ExecutionDetailPage() {
                   disabled={approving}
                   onClick={() => handleApproval(true)}
                 >
-                  {approving ? "..." : "Approve"}
+                  {approving ? "..." : pendingTools.length > 0 ? `Approve & Execute (${pendingTools.length})` : "Approve"}
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 border-red-500/30 px-4 text-xs text-red-400 hover:bg-red-500/10"
+                  className="h-7 border-red-300 dark:border-red-500/30 px-4 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10"
                   disabled={approving}
                   onClick={() => handleApproval(false)}
                 >
@@ -105,6 +139,63 @@ export default function ExecutionDetailPage() {
                 </Button>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* In-progress indicator for approved (tools executing) */}
+      {exec.outcome === "approved" && (
+        <Card className="border-teal-300 dark:border-teal-500/20 bg-teal-50 dark:bg-teal-500/5">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-teal-500 border-t-transparent" />
+              <p className="text-xs font-medium text-teal-700 dark:text-teal-400">
+                Executing approved tool calls...
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tool execution results */}
+      {toolResults.length > 0 && (
+        <Card className={exec.outcome === "executed"
+          ? "border-emerald-300 dark:border-emerald-500/20"
+          : "border-rose-300 dark:border-rose-500/20"
+        }>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <span className={`h-2 w-2 rounded-full ${exec.outcome === "executed" ? "bg-emerald-500" : "bg-rose-500"}`} />
+              Tool Execution Results
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {toolResults.map((result, i) => (
+              <div
+                key={i}
+                className={`rounded-lg border p-3 ${
+                  result.success
+                    ? "border-emerald-200 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/5"
+                    : "border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/5"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${result.success ? "bg-emerald-500" : "bg-red-500"}`} />
+                  <span className="font-mono text-xs font-medium">{result.tool}</span>
+                  <Badge variant="outline" className={`ml-auto text-[9px] ${result.success ? "text-emerald-600" : "text-red-600"}`}>
+                    {result.success ? "success" : "failed"}
+                  </Badge>
+                </div>
+                {result.output && (
+                  <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-[10px] text-foreground">
+                    {result.output}
+                  </pre>
+                )}
+                {result.error && (
+                  <p className="mt-1.5 text-[10px] text-red-600 dark:text-red-400">{result.error}</p>
+                )}
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}
@@ -138,7 +229,7 @@ export default function ExecutionDetailPage() {
           </Card>
 
           {exec.reflexion_applied && (
-            <Card className="border-violet-500/20">
+            <Card className="border-violet-200 dark:border-violet-500/20">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm">
                   <span className="h-2 w-2 rounded-full bg-violet-400" />
@@ -183,7 +274,7 @@ export default function ExecutionDetailPage() {
 
             {/* Chain visualization */}
             <div className="flex items-center gap-2 text-xs">
-              <span className="rounded bg-blue-500/10 px-2 py-1 font-mono text-blue-400">
+              <span className="rounded bg-blue-100 dark:bg-blue-500/10 px-2 py-1 font-mono text-blue-700 dark:text-blue-400">
                 EXEC
               </span>
               {corrections.map((c) => (
@@ -191,7 +282,7 @@ export default function ExecutionDetailPage() {
                   <svg className="h-3 w-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
-                  <span className="rounded bg-amber-500/10 px-2 py-1 font-mono text-amber-400">
+                  <span className="rounded bg-amber-100 dark:bg-amber-500/10 px-2 py-1 font-mono text-amber-700 dark:text-amber-400">
                     {c.correction_id}
                   </span>
                 </span>
@@ -201,7 +292,7 @@ export default function ExecutionDetailPage() {
                   <svg className="h-3 w-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
-                  <span className="rounded bg-violet-500/10 px-2 py-1 font-mono text-violet-400">
+                  <span className="rounded bg-violet-100 dark:bg-violet-500/10 px-2 py-1 font-mono text-violet-700 dark:text-violet-400">
                     {r.reflexion_id}
                   </span>
                 </span>
@@ -212,7 +303,7 @@ export default function ExecutionDetailPage() {
 
             {/* Corrections */}
             {corrections.map((c) => (
-              <Card key={c.correction_id} className="border-amber-500/20">
+              <Card key={c.correction_id} className="border-amber-200 dark:border-amber-500/20">
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-sm">
                     <span className="h-2 w-2 rounded-full bg-amber-400" />
@@ -230,7 +321,7 @@ export default function ExecutionDetailPage() {
 
             {/* Reflexions */}
             {reflexions.map((r) => (
-              <Card key={r.reflexion_id} className="border-violet-500/20">
+              <Card key={r.reflexion_id} className="border-violet-200 dark:border-violet-500/20">
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-sm">
                     <span className="h-2 w-2 rounded-full bg-violet-400" />

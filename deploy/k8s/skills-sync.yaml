@@ -1,0 +1,156 @@
+# Workspace Sync — git-sync sidecar for private workspace repo
+#
+# One private repo (your-workspace) contains ALL plugins:
+#   skills/      → skill definitions (SKILL.md + agentura.config.yaml)
+#   agency/      → agent configs (agent.yaml + SOUL.md + HEARTBEAT.md)
+#   pipelines/   → pipeline orchestration YAML
+#
+# Flow: push to your-workspace → git-sync pulls (~30s) → files at /workspace/repo/
+#       → executor file watcher invalidates cache → next request uses new content
+#
+# Setup:
+#   1. Create private repo (e.g. github.com/your-org/your-workspace)
+#   2. Generate SSH deploy key:
+#      ssh-keygen -t ed25519 -f workspace-deploy -N "" -C "agentura-git-sync"
+#   3. Add public key as deploy key on GitHub repo (read-only)
+#   4. Create K8s secret:
+#      kubectl create secret generic workspace-deploy-key \
+#        --from-file=ssh=workspace-deploy \
+#        -n agentura
+#   5. Apply this file: kubectl apply -f skills-sync.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor
+  namespace: agentura
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: executor
+  template:
+    metadata:
+      labels:
+        app: executor
+    spec:
+      serviceAccountName: executor
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: fix-perms
+          image: alpine:3.19
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data/.agentura
+              chown -R 1000:1000 /artifacts /data
+              chmod -R 777 /data
+          volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
+            - name: knowledge
+              mountPath: /data
+      containers:
+        # --- Main executor ---
+        - name: executor
+          image: agentura/executor:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SANDBOX_BACKEND
+              value: k8s
+            # All three dirs point into the git-sync'd workspace
+            - name: SKILLS_DIR
+              value: /workspace/repo/skills
+            - name: PIPELINES_DIR
+              value: /workspace/repo/pipelines
+            - name: AGENCY_DIR
+              value: /workspace/repo/agency
+            - name: AGENTURA_KNOWLEDGE_DIR
+              value: /data/.agentura
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agentura-db
+                  key: url
+            - name: MCP_K8S_URL
+              value: http://k8s-mcp:8090
+          envFrom:
+            - secretRef:
+                name: agentura-api-keys
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+              readOnly: true
+            - name: artifacts
+              mountPath: /artifacts
+            - name: knowledge
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 500m
+            limits:
+              memory: 2Gi
+              cpu: "2"
+
+        # --- git-sync sidecar: pulls private workspace repo ---
+        - name: git-sync
+          image: registry.k8s.io/git-sync/git-sync:v4.4.0
+          args:
+            - --repo=git@github.com:your-org/your-workspace.git
+            - --root=/workspace
+            - --link=repo
+            - --period=30s
+            - --ssh-key-file=/etc/git-secret/ssh
+            - --ssh-known-hosts=false
+            - --one-time=false
+          securityContext:
+            runAsUser: 1000
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: git-ssh-key
+              mountPath: /etc/git-secret
+              readOnly: true
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 50m
+            limits:
+              memory: 128Mi
+              cpu: 100m
+
+      volumes:
+        - name: workspace
+          emptyDir: {}            # shared between git-sync and executor
+        - name: git-ssh-key
+          secret:
+            secretName: workspace-deploy-key
+            defaultMode: 0400
+        - name: artifacts
+          emptyDir: {}
+        - name: knowledge
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: executor
+  namespace: agentura
+spec:
+  selector:
+    app: executor
+  ports:
+    - port: 8000
+      targetPort: 8000

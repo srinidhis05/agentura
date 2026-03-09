@@ -72,6 +72,17 @@ func main() {
 	// Cron scheduler
 	scheduler := service.NewScheduler(executorClient, cfg.Triggers)
 
+	// Slack webhook handler (conditional — only if enabled with apps configured)
+	var slackHandler *handler.SlackWebhookHandler
+	if cfg.Triggers.Slack.Enabled && len(cfg.Triggers.Slack.Apps) > 0 {
+		slackHandler = handler.NewSlackWebhookHandler(executorClient, cfg.Triggers.Slack)
+		slog.Info("slack webhook enabled", "apps", len(cfg.Triggers.Slack.Apps))
+
+		// Start Socket Mode connections for apps with mode: "socket"
+		socketMgr := handler.NewSlackSocketManager(executorClient, cfg.Triggers.Slack)
+		socketMgr.Start(context.Background())
+	}
+
 	// Handlers
 	handlers := handler.Handlers{
 		Health:    handler.NewHealthHandler(dbCheck),
@@ -84,9 +95,13 @@ func main() {
 		Memory:    handler.NewMemoryHandler(executorClient),
 		Webhook:   handler.NewWebhookHandler(executorClient, cfg.Triggers.Webhook),
 		GitHub:    handler.NewGitHubWebhookHandler(executorClient, cfg.Triggers.GitHub),
+		Slack:     slackHandler,
 		Trigger:   handler.NewTriggerHandler(scheduler),
 		Pipeline:  handler.NewPipelineHandler(executorClient),
 		Fleet:     handler.NewFleetHandler(executorClient),
+		Agent:     handler.NewAgentHandler(executorClient),
+		Ticket:    handler.NewTicketHandler(executorClient),
+		Heartbeat: handler.NewHeartbeatHandler(executorClient),
 	}
 
 	mwCfg := handler.MiddlewareConfig{

@@ -71,6 +71,12 @@ export interface CorrectResponse {
   promptfoo_test: string | null;
 }
 
+export interface PendingApproval {
+  tool: string;
+  arguments: Record<string, unknown>;
+  server?: string;
+}
+
 export interface ExecutionEntry {
   execution_id: string;
   skill: string;
@@ -85,6 +91,7 @@ export interface ExecutionEntry {
   correction_generated_test: boolean;
   reflexion_applied: string | null;
   reviewer_notes: string;
+  pending_approvals: PendingApproval[];
 }
 
 export interface ApprovalRequest {
@@ -96,6 +103,8 @@ export interface ApprovalResponse {
   execution_id: string;
   outcome: string;
   reviewer_notes: string;
+  execution_status?: string;
+  pending_tools_count?: number;
 }
 
 export interface CorrectionEntry {
@@ -337,4 +346,108 @@ export interface PromptAssembly {
   skill_prompt: string;
   composed_prompt: string;
   layers: PromptAssemblyLayer[];
+}
+
+// Agent Registry types
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  display_name: string;
+  domain: string;
+  role: string;
+  executor: string;
+  model: string;
+  reports_to: string | null;
+  status: string;
+  soul: string;
+  heartbeat_schedule: string;
+  config: Record<string, unknown>;
+  skills: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrgChartNode extends AgentInfo {
+  depth: number;
+  children?: OrgChartNode[];
+}
+
+// Ticket types
+
+export interface TicketInfo {
+  id: string;
+  title: string;
+  domain: string;
+  assigned_to: string | null;
+  created_by: string | null;
+  status: string;
+  priority: number;
+  input_data: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  parent_id: string | null;
+  execution_id: string;
+  trace_log: TraceEntry[];
+  cost_usd: number;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+  sub_tickets?: TicketInfo[];
+}
+
+export interface TraceEntry {
+  tool: string;
+  input: Record<string, unknown>;
+  output: string;
+  ts: string;
+}
+
+export interface TicketStats {
+  total: number;
+  open: number;
+  in_progress: number;
+  resolved: number;
+  escalated: number;
+  total_cost_usd: number;
+  by_domain: Record<string, number>;
+  by_agent: Record<string, number>;
+}
+
+// Heartbeat types
+
+export interface TranscriptEntry {
+  ts: string;
+  type: "stderr" | "init" | "assistant" | "tool_call" | "tool_result" | "user" | "system";
+  content: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface HeartbeatRun {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  ticket_id: string | null;
+  status: string;
+  trigger: string;
+  cost_usd: number;
+  summary: string;
+  error_message: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  model: string;
+  transcript: TranscriptEntry[];
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface HeartbeatScheduleEntry {
+  agent_id: string;
+  agent_name: string;
+  heartbeat_schedule: string;
+  agent_status: string;
+  last_run_id: string | null;
+  last_run_status: string | null;
+  last_run_at: string | null;
+  last_cost_usd: number | null;
 }
