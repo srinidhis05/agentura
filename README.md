@@ -362,8 +362,6 @@ agentura/
 |-------|-------------|
 | [Skill Onboarding](docs/SKILL_ONBOARDING.md) | Full skill authoring lifecycle guide |
 | [MCP Gateway](docs/mcp-gateway-architecture.md) | External tool integration via auth broker |
-| [Open Source Edition](docs/OPENSOURCE_EDITION.md) | OSS vs Enterprise tier comparison |
-| [DX Roadmap](docs/DX_ROADMAP.md) | Developer experience improvement plan |
 | [Skills Reference](skills/README.md) | All 18 skills with patterns and executors |
 | [Pipelines Reference](pipelines/README.md) | Pipeline architecture and examples |
 

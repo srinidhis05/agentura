@@ -36,6 +36,11 @@ Thumbs.db
 
 # Internal docs (not for public repo)
 docs/internal/
+PRODUCT_VISION.md
+ROADMAP.md
+docs/comparisons.md
+docs/OPENSOURCE_EDITION.md
+docs/DX_ROADMAP.md
 
 # Private workspace content (lives in a separate private repo)
 # skills/dev/, skills/examples/, skills/incubator/ are tracked (public showcase)
