@@ -6,6 +6,7 @@ with lower resource limits (512Mi RAM, 1 CPU) — no Node.js, no sandbox.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -63,6 +64,8 @@ def _build_worker_manifest(
         containers=[container],
         restart_policy="Never",
         automount_service_account_token=False,
+        host_network=True,
+        dns_policy="Default",
     )
 
     return client.V1Pod(
@@ -78,6 +81,15 @@ def _build_worker_manifest(
     )
 
 
+def _create_and_wait(pod_name: str, env_vars: dict[str, str] | None) -> str:
+    """Blocking helper — runs in thread to avoid freezing the event loop."""
+    api = client.CoreV1Api()
+    manifest = _build_worker_manifest(pod_name, env_vars)
+    api.create_namespaced_pod(namespace=NAMESPACE, body=manifest)
+    logger.info("Created PTC worker pod %s", pod_name)
+    return _wait_for_ready(api, pod_name, NAMESPACE)
+
+
 async def create(
     cfg: SandboxConfig,
     env_vars: dict[str, str] | None = None,
@@ -87,13 +99,7 @@ async def create(
     _load_k8s_config()
 
     pod_name = f"ptc-worker-{int(time.time() * 1000) % 10_000_000:07d}"
-    api = client.CoreV1Api()
-
-    manifest = _build_worker_manifest(pod_name, env_vars)
-    api.create_namespaced_pod(namespace=NAMESPACE, body=manifest)
-    logger.info("Created PTC worker pod %s", pod_name)
-
-    pod_ip = _wait_for_ready(api, pod_name, NAMESPACE)
+    pod_ip = await asyncio.to_thread(_create_and_wait, pod_name, env_vars)
     logger.info("PTC worker pod %s ready at %s", pod_name, pod_ip)
     return K8sSandbox(pod_name=pod_name, pod_ip=pod_ip, namespace=NAMESPACE)
 

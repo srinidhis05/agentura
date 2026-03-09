@@ -782,11 +782,16 @@ Be specific and practical. Use the user's description to create real, useful con
 # Main command
 # ---------------------------------------------------------------------------
 
-@click.command("cortex")
+@click.group("cortex", invoke_without_command=True)
 @click.option("--skills-dir", type=click.Path(), default=None, help="Root skills directory.")
 @click.option("--quick", is_flag=True, help="Use legacy step-by-step wizard.")
-def cortex(skills_dir: str | None, quick: bool):
+@click.pass_context
+def cortex(ctx, skills_dir: str | None, quick: bool):
     """Interactive skill creation wizard — describe what you want, get a working skill."""
+    ctx.ensure_object(dict)
+    ctx.obj["skills_dir"] = skills_dir
+    if ctx.invoked_subcommand is not None:
+        return
     if skills_dir is None:
         from agentura_sdk.cli.run import _find_skills_dir
         skills_dir = _find_skills_dir()
@@ -901,3 +906,76 @@ def _print_next_steps(root: Path, skill_path: str):
     console.print(f"  3. agentura run {skill_path} --dry-run")
     console.print(f"  4. agentura run {skill_path}")
     console.print(f"  5. agentura test {skill_path}")
+
+
+# ---------------------------------------------------------------------------
+# Synthesize subcommand (DEC-068)
+# ---------------------------------------------------------------------------
+
+
+def _parse_since(value: str) -> int:
+    """Parse '7d' or '24h' into hours."""
+    value = value.strip().lower()
+    if value.endswith("d"):
+        return int(value[:-1]) * 24
+    if value.endswith("h"):
+        return int(value[:-1])
+    return int(value)
+
+
+@cortex.command("synthesize")
+@click.option("--skill", default=None, help="Filter by skill path (domain/name).")
+@click.option("--since", default="7d", help="Time window (e.g. 7d, 24h).")
+@click.option("--dry-run", is_flag=True, help="Show candidates without storing.")
+@click.option("--min-count", type=int, default=3, help="Minimum pattern occurrences.")
+def synthesize(skill: str | None, since: str, dry_run: bool, min_count: int):
+    """Analyze execution history and generate reflexion rules from patterns."""
+    from agentura_sdk.cortex.synthesizer import synthesize as run_synthesis
+
+    since_hours = _parse_since(since)
+
+    console.print(Panel(
+        f"[bold cyan]Memory Synthesis[/]\n\n"
+        f"Analyzing executions from the last {since} "
+        f"{'(dry run)' if dry_run else ''}\n"
+        f"Min pattern count: {min_count}",
+        title="Cortex Synthesize",
+        border_style="cyan",
+    ))
+
+    try:
+        result = run_synthesis(
+            skill_filter=skill,
+            since_hours=since_hours,
+            dry_run=dry_run,
+            min_pattern_count=min_count,
+        )
+    except Exception as e:
+        console.print(f"[red]Synthesis failed: {e}[/]")
+        raise SystemExit(1)
+
+    # Summary
+    console.print(f"\n  Executions analyzed: [bold]{result.executions_analyzed}[/]")
+    console.print(f"  Skills analyzed:     [bold]{result.skills_analyzed}[/]")
+    console.print(f"  Candidates found:    [bold]{len(result.candidates)}[/]")
+    console.print(f"  Duplicates skipped:  [bold]{result.duplicates_skipped}[/]")
+    if not dry_run:
+        console.print(f"  Stored:              [bold]{result.stored_count}[/]")
+
+    if result.candidates:
+        console.print("\n[bold]Candidates:[/]")
+        from rich.table import Table
+
+        table = Table()
+        table.add_column("Skill", style="cyan")
+        table.add_column("Rule", max_width=60)
+        table.add_column("Applies When", max_width=40)
+        table.add_column("Count", justify="right")
+        table.add_column("Conf", justify="right")
+
+        for c in result.candidates:
+            table.add_row(c.skill, c.rule, c.applies_when, str(c.pattern_count), "50%")
+
+        console.print(table)
+    else:
+        console.print("\n[yellow]No new patterns found.[/]")

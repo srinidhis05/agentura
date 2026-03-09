@@ -108,3 +108,64 @@ class JSONStore:
                 entry.update(updates)
                 break
         self._save("reflexion_entries.json", refl)
+
+    # --- MemRL: utility-scored memory (DEC-066) ---
+
+    def record_reflexion_injection(self, execution_id: str, reflexion_ids: list[str]) -> None:
+        if not reflexion_ids:
+            return
+        mem = self._load("episodic_memory.json")
+        for entry in mem.get("entries", []):
+            if entry.get("execution_id") == execution_id:
+                entry["reflexions_injected"] = reflexion_ids
+                break
+        self._save("episodic_memory.json", mem)
+        refl = self._load("reflexion_entries.json")
+        for entry in refl.get("entries", []):
+            if entry.get("reflexion_id") in reflexion_ids:
+                entry["times_injected"] = entry.get("times_injected", 0) + 1
+        self._save("reflexion_entries.json", refl)
+
+    def record_execution_success(self, execution_id: str) -> None:
+        mem = self._load("episodic_memory.json")
+        exec_entry = next(
+            (e for e in mem.get("entries", []) if e.get("execution_id") == execution_id),
+            None,
+        )
+        if not exec_entry:
+            return
+        injected = exec_entry.get("reflexions_injected", [])
+        if not injected:
+            return
+        refl = self._load("reflexion_entries.json")
+        for entry in refl.get("entries", []):
+            if entry.get("reflexion_id") in injected:
+                helped = entry.get("times_helped", 0) + 1
+                total = entry.get("times_injected", 1)
+                entry["times_helped"] = helped
+                entry["utility_score"] = (helped + 2) / (total + 4)
+        self._save("reflexion_entries.json", refl)
+
+    def get_top_reflexions(self, skill_path: str, limit: int = 5, min_score: float = 0.3) -> list[dict]:
+        refl = self._load("reflexion_entries.json")
+        matches = [
+            e for e in refl.get("entries", [])
+            if e.get("skill") == skill_path and e.get("utility_score", 0.5) >= min_score
+        ]
+        matches.sort(key=lambda e: e.get("utility_score", 0.5), reverse=True)
+        return matches[:limit]
+
+    # --- Incident-to-eval (DEC-067) ---
+
+    def log_failure_case(self, skill_path: str, data: dict) -> str:
+        cases = self._load("failure_cases.json")
+        cases.setdefault("cases", [])
+        failure_case_id = data.get(
+            "failure_case_id",
+            f"FAIL-{len(cases['cases']) + 1:03d}",
+        )
+        data["failure_case_id"] = failure_case_id
+        data.setdefault("skill", skill_path)
+        cases["cases"].append(data)
+        self._save("failure_cases.json", cases)
+        return failure_case_id

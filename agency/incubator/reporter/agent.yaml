@@ -1,0 +1,19 @@
+name: reporter
+display_name: "Incubation Reporter"
+domain: incubator
+role: specialist
+executor: ptc
+model: anthropic/claude-sonnet-4-5-20250929
+reports_to: incubator-lead
+status: idle
+skills:
+  - incubator/generate-report
+budget:
+  monthly_limit_usd: 10
+  per_execution_limit: 0.25
+  alert_at_percent: 80
+delegation:
+  can_assign_to: []
+  max_concurrent_tickets: 3
+  autonomy_level: silent
+mcp_tools: []

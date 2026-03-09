@@ -23,6 +23,12 @@ import type {
   MemorySearchResult,
   PromptAssembly,
   ApprovalResponse,
+  AgentInfo,
+  OrgChartNode,
+  TicketInfo,
+  TicketStats,
+  HeartbeatRun,
+  HeartbeatScheduleEntry,
 } from "./types";
 
 // In dev mode, Next.js rewrites /api/* to the executor. In production, use the gateway.
@@ -292,6 +298,92 @@ export async function* executePipelineStream(
   }
 }
 
+// Agent Registry API
+
+export function listAgents(params?: { domain?: string; status?: string }): Promise<AgentInfo[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.domain) searchParams.set("domain", params.domain);
+  if (params?.status) searchParams.set("status", params.status);
+  const qs = searchParams.toString();
+  return request<AgentInfo[]>(`/api/v1/agents${qs ? `?${qs}` : ""}`);
+}
+
+export function getAgent(agentId: string): Promise<AgentInfo> {
+  return request<AgentInfo>(`/api/v1/agents/${agentId}`);
+}
+
+export function getOrgChart(): Promise<OrgChartNode[]> {
+  return request<OrgChartNode[]>("/api/v1/agents/org-chart");
+}
+
+export function createAgent(data: Partial<AgentInfo>): Promise<{ id: string; name: string }> {
+  return request("/api/v1/agents", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function updateAgent(agentId: string, data: Partial<AgentInfo>): Promise<{ id: string; updated: boolean }> {
+  return request(`/api/v1/agents/${agentId}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+export function deleteAgent(agentId: string): Promise<{ id: string; status: string }> {
+  return request(`/api/v1/agents/${agentId}`, { method: "DELETE" });
+}
+
+export function delegateTicket(agentId: string, data: { title: string; description: string; priority?: number }): Promise<{ ticket_id: string }> {
+  return request(`/api/v1/agents/${agentId}/delegate`, { method: "POST", body: JSON.stringify(data) });
+}
+
+// Ticket API
+
+export function listTickets(params?: { domain?: string; status?: string; assigned_to?: string; limit?: number }): Promise<TicketInfo[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.domain) searchParams.set("domain", params.domain);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.assigned_to) searchParams.set("assigned_to", params.assigned_to);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  const qs = searchParams.toString();
+  return request<TicketInfo[]>(`/api/v1/tickets${qs ? `?${qs}` : ""}`);
+}
+
+export function getTicket(ticketId: string): Promise<TicketInfo> {
+  return request<TicketInfo>(`/api/v1/tickets/${ticketId}`);
+}
+
+export function getTicketStats(domain?: string): Promise<TicketStats> {
+  const qs = domain ? `?domain=${encodeURIComponent(domain)}` : "";
+  return request<TicketStats>(`/api/v1/tickets/stats${qs}`);
+}
+
+export function createTicket(data: Partial<TicketInfo>): Promise<{ id: string }> {
+  return request("/api/v1/tickets", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function updateTicket(ticketId: string, data: Partial<TicketInfo>): Promise<{ id: string; updated: boolean }> {
+  return request(`/api/v1/tickets/${ticketId}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+// Heartbeat API
+
+export function listHeartbeatRuns(params?: { agent_id?: string; status?: string; limit?: number }): Promise<HeartbeatRun[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.agent_id) searchParams.set("agent_id", params.agent_id);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  const qs = searchParams.toString();
+  return request<HeartbeatRun[]>(`/api/v1/heartbeats${qs ? `?${qs}` : ""}`);
+}
+
+export function getHeartbeatRun(runId: string): Promise<HeartbeatRun> {
+  return request<HeartbeatRun>(`/api/v1/heartbeats/${runId}`);
+}
+
+export function getHeartbeatSchedule(): Promise<HeartbeatScheduleEntry[]> {
+  return request<HeartbeatScheduleEntry[]>("/api/v1/heartbeats/schedule");
+}
+
+export function triggerHeartbeat(agentId: string): Promise<HeartbeatRun> {
+  return request<HeartbeatRun>(`/api/v1/heartbeats/${agentId}/trigger`, { method: "POST" });
+}
+
 /** @deprecated Use executePipeline("build-deploy", input) instead. */
 export async function executeBuildDeploy(input: {
   description: string;
@@ -299,4 +391,101 @@ export async function executeBuildDeploy(input: {
   port?: number;
 }): Promise<PipelineResult> {
   return executePipeline("build-deploy", input);
+}
+
+// Fleet API
+
+export interface FleetAgent {
+  agent_id: string;
+  session_id: string;
+  skill_path: string;
+  execution_id: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  pod_name: string;
+  success: boolean;
+  output: Record<string, unknown> | null;
+  cost_usd: number;
+  latency_ms: number;
+  error_message: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FleetSession {
+  session_id: string;
+  pipeline_name: string;
+  trigger_type: string;
+  repo: string;
+  pr_number: number;
+  pr_url: string;
+  head_sha: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  total_agents: number;
+  completed_agents: number;
+  failed_agents: number;
+  total_cost_usd: number;
+  input_data: Record<string, unknown> | null;
+  github_check_posted: boolean;
+  created_at: string;
+  updated_at: string;
+  agents?: FleetAgent[];
+}
+
+export function listFleetSessions(status?: string): Promise<FleetSession[]> {
+  const params = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : "";
+  return request<FleetSession[]>(`/api/v1/fleet/sessions${params}`);
+}
+
+export function getFleetSession(sessionId: string): Promise<FleetSession> {
+  return request<FleetSession>(`/api/v1/fleet/sessions/${sessionId}`);
+}
+
+export function cancelFleetSession(sessionId: string): Promise<{ session_id: string; status: string }> {
+  return request(`/api/v1/fleet/sessions/${sessionId}/cancel`, { method: "POST" });
+}
+
+export interface FleetSSEEvent {
+  type: "agent_update" | "session_done" | "error";
+  data: Record<string, unknown>;
+}
+
+export async function* streamFleetSession(
+  sessionId: string,
+): AsyncGenerator<FleetSSEEvent> {
+  const resp = await fetch(`${SSE_BASE}/api/v1/fleet/sessions/${sessionId}/stream`);
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`Fleet stream API ${resp.status}: ${body}`);
+  }
+
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop()!;
+
+    for (const frame of frames) {
+      if (!frame.trim()) continue;
+      let eventType = "";
+      let dataStr = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+        else if (line.startsWith("data: ")) dataStr = line.slice(6);
+      }
+      if (eventType && dataStr) {
+        try {
+          yield { type: eventType as FleetSSEEvent["type"], data: JSON.parse(dataStr) };
+        } catch {
+          // skip malformed frames
+        }
+      }
+    }
+  }
 }

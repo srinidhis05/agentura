@@ -1,0 +1,38 @@
+domain:
+  name: incubator
+  description: "Feature incubation — Lovable prototypes to production code"
+  owner: "product-team"
+
+skills:
+  - name: spec-analyzer
+    path: spec-analyzer
+    role: specialist
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.15"
+    triggers:
+      - type: command
+        pattern: "analyze prototype {url}"
+      - type: command
+        pattern: "spec from lovable {description}"
+      - type: pipeline
+        pattern: "incubator-analyze step spec-analyzer"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.15"
+    alert_at: "$0.10"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "Spec Analyzer"
+  subtitle: "Lovable → Structured Spec"
+  avatar: "SA"
+  color: "#6366f1"
+  tags: ["Incubator", "Product", "Specialist"]
+  conversation_starters:
+    - "Analyze this Lovable prototype for incubation"
+    - "Generate a feature spec from this prototype URL and code"
+    - "Break down this UI into backend endpoints and mobile screens"

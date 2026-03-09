@@ -19,6 +19,22 @@ class SkillLanguage(str, Enum):
     GO = "go"
 
 
+class FleetSessionStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class FleetAgentStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 # --- Skill metadata (parsed from SKILL.md frontmatter) ---
 
 class SkillMetadata(BaseModel):
@@ -31,6 +47,10 @@ class SkillMetadata(BaseModel):
     cost_budget_per_execution: str = "$0.10"
     timeout: str = "60s"
     routes_to: list[dict[str, str]] = Field(default_factory=list)
+    # Optional config fields — used as fallback when agentura.config.yaml is missing
+    triggers: list[dict[str, Any]] = Field(default_factory=list)
+    mcp_tools: list[str] = Field(default_factory=list)
+    display: dict[str, Any] = Field(default_factory=dict)
 
 
 # --- Agent/sandbox config ---
@@ -91,6 +111,14 @@ class FeedbackConfig(BaseModel):
     test_framework: str = "deepeval"
     learning_strategy: dict[str, str] = Field(default_factory=dict)
     regression_tests: dict[str, Any] = Field(default_factory=dict)
+    capture_failure_cases: bool = False  # opt-in per skill (DEC-067)
+
+
+class VerifyConfig(BaseModel):
+    """Self-critique evaluator configuration (DEC-069)."""
+    enabled: bool = False
+    criteria: list[str] = Field(default_factory=list)
+    max_retries: int = 1
 
 
 class McpToolRef(BaseModel):
@@ -130,6 +158,8 @@ class SkillContext(BaseModel):
     mcp_tools: list[str] = Field(default_factory=list)
     mcp_bindings: list[dict] = Field(default_factory=list)
     sandbox_config: Optional[SandboxConfig] = None
+    injected_reflexion_ids: list[str] = Field(default_factory=list)
+    verify_config: Optional["VerifyConfig"] = None
 
 
 class SkillResult(BaseModel):
@@ -145,6 +175,8 @@ class SkillResult(BaseModel):
     context_for_next: dict[str, Any] = Field(default_factory=dict)
     approval_required: bool = False
     pending_action: str = ""
+    verified: Optional[bool] = None
+    verify_issues: list[str] = Field(default_factory=list)
 
 
 # --- Service indexer types ---

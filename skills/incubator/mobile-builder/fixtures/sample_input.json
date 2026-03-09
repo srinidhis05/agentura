@@ -1,0 +1,82 @@
+{
+  "feature_name": "expense-tracker",
+  "pit_name": "expense_tracker",
+  "pit_name_hyphenated": "expense-tracker",
+  "mobile_spec": {
+    "feature_package": "expense_tracker",
+    "feature_flag_key": "feature_expense_tracker_enabled",
+    "screens": [
+      {
+        "name": "ExpenseListScreen",
+        "description": "List of expenses with running total at top, filter chips for categories, each item shows amount/category/description/date with swipe-to-delete",
+        "composable": "ExpenseListScreen",
+        "view_model": "ExpenseListViewModel"
+      },
+      {
+        "name": "AddExpenseScreen",
+        "description": "Form with amount input (numeric keyboard), category dropdown (food/transport/entertainment/shopping/bills/other), description text field, date picker defaulting to today",
+        "composable": "AddExpenseScreen",
+        "view_model": "AddExpenseViewModel"
+      },
+      {
+        "name": "ExpenseSummaryScreen",
+        "description": "Pie chart showing spending by category for selected month, with category legend and total",
+        "composable": "ExpenseSummaryScreen",
+        "view_model": "ExpenseSummaryViewModel"
+      }
+    ],
+    "navigation": {
+      "graph": "expenseTrackerNavGraph",
+      "start_destination": "expense_list",
+      "routes": [
+        { "route": "expense_list", "screen": "ExpenseListScreen" },
+        { "route": "add_expense", "screen": "AddExpenseScreen" },
+        { "route": "expense_summary", "screen": "ExpenseSummaryScreen" }
+      ]
+    },
+    "data_layer": {
+      "api_endpoints": [
+        {
+          "method": "POST",
+          "path": "api/v1/expense-tracker/expenses",
+          "function": "createExpense",
+          "request_model": "CreateExpenseRequest",
+          "response_model": "ExpenseResponse"
+        },
+        {
+          "method": "GET",
+          "path": "api/v1/expense-tracker/expenses",
+          "function": "getExpenses",
+          "query_params": ["category", "from", "to"],
+          "response_model": "ExpenseListResponse"
+        },
+        {
+          "method": "DELETE",
+          "path": "api/v1/expense-tracker/expenses/{id}",
+          "function": "deleteExpense",
+          "response_model": "DeleteResponse"
+        },
+        {
+          "method": "GET",
+          "path": "api/v1/expense-tracker/expenses/summary",
+          "function": "getExpenseSummary",
+          "query_params": ["from", "to"],
+          "response_model": "ExpenseSummaryResponse"
+        }
+      ],
+      "models": [
+        {
+          "name": "Expense",
+          "fields": {
+            "id": "String",
+            "amount": "BigDecimal",
+            "category": "String",
+            "description": "String",
+            "date": "LocalDate",
+            "createdAt": "Instant"
+          }
+        }
+      ]
+    }
+  }
+}

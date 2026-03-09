@@ -1,0 +1,42 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: pr-doc-generator
+    path: pr-doc-generator
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.30"
+    triggers:
+      - type: pipeline
+        pattern: "github-pr-parallel step docs"
+
+agent:
+  executor: claude-code
+  max_iterations: 15
+  timeout: 300
+
+guardrails:
+  budget:
+    max_per_execution: "$0.30"
+    alert_at: "$0.20"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+  capture_failure_cases: true
+
+verify:
+  enabled: true
+  criteria:
+    - "Documentation changes are relevant to the PR diff"
+    - "No placeholder or TODO text left in generated docs"
+
+display:
+  title: "Doc Generator"
+  subtitle: "Documentation Maintenance"
+  avatar: "DG"
+  color: "#3b82f6"
+  tags: ["Agent", "Documentation", "PR Review"]

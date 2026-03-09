@@ -1,0 +1,43 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: pr-code-reviewer
+    path: pr-code-reviewer
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: pipeline
+        pattern: "github-pr-parallel step reviewer"
+
+agent:
+  executor: claude-code
+  max_iterations: 25
+  timeout: 300
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.35"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+  capture_failure_cases: true
+
+verify:
+  enabled: true
+  criteria:
+    - "Severity tags (BLOCKER/WARNING/SUGGESTION/PRAISE) present on every finding"
+    - "Every finding has file:line citation with code snippet"
+    - "Verdict field is approve or request-changes"
+
+display:
+  title: "Code Reviewer"
+  subtitle: "Severity-Tagged Code Review"
+  avatar: "CR"
+  color: "#ef4444"
+  tags: ["Agent", "Code Review", "PR Review"]

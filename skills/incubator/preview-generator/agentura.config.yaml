@@ -1,0 +1,41 @@
+domain:
+  name: incubator
+  description: "Feature incubation — Lovable prototypes to production code"
+  owner: "product-team"
+
+skills:
+  - name: preview-generator
+    path: preview-generator
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: pipeline
+        pattern: "incubator-ship step preview-generator"
+
+agent:
+  executor: claude-code
+  max_iterations: 15
+  timeout: 300
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.35"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "HTML preview file was generated"
+    - "Preview renders a phone-frame mockup with actual screen content"
+
+display:
+  title: "Preview Generator"
+  subtitle: "Phone Mockup Builder"
+  avatar: "PG"
+  color: "#f97316"
+  tags: ["Incubator", "Agent", "Preview"]
