@@ -5,11 +5,11 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { getAgent, listHeartbeatRuns, listTickets, triggerHeartbeat, updateAgent, delegateTicket } from "@/lib/api";
+import { getAgent, getSkillDetail, listHeartbeatRuns, listTickets, triggerHeartbeat, updateAgent, delegateTicket } from "@/lib/api";
 import { roleColors, statusColors, statusDot, executorBadge, ticketStatusColors, transcriptTypeBadge, transcriptTypeBorder, triggerBadgeColors } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import type { HeartbeatRun, TicketInfo, TranscriptEntry } from "@/lib/types";
+import type { HeartbeatRun, TicketInfo, TranscriptEntry, SkillDetail } from "@/lib/types";
 
 function timeAgo(ts: string | undefined): string {
   if (!ts) return "";
@@ -117,6 +117,7 @@ export default function AgentDetailPage() {
 
   const budget = (agent.config as Record<string, unknown>)?.budget as Record<string, unknown> | undefined;
   const delegation = (agent.config as Record<string, unknown>)?.delegation as Record<string, unknown> | undefined;
+  const heartbeatContent = (agent.config as Record<string, unknown>)?.heartbeat_content as string | undefined;
   const liveHeartbeats = heartbeats.filter((h) => h.status === "running");
 
   return (
@@ -259,10 +260,10 @@ export default function AgentDetailPage() {
 
         {/* Overview Tab */}
         <TabsContent value="overview">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-1">
+          <div className="space-y-4 mt-1">
             {/* Soul */}
             {agent.soul && (
-              <div className="rounded-lg border border-border bg-card p-4 lg:col-span-2">
+              <div className="rounded-lg border border-border bg-card p-4">
                 <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2">Soul</h2>
                 <div className="prose dark:prose-invert prose-sm max-w-none text-muted-foreground whitespace-pre-wrap text-[13px]">
                   {agent.soul}
@@ -270,18 +271,23 @@ export default function AgentDetailPage() {
               </div>
             )}
 
-            {/* Skills */}
+            {/* Heartbeat Protocol */}
+            {heartbeatContent && (
+              <div className="rounded-lg border border-border bg-card p-4">
+                <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2">Heartbeat Protocol</h2>
+                <div className="prose dark:prose-invert prose-sm max-w-none text-muted-foreground whitespace-pre-wrap text-[13px]">
+                  {heartbeatContent}
+                </div>
+              </div>
+            )}
+
+            {/* Skills — with SKILL.md content */}
             <div className="rounded-lg border border-border bg-card p-4">
-              <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2">Skills</h2>
+              <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3">Skills</h2>
               {agent.skills?.length > 0 ? (
-                <div className="space-y-1">
+                <div className="space-y-2">
                   {agent.skills.map((skill: string) => (
-                    <div key={skill} className="flex items-center gap-2 rounded-md bg-muted dark:bg-card/80 px-3 py-1.5">
-                      <svg className="h-3.5 w-3.5 text-muted-foreground shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                      </svg>
-                      <span className="text-[13px] font-mono text-foreground">{skill}</span>
-                    </div>
+                    <SkillCard key={skill} skillPath={skill} />
                   ))}
                 </div>
               ) : (
@@ -290,61 +296,87 @@ export default function AgentDetailPage() {
             </div>
 
             {/* Configuration */}
-            <div className="rounded-lg border border-border bg-card p-4">
-              <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2">Configuration</h2>
-              <div className="space-y-3 text-sm">
-                {budget && (
-                  <div>
-                    <h3 className="text-xs text-muted-foreground mb-1">Budget</h3>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-2">
-                        <div className="text-xs text-muted-foreground">Monthly</div>
-                        <div className="text-sm font-semibold font-mono text-foreground">${String(budget.monthly_limit_usd || 0)}</div>
-                      </div>
-                      <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-2">
-                        <div className="text-xs text-muted-foreground">Per exec</div>
-                        <div className="text-sm font-semibold font-mono text-foreground">${String(budget.per_execution_limit || 0)}</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {delegation && (
-                  <div>
-                    <h3 className="text-xs text-muted-foreground mb-1">Delegation</h3>
-                    <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-2 space-y-1 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Autonomy</span>
-                        <span className="text-foreground">{String(delegation.autonomy_level || "—")}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Max concurrent</span>
-                        <span className="text-foreground">{String(delegation.max_concurrent_tickets || "—")}</span>
-                      </div>
-                      {Array.isArray(delegation.can_assign_to) && delegation.can_assign_to.length > 0 && (
-                        <div>
-                          <span className="text-muted-foreground">Assigns to: </span>
-                          <span className="text-foreground">{delegation.can_assign_to.join(", ")}</span>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {(budget || delegation) && (
+                <div className="rounded-lg border border-border bg-card p-4">
+                  <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2">Configuration</h2>
+                  <div className="space-y-3 text-sm">
+                    {budget && (
+                      <div>
+                        <h3 className="text-xs text-muted-foreground mb-1">Budget</h3>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-2">
+                            <div className="text-xs text-muted-foreground">Monthly</div>
+                            <div className="text-sm font-semibold font-mono text-foreground">${String(budget.monthly_limit_usd || 0)}</div>
+                          </div>
+                          <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-2">
+                            <div className="text-xs text-muted-foreground">Per exec</div>
+                            <div className="text-sm font-semibold font-mono text-foreground">${String(budget.per_execution_limit || 0)}</div>
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
+                    {delegation && (
+                      <div>
+                        <h3 className="text-xs text-muted-foreground mb-1">Delegation</h3>
+                        <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-2 space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Autonomy</span>
+                            <span className="text-foreground">{String(delegation.autonomy_level || "—")}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Max concurrent</span>
+                            <span className="text-foreground">{String(delegation.max_concurrent_tickets || "—")}</span>
+                          </div>
+                          {Array.isArray(delegation.can_assign_to) && delegation.can_assign_to.length > 0 && (
+                            <div>
+                              <span className="text-muted-foreground">Assigns to: </span>
+                              <span className="text-foreground">{delegation.can_assign_to.join(", ")}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-                {agent.model && (
-                  <div>
-                    <h3 className="text-xs text-muted-foreground mb-1">Model</h3>
-                    <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-1.5 font-mono text-xs text-foreground">
-                      {agent.model}
+                </div>
+              )}
+
+              <div className="rounded-lg border border-border bg-card p-4">
+                <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2">Details</h2>
+                <div className="space-y-3 text-sm">
+                  {agent.model && (
+                    <div>
+                      <h3 className="text-xs text-muted-foreground mb-1">Model</h3>
+                      <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-1.5 font-mono text-xs text-foreground">
+                        {agent.model}
+                      </div>
                     </div>
-                  </div>
-                )}
-                {agent.heartbeat_schedule && (
-                  <div>
-                    <h3 className="text-xs text-muted-foreground mb-1">Heartbeat</h3>
-                    <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-1.5 font-mono text-xs text-foreground">
-                      {agent.heartbeat_schedule}
+                  )}
+                  {agent.reports_to && (
+                    <div>
+                      <h3 className="text-xs text-muted-foreground mb-1">Reports To</h3>
+                      <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-1.5 font-mono text-xs text-foreground">
+                        {agent.reports_to}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                  {agent.heartbeat_schedule && (
+                    <div>
+                      <h3 className="text-xs text-muted-foreground mb-1">Heartbeat Schedule</h3>
+                      <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-1.5 font-mono text-xs text-foreground">
+                        {agent.heartbeat_schedule}
+                      </div>
+                    </div>
+                  )}
+                  {agent.executor && (
+                    <div>
+                      <h3 className="text-xs text-muted-foreground mb-1">Executor</h3>
+                      <div className="rounded-md bg-muted dark:bg-card/80 px-3 py-1.5 font-mono text-xs text-foreground">
+                        {agent.executor}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -360,6 +392,92 @@ export default function AgentDetailPage() {
           <TicketsTab tickets={tickets} />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+/* ---- Skill Card — fetches and renders SKILL.md content ---- */
+
+function SkillCard({ skillPath }: { skillPath: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const parts = skillPath.split("/");
+  const domain = parts.length >= 2 ? parts[0] : "";
+  const skillName = parts.length >= 2 ? parts.slice(1).join("/") : skillPath;
+
+  const { data: detail, isLoading } = useQuery({
+    queryKey: ["skill-detail", domain, skillName],
+    queryFn: () => getSkillDetail(domain, skillName),
+    enabled: expanded && !!domain,
+    staleTime: 60000,
+  });
+
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/30 dark:bg-card/50 overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent/30 transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <svg className="h-3.5 w-3.5 text-muted-foreground shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+          </svg>
+          <span className="text-[13px] font-mono text-foreground">{skillPath}</span>
+          {detail && (
+            <span className={cn(
+              "rounded px-1.5 py-0 text-[10px] font-medium",
+              roleColors[detail.role] || "bg-gray-100 text-gray-600 dark:bg-gray-500/20 dark:text-gray-400"
+            )}>
+              {detail.role}
+            </span>
+          )}
+        </div>
+        <svg
+          className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0", expanded && "rotate-180")}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border/60 px-3 py-3">
+          {isLoading ? (
+            <div className="space-y-2">
+              <div className="h-3 w-3/4 rounded bg-muted dark:bg-card/80 animate-pulse" />
+              <div className="h-3 w-1/2 rounded bg-muted dark:bg-card/80 animate-pulse" />
+              <div className="h-3 w-2/3 rounded bg-muted dark:bg-card/80 animate-pulse" />
+            </div>
+          ) : detail?.skill_body ? (
+            <div className="prose dark:prose-invert prose-sm max-w-none text-muted-foreground whitespace-pre-wrap text-[12px] font-mono leading-relaxed max-h-96 overflow-y-auto">
+              {detail.skill_body}
+            </div>
+          ) : !domain ? (
+            <p className="text-xs text-muted-foreground">Cannot resolve skill domain from path</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">No SKILL.md content available</p>
+          )}
+
+          {detail && (
+            <div className="flex flex-wrap gap-1.5 mt-3 pt-2 border-t border-border/40">
+              {detail.model && (
+                <span className="rounded bg-muted dark:bg-card/80 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                  {detail.model}
+                </span>
+              )}
+              {detail.cost_budget && (
+                <span className="rounded bg-muted dark:bg-card/80 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                  {detail.cost_budget}
+                </span>
+              )}
+              {detail.display_tags?.map((tag) => (
+                <span key={tag} className="rounded bg-muted dark:bg-card/80 px-2 py-0.5 text-[10px] text-muted-foreground">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
