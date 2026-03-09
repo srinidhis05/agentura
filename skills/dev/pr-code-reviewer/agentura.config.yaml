@@ -4,14 +4,14 @@ domain:
   owner: "engineering-team"
 
 skills:
-  - name: pr-test-runner
-    path: pr-test-runner
+  - name: pr-code-reviewer
+    path: pr-code-reviewer
     role: agent
     model: anthropic/claude-sonnet-4-5-20250929
     cost_budget: "$0.50"
     triggers:
       - type: pipeline
-        pattern: "github-pr-parallel step testing"
+        pattern: "github-pr-parallel step reviewer"
 
 agent:
   executor: claude-code
@@ -31,12 +31,13 @@ feedback:
 verify:
   enabled: true
   criteria:
-    - "Tests were actually executed (not just listed or planned)"
-    - "Test results include pass/fail counts or coverage data"
+    - "Severity tags (BLOCKER/WARNING/SUGGESTION/PRAISE) present on every finding"
+    - "Every finding has file:line citation with code snippet"
+    - "Verdict field is approve or request-changes"
 
 display:
-  title: "PR Test Runner"
-  subtitle: "Test Execution & Coverage"
-  avatar: "TR"
-  color: "#10b981"
-  tags: ["Agent", "Testing", "PR Review"]
+  title: "Code Reviewer"
+  subtitle: "Severity-Tagged Code Review"
+  avatar: "CR"
+  color: "#ef4444"
+  tags: ["Agent", "Code Review", "PR Review"]
