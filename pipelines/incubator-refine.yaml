@@ -1,0 +1,28 @@
+name: incubator-refine
+description: "Refine existing backend pit + mobile feature from PM feedback"
+
+phases:
+  - name: codegen
+    type: parallel
+    steps:
+      - skill: incubator/pit-builder
+        agent_id: backend
+        required: true
+      - skill: incubator/mobile-builder
+        agent_id: frontend
+        required: true
+
+  - name: verify
+    type: sequential
+    fan_in_from: codegen
+    steps:
+      - skill: incubator/quality-gate
+        agent_id: reviewer
+        required: false
+
+  - name: report
+    type: sequential
+    fan_in_from: verify
+    steps:
+      - skill: incubator/reporter
+        agent_id: reporter

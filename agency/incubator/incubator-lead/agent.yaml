@@ -1,0 +1,24 @@
+name: incubator-lead
+display_name: "Incubator Lead"
+domain: incubator
+role: manager
+executor: claude-code
+model: anthropic/claude-sonnet-4-5-20250929
+reports_to: null
+status: idle
+skills:
+  - incubator/orchestrate
+budget:
+  monthly_limit_usd: 50
+  per_execution_limit: 2.00
+  alert_at_percent: 80
+delegation:
+  can_assign_to:
+    - spec-analyzer
+    - pit-builder
+    - mobile-builder
+    - quality-gate
+    - reporter
+  max_concurrent_tickets: 3
+  autonomy_level: ask
+mcp_tools: []

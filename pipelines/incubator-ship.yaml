@@ -1,0 +1,20 @@
+name: incubator-ship
+description: "Generate phone preview and prepare for staging merge"
+
+phases:
+  - name: ship
+    type: parallel
+    steps:
+      - skill: incubator/preview-generator
+        agent_id: preview
+        required: true
+      - skill: incubator/pit-builder
+        agent_id: merge
+        required: false
+
+  - name: report
+    type: sequential
+    fan_in_from: ship
+    steps:
+      - skill: incubator/reporter
+        agent_id: reporter
