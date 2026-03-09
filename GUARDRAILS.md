@@ -51,3 +51,55 @@
 **Impact**: Agent executed with empty prompt context, wasting tokens and producing generic responses instead of actual work.
 **Rule**: All direct API calls to execute endpoints MUST wrap payload in `{"input_data": {...}}`. When debugging "agent did nothing useful", always check whether `input_data` is actually populated.
 **Detection**: Any curl/httpx call to `/execute` or `/execute-stream` where the JSON body lacks an `input_data` key.
+
+## GR-010: Challenge inspiration-driven features — demand evidence before building
+**Mistake**: User shared patterns from an external repo (awesome-agentic-patterns). Claude immediately designed a 31-file, 5-feature implementation plan and built it. No one asked: "Do we have enough execution data for MemRL scoring to matter? Are any skills running in production daily? What's the actual failure rate?" The features are well-engineered but solve problems that don't exist yet — zero skills had `capture_failure_cases` enabled, zero evals existed, and the system lacked the execution volume for synthesis or utility scoring to produce meaningful results.
+**Impact**: 2,600+ lines of code that sits as potential energy. Development time spent on meta-learning infrastructure instead of getting real workloads running through the platform. Opportunity cost of not fixing the actual bottleneck (adoption and real usage).
+**Rule**: When the user brings an external idea (X post, paper, repo pattern), Claude MUST ask three questions before designing or building:
+1. **"What specific problem are you hitting today that this solves?"** — If the answer is "none yet" or "I think we might need it", the next step is observation/measurement, not implementation.
+2. **"Do we have evidence this is the bottleneck?"** — Check actual execution counts, failure rates, and usage patterns. Run `kubectl get pods` and query the DB if needed.
+3. **"What's the cheapest way to validate this matters?"** — A spreadsheet, a manual test, a 20-line script, or a config change beats a 31-file implementation plan every time.
+Only proceed to implementation if at least question 1 has a concrete, evidence-backed answer. "It would be cool" is not evidence. "Our deployer fails 30% of the time and the failures repeat the same pattern" is evidence.
+**Detection**: Any implementation plan with 10+ files that doesn't reference specific production metrics, failure rates, or user-reported problems. Any feature that requires execution volume to function (scoring, synthesis, pattern detection) built before that volume exists.
+
+## GR-011: Agent skills with git/PR delivery MUST have mechanical completion enforcement
+**Mistake**: Incubator builder SKILL.md files had git push + PR creation as a separate late phase (Phase 4-6). The claude-agent-sdk `query()` terminates on `end_turn` (text-only response). After completing code generation (~30 turns), the agent naturally summarized its work — triggering `end_turn` — and never reached the push/PR phase. Adding "CRITICAL: you MUST create a PR" directives to the prompt had zero effect because `end_turn` is a mechanical SDK behavior, not a prompt-interpretable instruction.
+**Impact**: 5 failed builder executions. Each used ~$1.00 and ~35 turns correctly generating code, but produced zero PRs. Agent "succeeded" from the SDK's perspective (no error) but failed the actual goal.
+**Rule**: For skills where the deliverable requires side effects (git push, PR creation, API calls), NEVER rely on prompt text to ensure delivery. Use mechanical enforcement: (1) the cc-worker continuation loop — if TASK_RESULT.json doesn't exist after the main query, automatically retry with a completion prompt, and (2) structure the SKILL.md so that push/PR commands are interleaved with code generation, not in a separate late phase.
+**Detection**: Any SKILL.md where git push or PR creation appears as a separate phase after code generation, without the cc-worker continuation mechanism enabled.
+
+## GR-017: After executor pod restart, MUST restart gateway AND web pods
+**Mistake**: Restarted executor pod (new IP), but gateway cached old executor IP in Go HTTP client and web cached old gateway IP in Node.js HTTP client. Both got `connection refused` → 502/500 cascade.
+**Impact**: All skill executions failed across both UI and Slack for 15+ minutes while debugging DNS caching.
+**Rule**: After executor pod restarts (for any reason), ALWAYS restart gateway, then web pods. Order matters.
+**Detection**: Any `kubectl rollout restart deployment/executor` not followed by gateway + web restarts.
+
+## GR-018: mcp_tools config must use dict format, not string list
+**Mistake**: `mcp_tools: [ecm-gateway]` in config.yaml. The executor at `app.py:546` calls `mcp_ref.get("server", "")` — expects dicts, not strings. String format silently fails.
+**Impact**: Agent skill launched PTC worker but no MCP tools were bound — worker returned "No MCP tools discovered".
+**Rule**: `mcp_tools` must be `[{server: "name", tools: [tool1, tool2]}]`, never `["name"]`.
+**Detection**: Any `mcp_tools:` entry that's a plain string instead of a dict.
+
+## GR-019: Skill output must never offer follow-up options (single-shot agents)
+**Mistake**: LLM generated "Would you like me to: 1. Query deeper? 2. Update sheet?" in Slack output. User selected an option, bot couldn't continue — showed help text instead.
+**Impact**: User confusion; broken UX expectation.
+**Rule**: Add "NEVER offer follow-up options" guardrail to every SKILL.md. Skills are single-shot — they cannot respond to follow-ups.
+**Detection**: Any SKILL.md missing the no-follow-up guardrail.
+
+## GR-020: MCP tool defs from external servers must be sanitized before Anthropic API (2026-03-08)
+**Mistake**: Passed raw MCP tool definitions (containing `annotations`, `title`, `outputSchema` fields) to Anthropic Messages API. API rejected with `Extra inputs are not permitted`.
+**Impact**: PTC worker discovered all 64 tools successfully but every execution failed at the LLM call.
+**Rule**: ALWAYS strip MCP tool defs to only `{name, description, input_schema}` before passing to Anthropic. Never forward extra MCP fields.
+**Detection**: Any `tools=` parameter to Anthropic API containing fields other than `name`, `description`, `input_schema`.
+
+## GR-021: Wildcard `"*"` in allowed_mcp_tools must be handled as "allow all" (2026-03-08)
+**Mistake**: Config `tools: ["*"]` produced `allowed_mcp_tools = ["*"]`. Filter code checked `if name not in allowed_tools` — literal `"*"` matched nothing, so ALL tools were silently filtered out.
+**Impact**: PTC worker discovered 64 tools but passed 0 to the agent. "No MCP tools discovered" despite successful MCP connectivity.
+**Rule**: ALWAYS check `"*" not in allowed_tools` before applying the tool name filter. `"*"` means allow all.
+**Detection**: Any tool filtering loop that doesn't handle `"*"` as a wildcard.
+
+## GR-012: "Done" means deployed, not compiled
+**Mistake**: After writing UI changes and fixing a backend bug, verified only that `next build` succeeded. Did not build Docker images or restart K8s pods. Changes sat on disk for the rest of the session while the user assumed they were live.
+**Impact**: User had to explicitly ask "are the changes deployed?" — wasted time, eroded trust.
+**Rule**: In this K8s-based project, a task is not complete until the full loop runs: code → docker build → kubectl rollout restart → verify pods are Running. A passing `next build` or `pytest` is a mid-step, not the finish line.
+**Detection**: Any session where file writes are followed by a build check but no `docker build` + `kubectl rollout restart` for the affected service.

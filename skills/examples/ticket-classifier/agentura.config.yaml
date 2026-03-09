@@ -1,0 +1,42 @@
+domain:
+  name: examples
+  description: "Reference skill implementations for the Agentura platform"
+  owner: "platform-team"
+
+skills:
+  - name: ticket-classifier
+    path: ticket-classifier
+    role: manager
+    model: anthropic/claude-haiku-4-5-20251001
+    cost_budget: "$0.01"
+    triggers:
+      - type: always
+        description: "All support queries pass through triage first"
+
+routing:
+  - from: ticket-classifier
+    to: "examples/billing-inquiry"
+    condition: "billing, payment, invoice, refund"
+  - from: ticket-classifier
+    to: "examples/technical-support"
+    condition: "bug, error, crash, technical issue"
+  - from: ticket-classifier
+    to: "examples/feature-request"
+    condition: "feature request, enhancement, integration"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.01"
+    alert_at: "$0.008"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: true
+  test_framework: deepeval
+
+display:
+  title: "Ticket Classifier"
+  subtitle: "Support Triage"
+  avatar: "TC"
+  color: "#6366f1"
+  tags: ["Routing", "Support", "Triage"]

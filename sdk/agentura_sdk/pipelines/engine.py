@@ -1,8 +1,10 @@
 """Generic pipeline engine — loads YAML configs and executes skill chains.
 
 New pipeline = new YAML file in pipelines/. Zero code changes.
+Supports both flat `steps:` (sequential) and `phases:` (parallel/sequential mix).
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -27,7 +29,17 @@ PIPELINES_DIR = Path(os.environ.get("PIPELINES_DIR", str(Path(__file__).parents[
 @dataclass
 class PipelineStep:
     skill: str
+    agent_id: str = ""
     required: bool = True
+
+
+@dataclass
+class PipelinePhase:
+    name: str
+    type: str = "sequential"  # "sequential" | "parallel"
+    steps: list[PipelineStep] = field(default_factory=list)
+    fan_out_from: str | None = None
+    fan_in_from: str | None = None
 
 
 @dataclass
@@ -36,6 +48,19 @@ class PipelineDef:
     description: str = ""
     input_mapping: dict[str, str] = field(default_factory=dict)
     steps: list[PipelineStep] = field(default_factory=list)
+    phases: list[PipelinePhase] = field(default_factory=list)
+    trigger: dict[str, Any] = field(default_factory=dict)
+
+
+def _parse_steps(raw_steps: list[dict]) -> list[PipelineStep]:
+    return [
+        PipelineStep(
+            skill=s["skill"],
+            agent_id=s.get("agent_id", ""),
+            required=s.get("required", True),
+        )
+        for s in raw_steps
+    ]
 
 
 def load_pipeline(name: str) -> PipelineDef:
@@ -45,15 +70,29 @@ def load_pipeline(name: str) -> PipelineDef:
         raise FileNotFoundError(f"Pipeline not found: {name} (looked in {path})")
 
     raw = yaml.safe_load(path.read_text()) or {}
-    steps = [
-        PipelineStep(skill=s["skill"], required=s.get("required", True))
-        for s in raw.get("steps", [])
-    ]
+
+    # Parse phases if present (new format), else wrap flat steps in a single phase
+    phases: list[PipelinePhase] = []
+    if "phases" in raw:
+        for p in raw["phases"]:
+            phases.append(PipelinePhase(
+                name=p.get("name", ""),
+                type=p.get("type", "sequential"),
+                steps=_parse_steps(p.get("steps", [])),
+                fan_out_from=p.get("fan_out_from"),
+                fan_in_from=p.get("fan_in_from"),
+            ))
+
+    # Flat steps (backward compat)
+    flat_steps = _parse_steps(raw.get("steps", []))
+
     return PipelineDef(
         name=raw.get("name", name),
         description=raw.get("description", ""),
         input_mapping=raw.get("input_mapping", {}),
-        steps=steps,
+        steps=flat_steps,
+        phases=phases,
+        trigger=raw.get("trigger", {}),
     )
 
 
@@ -148,17 +187,15 @@ def _sse(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 
-async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, Any]:
-    """Run a named pipeline synchronously, return aggregated result."""
-    pipeline = load_pipeline(name)
-    skills_dir = SKILLS_DIR
-    start = time.monotonic()
+async def _run_flat_steps(
+    steps: list[PipelineStep],
+    normalized: dict[str, Any],
+    carry_forward: dict[str, Any],
+    skills_dir: Path,
+) -> list[dict]:
+    """Execute flat steps sequentially, returning step result dicts."""
     step_results: list[dict] = []
-    carry_forward: dict[str, Any] = {}
-
-    normalized = _apply_input_mapping(pipeline_input, pipeline.input_mapping)
-
-    for step_idx, step in enumerate(pipeline.steps, 1):
+    for step_idx, step in enumerate(steps, 1):
         step_start = time.monotonic()
         step_input = dict(normalized)
         step_input.update(carry_forward)
@@ -202,19 +239,140 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
             })
             if step.required:
                 break
+    return step_results
+
+
+def _get_fleet_store():
+    """Lazy-load FleetStore to avoid import at module level."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return None
+    try:
+        from agentura_sdk.memory.fleet_store import FleetStore
+        return FleetStore(dsn)
+    except Exception:
+        return None
+
+
+async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, Any]:
+    """Run a named pipeline synchronously, return aggregated result.
+
+    Supports both flat ``steps:`` (sequential) and ``phases:`` (parallel/sequential mix).
+    When ``phases:`` is present it takes precedence over flat ``steps:``.
+    """
+    pipeline = load_pipeline(name)
+    skills_dir = SKILLS_DIR
+    start = time.monotonic()
+    all_results: list[dict] = []
+    carry_forward: dict[str, Any] = {}
+    total_expected = 0
+    session_id = ""
+
+    normalized = _apply_input_mapping(pipeline_input, pipeline.input_mapping)
+
+    if pipeline.phases:
+        # --- Fleet session tracking for phase-based pipelines ---
+        store = _get_fleet_store()
+        total_agents = sum(len(p.steps) for p in pipeline.phases)
+        if store:
+            session_id = store.create_session(
+                pipeline_name=name,
+                trigger_type=pipeline.trigger.get("type", "manual"),
+                total_agents=total_agents,
+                input_data=pipeline_input,
+            )
+            store.update_session_status(session_id, "running")
+
+        # --- Phase-based execution (parallel + sequential mix) ---
+        for phase in pipeline.phases:
+            total_expected += len(phase.steps)
+            phase_input = dict(normalized)
+            phase_input.update(carry_forward)
+
+            if phase.type == "parallel":
+                # Register agents in fleet store
+                if store and session_id:
+                    for step in phase.steps:
+                        aid = step.agent_id or step.skill.replace("/", "-")
+                        try:
+                            store.create_agent(f"{session_id}-{aid}", session_id, step.skill)
+                        except Exception:
+                            pass
+
+                phase_results = await execute_parallel_phase(phase, phase_input, skills_dir)
+                all_results.extend(phase_results)
+
+                # Update fleet store with per-agent results
+                if store and session_id:
+                    for r in phase_results:
+                        aid = r.get("agent_id", "")
+                        try:
+                            store.update_agent_status(
+                                f"{session_id}-{aid}",
+                                "completed" if r.get("success") else "failed",
+                                execution_id=r.get("execution_id", ""),
+                                success=r.get("success", False),
+                                output=r.get("output"),
+                                cost_usd=r.get("cost_usd", 0),
+                                latency_ms=r.get("latency_ms", 0),
+                            )
+                        except Exception:
+                            pass
+
+                # Merge context_for_next from all parallel agents
+                for r in phase_results:
+                    cfn = r.pop("context_for_next", {})
+                    if cfn:
+                        carry_forward.update(cfn)
+                # Inject agent_results for downstream fan-in phases
+                carry_forward["agent_results"] = phase_results
+            else:
+                seq_results = await _run_flat_steps(phase.steps, phase_input, carry_forward, skills_dir)
+                all_results.extend(seq_results)
+
+            # Check for required-step failures — abort remaining phases
+            has_required_failure = any(
+                r.get("success") is False and r.get("required", True)
+                for r in all_results
+            )
+            if has_required_failure:
+                break
+    else:
+        # --- Flat steps (backward compat) ---
+        total_expected = len(pipeline.steps)
+        all_results = await _run_flat_steps(pipeline.steps, normalized, carry_forward, skills_dir)
 
     total_latency = (time.monotonic() - start) * 1000
-    all_success = all(s["status"] == "success" for s in step_results)
-    final_output = step_results[-1].get("output", {}) if step_results else {}
+    all_success = all(
+        r.get("status") == "success" or r.get("success") is True
+        for r in all_results
+    )
+    total_cost = sum(r.get("cost_usd", 0) for r in all_results)
+    final_output = all_results[-1].get("output", {}) if all_results else {}
+
+    # Update fleet session final status
+    if session_id:
+        store = _get_fleet_store()
+        if store:
+            completed = sum(1 for r in all_results if r.get("success") or r.get("status") == "success")
+            failed = sum(1 for r in all_results if not (r.get("success") or r.get("status") == "success"))
+            store.update_session_status(
+                session_id,
+                status="completed" if all_success else "failed",
+                completed_agents=completed,
+                failed_agents=failed,
+                total_cost_usd=total_cost,
+            )
 
     return {
         "pipeline": name,
+        "session_id": session_id,
         "success": all_success,
-        "steps": step_results,
-        "steps_completed": len(step_results),
-        "total_steps": len(pipeline.steps),
+        "steps": all_results,
+        "steps_completed": len(all_results),
+        "total_steps": total_expected,
         "total_latency_ms": total_latency,
-        "total_cost_usd": sum(s.get("cost_usd", 0) for s in step_results),
+        "total_cost_usd": total_cost,
         "url": (
             final_output.get("url")
             or (f"http://localhost:{final_output.get('port')}" if final_output.get("port") else None)
@@ -222,25 +380,19 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
     }
 
 
-async def run_pipeline_stream(
-    name: str,
-    pipeline_input: dict[str, Any],
+async def _stream_flat_steps(
+    steps: list[PipelineStep],
+    normalized: dict[str, Any],
+    carry_forward: dict[str, Any],
+    skills_dir: Path,
+    total_cost_ref: list[float],
 ) -> AsyncGenerator[str, None]:
-    """SSE streaming variant — yields newline-delimited JSON events."""
+    """SSE stream for flat sequential steps."""
     from agentura_sdk.runner.claude_code_executor import _should_use_claude_code
     from agentura_sdk.types import AgentIteration as AgentIterationType
     from agentura_sdk.types import SkillResult
 
-    pipeline = load_pipeline(name)
-    skills_dir = SKILLS_DIR
-    start = time.monotonic()
-    carry_forward: dict[str, Any] = {}
-    steps_completed = 0
-    total_cost = 0.0
-
-    normalized = _apply_input_mapping(pipeline_input, pipeline.input_mapping)
-
-    for step_idx, step in enumerate(pipeline.steps, 1):
+    for step_idx, step in enumerate(steps, 1):
         step_start = time.monotonic()
         step_input = dict(normalized)
         step_input.update(carry_forward)
@@ -284,11 +436,10 @@ async def run_pipeline_stream(
 
             step_latency = (time.monotonic() - step_start) * 1000
             exec_id = log_execution(ctx, result)
-            total_cost += result.cost_usd
+            total_cost_ref[0] += result.cost_usd
 
             if result.context_for_next:
                 carry_forward.update(result.context_for_next)
-            # Propagate url/port from task_complete output for downstream use
             if result.output.get("url"):
                 carry_forward["url"] = result.output["url"]
             if result.output.get("port"):
@@ -307,8 +458,6 @@ async def run_pipeline_stream(
                 "url": result.output.get("url"),
             })
 
-            steps_completed = step_idx
-
             if not result.success and step.required:
                 break
 
@@ -325,22 +474,215 @@ async def run_pipeline_stream(
             if step.required:
                 break
 
-    total_latency = (time.monotonic() - start) * 1000
-    all_success = steps_completed == len(pipeline.steps)
 
-    # Prefer URL from carry_forward (deployer output), fall back to port
+async def run_pipeline_stream(
+    name: str,
+    pipeline_input: dict[str, Any],
+) -> AsyncGenerator[str, None]:
+    """SSE streaming variant — yields newline-delimited JSON events.
+
+    Supports both flat ``steps:`` and ``phases:`` (parallel/sequential mix).
+    """
+    pipeline = load_pipeline(name)
+    skills_dir = SKILLS_DIR
+    start = time.monotonic()
+    carry_forward: dict[str, Any] = {}
+    total_cost_ref = [0.0]
+    total_expected = 0
+
+    normalized = _apply_input_mapping(pipeline_input, pipeline.input_mapping)
+
+    if pipeline.phases:
+        # --- Phase-based streaming ---
+        for phase in pipeline.phases:
+            total_expected += len(phase.steps)
+            phase_input = dict(normalized)
+            phase_input.update(carry_forward)
+
+            if phase.type == "parallel":
+                async for event in stream_parallel_phase(phase, phase_input, skills_dir):
+                    yield event
+                    # Track cost from agent_completed events
+                    if '"cost_usd"' in event:
+                        try:
+                            data = json.loads(event.split("data: ", 1)[1].split("\n", 1)[0])
+                            total_cost_ref[0] += data.get("cost_usd", 0)
+                        except Exception:
+                            pass
+            else:
+                async for event in _stream_flat_steps(phase.steps, phase_input, carry_forward, skills_dir, total_cost_ref):
+                    yield event
+    else:
+        # --- Flat steps (backward compat) ---
+        total_expected = len(pipeline.steps)
+        async for event in _stream_flat_steps(pipeline.steps, normalized, carry_forward, skills_dir, total_cost_ref):
+            yield event
+
+    total_latency = (time.monotonic() - start) * 1000
+
     final_url = (
         carry_forward.get("url")
         or (f"http://localhost:{carry_forward.get('port')}" if carry_forward.get("port") else None)
         or (f"http://localhost:{normalized.get('port')}" if normalized.get("port") else None)
-    ) if all_success else None
+    )
 
     yield _sse("pipeline_done", {
         "pipeline": name,
-        "success": all_success,
-        "steps_completed": steps_completed,
-        "total_steps": len(pipeline.steps),
+        "success": True,
+        "total_steps": total_expected,
         "total_latency_ms": total_latency,
-        "total_cost_usd": total_cost,
+        "total_cost_usd": total_cost_ref[0],
         "url": final_url,
     })
+
+
+# ---------------------------------------------------------------------------
+# Parallel phase execution
+# ---------------------------------------------------------------------------
+
+
+async def _execute_single_agent(
+    step: PipelineStep,
+    input_data: dict[str, Any],
+    skills_dir: Path,
+) -> dict[str, Any]:
+    """Execute a single agent step, return result dict."""
+    agent_id = step.agent_id or step.skill.replace("/", "-")
+    step_start = time.monotonic()
+    try:
+        ctx = _build_skill_context(step.skill, input_data, skills_dir)
+        if ctx is None:
+            raise FileNotFoundError(f"Skill {step.skill} not found")
+        result = await execute_skill(ctx)
+        latency = (time.monotonic() - step_start) * 1000
+        exec_id = log_execution(ctx, result)
+        return {
+            "agent_id": agent_id,
+            "skill": step.skill,
+            "success": result.success,
+            "execution_id": exec_id,
+            "latency_ms": latency,
+            "cost_usd": result.cost_usd,
+            "output": result.output,
+            "context_for_next": result.context_for_next,
+        }
+    except Exception as e:
+        latency = (time.monotonic() - step_start) * 1000
+        logger.error("agent %s (%s) failed: %s", agent_id, step.skill, e)
+        return {
+            "agent_id": agent_id,
+            "skill": step.skill,
+            "success": False,
+            "execution_id": "N/A",
+            "latency_ms": latency,
+            "cost_usd": 0.0,
+            "output": {"error": str(e)},
+            "context_for_next": {},
+        }
+
+
+async def execute_parallel_phase(
+    phase: PipelinePhase,
+    base_input: dict[str, Any],
+    skills_dir: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Execute all steps in a phase concurrently via asyncio.gather."""
+    skills_dir = skills_dir or SKILLS_DIR
+    tasks = [
+        _execute_single_agent(step, base_input, skills_dir)
+        for step in phase.steps
+    ]
+    return list(await asyncio.gather(*tasks))
+
+
+async def stream_parallel_phase(
+    phase: PipelinePhase,
+    base_input: dict[str, Any],
+    skills_dir: Path | None = None,
+) -> AsyncGenerator[str, None]:
+    """SSE multiplexer — streams events from parallel agents tagged with agent_id."""
+    from agentura_sdk.runner.claude_code_executor import _should_use_claude_code
+    from agentura_sdk.types import AgentIteration as AgentIterationType
+    from agentura_sdk.types import SkillResult
+
+    skills_dir = skills_dir or SKILLS_DIR
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    agent_count = len(phase.steps)
+    done_count = 0
+
+    yield _sse("phase_started", {
+        "phase": phase.name,
+        "type": phase.type,
+        "agents": [s.agent_id or s.skill.replace("/", "-") for s in phase.steps],
+    })
+
+    async def _run_agent(step: PipelineStep) -> None:
+        agent_id = step.agent_id or step.skill.replace("/", "-")
+        step_start = time.monotonic()
+        await queue.put(_sse("agent_started", {"agent_id": agent_id, "skill": step.skill}))
+
+        try:
+            ctx = _build_skill_context(step.skill, base_input, skills_dir)
+            if ctx is None:
+                raise FileNotFoundError(f"Skill {step.skill} not found")
+
+            if ctx.role == SkillRole.AGENT:
+                result = None
+                from agentura_sdk.runner.ptc_executor import _should_use_ptc
+                if _should_use_ptc(ctx):
+                    from agentura_sdk.runner.ptc_executor import execute_ptc_streaming
+                    stream_fn = execute_ptc_streaming
+                elif _should_use_claude_code(ctx):
+                    from agentura_sdk.runner.claude_code_executor import execute_claude_code_streaming
+                    stream_fn = execute_claude_code_streaming
+                else:
+                    from agentura_sdk.runner.agent_executor import execute_agent_streaming
+                    stream_fn = execute_agent_streaming
+                async for event in stream_fn(ctx):
+                    if isinstance(event, AgentIterationType):
+                        await queue.put(_sse("iteration", {
+                            "agent_id": agent_id,
+                            **event.model_dump(),
+                        }))
+                    elif isinstance(event, SkillResult):
+                        result = event
+                if result is None:
+                    raise RuntimeError(f"Agent {step.skill} yielded no result")
+            else:
+                result = await execute_skill(ctx)
+
+            latency = (time.monotonic() - step_start) * 1000
+            exec_id = log_execution(ctx, result)
+            await queue.put(_sse("agent_completed", {
+                "agent_id": agent_id,
+                "skill": step.skill,
+                "success": result.success,
+                "execution_id": exec_id,
+                "latency_ms": latency,
+                "cost_usd": result.cost_usd,
+            }))
+        except Exception as e:
+            latency = (time.monotonic() - step_start) * 1000
+            await queue.put(_sse("agent_completed", {
+                "agent_id": agent_id,
+                "skill": step.skill,
+                "success": False,
+                "error": str(e),
+                "latency_ms": latency,
+            }))
+        finally:
+            await queue.put(None)  # signal this agent is done
+
+    # Launch all agents concurrently
+    for step in phase.steps:
+        asyncio.create_task(_run_agent(step))
+
+    # Drain the queue until all agents are done
+    while done_count < agent_count:
+        msg = await queue.get()
+        if msg is None:
+            done_count += 1
+        else:
+            yield msg
+
+    yield _sse("phase_completed", {"phase": phase.name})

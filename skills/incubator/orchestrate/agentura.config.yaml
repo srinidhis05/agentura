@@ -1,0 +1,37 @@
+domain:
+  name: incubator
+  description: "Miniapp Incubator — prototype to production pipeline for mobile features"
+  owner: "incubator-team"
+
+skills:
+  - name: orchestrate
+    path: orchestrate
+    role: manager
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.25"
+    triggers:
+      - type: api
+      - type: slack
+        pattern: "incubate {feature_request}"
+      - type: command
+        pattern: "incubate {feature}"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.25"
+    alert_at: "$0.20"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "Incubator Orchestrator"
+  subtitle: "Route feature requests to the right pipeline"
+  avatar: "IO"
+  color: "#f97316"
+  tags: ["Incubator", "Orchestrator", "Manager"]
+  conversation_starters:
+    - "Incubate a new expense tracker feature"
+    - "Build feature from Lovable prototype"
+    - "Refine existing incubator feature"

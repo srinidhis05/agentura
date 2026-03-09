@@ -22,6 +22,7 @@ class LoadedSkill:
     domain_context: str
     reflexion_context: str
     raw_content: str
+    injected_reflexion_ids: list[str] = field(default_factory=list)
 
 
 def load_workspace_md(skill_path: Path) -> str:
@@ -64,15 +65,16 @@ def load_domain_md(skill_path: Path) -> str:
     return ""
 
 
-def load_reflexion_entries(skill_path: Path) -> str:
+def load_reflexion_entries(skill_path: Path) -> tuple[str, list[str]]:
     """Load reflexion entries relevant to this skill from the knowledge layer.
 
     Strategy:
-    1. Try mem0 semantic memory (if available) — returns semantically relevant rules
-    2. Fall back to .agentura/reflexion_entries.json — exact skill-name matching
+    1. Try MemRL utility-scored retrieval (PgStore.get_top_reflexions) — best rules first
+    2. Try mem0 semantic memory (if available) — returns semantically relevant rules
+    3. Fall back to .agentura/reflexion_entries.json — exact skill-name matching
 
-    Returns formatted Markdown section for injection into system prompt,
-    or empty string if no entries exist.
+    Returns (formatted_markdown, list_of_reflexion_ids) for injection into system prompt.
+    Empty string + empty list if no entries exist.
     """
     # skill_path is e.g. skills/hr/interview-questions/SKILL.md
     # We need domain/skill-name = hr/interview-questions
@@ -82,15 +84,21 @@ def load_reflexion_entries(skill_path: Path) -> str:
     # Also match just the skill directory name
     skill_dir_name = skill_dir.name
 
-    # Try mem0 first
-    relevant = _load_reflexions_from_mem0(skill_name_full)
+    # Try MemRL utility-scored retrieval first (DEC-066)
+    relevant = _load_reflexions_from_store(skill_name_full)
+
+    # Try mem0 next
+    if not relevant:
+        relevant = _load_reflexions_from_mem0(skill_name_full)
 
     # Fall back to JSON files
     if not relevant:
         relevant = _load_reflexions_from_json(skill_name_full, skill_dir_name, skill_path)
 
     if not relevant:
-        return ""
+        return "", []
+
+    reflexion_ids = [e.get("reflexion_id", "") for e in relevant if e.get("reflexion_id")]
 
     lines = ["## Learned Rules (from past corrections)", ""]
     for entry in relevant:
@@ -99,12 +107,27 @@ def load_reflexion_entries(skill_path: Path) -> str:
         applies = entry.get("applies_when", "")
         confidence = entry.get("confidence", 0)
         validated = entry.get("validated_by_test", False)
+        source = entry.get("source", "correction")
 
         badge = " [validated]" if validated else ""
-        lines.append(f"- **{rid}** (confidence: {confidence:.0%}{badge}): {rule}")
+        source_badge = f" [{source}]" if source and source != "correction" else ""
+        lines.append(f"- **{rid}** (confidence: {confidence:.0%}{badge}{source_badge}): {rule}")
         if applies:
             lines.append(f"  _Applies when_: {applies}")
-    return "\n".join(lines)
+    return "\n".join(lines), reflexion_ids
+
+
+def _load_reflexions_from_store(skill_name_full: str) -> list[dict]:
+    """Try loading utility-scored reflexions from the memory store (PgStore/CompositeStore)."""
+    try:
+        from agentura_sdk.memory import get_memory_store
+
+        store = get_memory_store()
+        if hasattr(store, "get_top_reflexions"):
+            return store.get_top_reflexions(skill_name_full, limit=5, min_score=0.3)
+    except Exception:
+        pass
+    return []
 
 
 def _load_reflexions_from_mem0(skill_name_full: str) -> list[dict]:
@@ -165,7 +188,10 @@ def load_skill_md(skill_path: Path, include_reflexions: bool = True) -> LoadedSk
     raw = skill_path.read_text()
     workspace_context = load_workspace_md(skill_path)
     domain_context = load_domain_md(skill_path)
-    reflexion_context = load_reflexion_entries(skill_path) if include_reflexions else ""
+    if include_reflexions:
+        reflexion_context, injected_ids = load_reflexion_entries(skill_path)
+    else:
+        reflexion_context, injected_ids = "", []
 
     # Try standard frontmatter first (--- delimiters)
     post = frontmatter.loads(raw)
@@ -178,6 +204,7 @@ def load_skill_md(skill_path: Path, include_reflexions: bool = True) -> LoadedSk
             domain_context=domain_context,
             reflexion_context=reflexion_context,
             raw_content=raw,
+            injected_reflexion_ids=injected_ids,
         )
 
     # Fallback: YAML in ```yaml code fence under ## Skill Metadata
@@ -195,6 +222,7 @@ def load_skill_md(skill_path: Path, include_reflexions: bool = True) -> LoadedSk
             domain_context=domain_context,
             reflexion_context=reflexion_context,
             raw_content=raw,
+            injected_reflexion_ids=injected_ids,
         )
 
     raise ValueError(
@@ -216,6 +244,9 @@ def _parse_metadata(data: dict) -> SkillMetadata:
         ),
         timeout=str(data.get("timeout", "60s")),
         routes_to=data.get("routes_to", []),
+        triggers=data.get("triggers", []),
+        mcp_tools=data.get("mcp_tools", []),
+        display=data.get("display", {}),
     )
 
 

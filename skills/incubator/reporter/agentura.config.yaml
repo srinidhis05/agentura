@@ -1,0 +1,34 @@
+domain:
+  name: incubator
+  description: "Feature incubation — Lovable prototypes to production code"
+  owner: "product-team"
+
+skills:
+  - name: reporter
+    path: reporter
+    role: specialist
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.15"
+    triggers:
+      - type: pipeline
+        pattern: "incubator-build step reporter"
+      - type: pipeline
+        pattern: "incubator-refine step reporter"
+      - type: pipeline
+        pattern: "incubator-ship step reporter"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.15"
+    alert_at: "$0.10"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+
+display:
+  title: "Incubation Reporter"
+  subtitle: "Pipeline Summary"
+  avatar: "IR"
+  color: "#0ea5e9"
+  tags: ["Incubator", "Specialist", "Reporting"]

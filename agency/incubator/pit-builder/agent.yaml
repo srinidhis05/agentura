@@ -1,0 +1,19 @@
+name: pit-builder
+display_name: "Pit Builder"
+domain: incubator
+role: specialist
+executor: claude-code
+model: anthropic/claude-sonnet-4-5-20250929
+reports_to: incubator-lead
+status: idle
+skills:
+  - incubator/build-app
+budget:
+  monthly_limit_usd: 30
+  per_execution_limit: 2.00
+  alert_at_percent: 80
+delegation:
+  can_assign_to: []
+  max_concurrent_tickets: 2
+  autonomy_level: silent
+mcp_tools: []

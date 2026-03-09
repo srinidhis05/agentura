@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 )
@@ -40,17 +41,31 @@ type Client struct {
 }
 
 // NewClient creates an executor client.
+// Uses a short idle connection timeout so stale connections are discarded
+// when the executor pod restarts with a new IP (K8s service endpoint change).
 func NewClient(baseURL string, timeout time.Duration) *Client {
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 15 * time.Second,
+		}).DialContext,
+		MaxIdleConns:        20,
+		IdleConnTimeout:     30 * time.Second,
+		DisableKeepAlives:   false,
+		MaxIdleConnsPerHost: 10,
+	}
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: timeout,
+			Timeout:   timeout,
+			Transport: transport,
 		},
 		// SSE streams can run for minutes (agent execution). http.Client.Timeout
 		// covers the entire request lifecycle including body reads, so we use a
 		// zero-timeout client and rely on context cancellation instead.
 		streamingClient: &http.Client{
-			Timeout: 0,
+			Timeout:   0,
+			Transport: transport,
 		},
 	}
 }
@@ -200,6 +215,11 @@ func (c *Client) GetPromptAssembly(ctx context.Context, domain, skill string) (j
 	return c.getJSON(ctx, fmt.Sprintf("/api/v1/memory/prompt-assembly/%s/%s", domain, skill))
 }
 
+// Synthesize runs cortex memory synthesis on the executor (DEC-068).
+func (c *Client) Synthesize(ctx context.Context, body json.RawMessage) (json.RawMessage, error) {
+	return c.postJSON(ctx, "/api/v1/cortex/synthesize", body)
+}
+
 // ApproveExecution approves or rejects a pending execution as raw JSON passthrough.
 func (c *Client) ApproveExecution(ctx context.Context, executionID string, body json.RawMessage) (json.RawMessage, error) {
 	return c.postJSON(ctx, fmt.Sprintf("/api/v1/executions/%s/approve", executionID), body)
@@ -240,6 +260,42 @@ func (c *Client) FetchTriggers(ctx context.Context) ([]TriggerInfo, error) {
 		return nil, fmt.Errorf("parsing triggers response: %w", err)
 	}
 	return triggers, nil
+}
+
+// ListFleetSessions returns fleet sessions as raw JSON passthrough.
+func (c *Client) ListFleetSessions(ctx context.Context, query string) (json.RawMessage, error) {
+	path := "/api/v1/fleet/sessions"
+	if query != "" {
+		path += "?" + query
+	}
+	return c.getJSON(ctx, path)
+}
+
+// GetFleetSession returns fleet session detail with agents as raw JSON passthrough.
+func (c *Client) GetFleetSession(ctx context.Context, sessionID string) (json.RawMessage, error) {
+	return c.getJSON(ctx, fmt.Sprintf("/api/v1/fleet/sessions/%s", sessionID))
+}
+
+// StreamGet sends a GET and returns the raw *http.Response for SSE streaming.
+// The caller is responsible for closing resp.Body.
+func (c *Client) StreamGet(ctx context.Context, path string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.streamingClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling executor: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("executor returned %d: %s", resp.StatusCode, body)
+	}
+
+	return resp, nil
 }
 
 // StreamPost sends a POST and returns the raw *http.Response for SSE streaming.
@@ -295,6 +351,70 @@ func (c *Client) PostRaw(ctx context.Context, path string, payload []byte) (json
 	}
 
 	return json.RawMessage(respBody), nil
+}
+
+// ProxyGet sends a GET with optional query string to the executor (generic proxy).
+func (c *Client) ProxyGet(ctx context.Context, path string, query string) (json.RawMessage, error) {
+	if query != "" {
+		path += "?" + query
+	}
+	return c.getJSON(ctx, path)
+}
+
+// PutRaw sends a raw JSON payload via PUT to the executor and returns the response.
+func (c *Client) PutRaw(ctx context.Context, path string, payload []byte) (json.RawMessage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling executor: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("executor returned %d: %s", resp.StatusCode, respBody)
+	}
+
+	return json.RawMessage(respBody), nil
+}
+
+// DeleteRaw sends a DELETE to the executor and returns the response.
+func (c *Client) DeleteRaw(ctx context.Context, path string) (json.RawMessage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling executor: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("executor returned %d: %s", resp.StatusCode, respBody)
+	}
+
+	return json.RawMessage(respBody), nil
+}
+
+// UploadSkill uploads a skill definition to the executor.
+func (c *Client) UploadSkill(ctx context.Context, body json.RawMessage) (json.RawMessage, error) {
+	return c.postJSON(ctx, "/api/v1/skills/upload", body)
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, body any) (json.RawMessage, error) {
