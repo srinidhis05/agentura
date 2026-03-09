@@ -2692,15 +2692,6 @@ async def github_pr_pipeline(request: Request):
     return result
 
 
-@app.post("/api/v1/pipelines/github-pr-parallel")
-async def github_pr_parallel_pipeline(request: Request):
-    """Run the parallel PR review pipeline (fleet of concurrent agents)."""
-    data = await request.json()
-    from agentura_sdk.pipelines.github_pr_parallel import run_pr_parallel_pipeline
-
-    result = await run_pr_parallel_pipeline(data)
-    return result
-
 
 # ---------------------------------------------------------------------------
 # Fleet API — parallel pipeline session tracking

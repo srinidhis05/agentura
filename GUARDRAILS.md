@@ -104,6 +104,12 @@ Only proceed to implementation if at least question 1 has a concrete, evidence-b
 **Rule**: NEVER commit marketing copy, social media drafts, investor pitches, product vision docs, internal roadmaps, competitive analysis, or OSS-vs-Enterprise tier comparisons to a public repo. These belong in private docs (Notion, Google Docs, private repo). Before committing any `.md` file, verify it is technical documentation (architecture, onboarding, API reference), not business/strategy content. A feature comparison table in README.md is acceptable (standard for OSS); a dedicated competitive analysis doc is not.
 **Detection**: Any committed file containing: competitor names in positioning context, pricing tier comparisons, roadmap phases, go-to-market language, LinkedIn/Twitter drafts, or "Choose X if" competitive recommendations.
 
+## GR-023: Pipelines are YAML config, not Python files — no per-pipeline code (DEC-047)
+**Mistake**: Created `github_pr_parallel.py` (242 lines) that hardcoded fan-out logic, fleet session tracking, GitHub Checks API calls, and summary formatting for the PR review pipeline. This duplicated everything the generic `engine.py` already handles via `github-pr-parallel.yaml`, and set a precedent where every new pipeline would need its own Python file.
+**Impact**: Two code paths for the same pipeline. The generic engine evolved (SSE streaming, fleet tracking) while the hardcoded file fell behind. New contributors would copy the pattern and write more per-pipeline Python files.
+**Rule**: New pipeline = new YAML file in `pipelines/`. NEVER create a Python file per pipeline. The generic `engine.py` handles sequential steps, parallel phases, fan-in, fleet session tracking, and SSE streaming. Pipeline-specific side effects (GitHub Checks, Slack notifications, PR comments) should be post-execution hooks in config or YAML, not hardcoded Python.
+**Detection**: Any Python file under `sdk/agentura_sdk/pipelines/` that isn't `engine.py`, `github_client.py` (utility), or `__init__.py`.
+
 ## GR-012: "Done" means deployed, not compiled
 **Mistake**: After writing UI changes and fixing a backend bug, verified only that `next build` succeeded. Did not build Docker images or restart K8s pods. Changes sat on disk for the rest of the session while the user assumed they were live.
 **Impact**: User had to explicitly ask "are the changes deployed?" — wasted time, eroded trust.
