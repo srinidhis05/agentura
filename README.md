@@ -1,19 +1,29 @@
-# Agentura — AI That Gets Smarter, And Stays Yours
+# Agentura — Config-Driven AI Agent Orchestrator
 
 [![CI](https://github.com/srinidhis05/agentura/actions/workflows/ci.yml/badge.svg)](https://github.com/srinidhis05/agentura/actions/workflows/ci.yml)
 [![Website](https://img.shields.io/badge/Website-agenturaai.tech-blue)](https://agenturaai.tech)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 
-> Self-hosted AI agent orchestrator with config-driven skills, isolated K8s execution, and a learning loop that compounds. Corrections become reflexion rules, reflexions become system prompts, and every execution deepens a knowledge base that lives on your infrastructure.
+> Self-hosted AI agent orchestrator where skills are Markdown, pipelines are YAML, and every execution feeds a learning loop that compounds. No Python required to add capabilities — just `SKILL.md` + `agentura.config.yaml`.
 
 ```
-Correction → Reflexion → Prompt Injection → Better output
-              (the loop that compounds)
+SKILL.md (behavior) + config.yaml (executor, tools, limits) = Production agent
+Pipeline YAML (parallel phases, fan-in) = Multi-agent workflow
+Correction → Reflexion → Prompt injection = Learning loop that compounds
 ```
+
+## What's New
+
+**18 skills across 3 public domains**, orchestrated by **5 pipelines** and **6 agents**:
+
+- **4-Agent PR Review Fleet** — Code reviewer, test runner, SLT validator, and doc generator analyze PRs in parallel. A reporter aggregates severity-tagged findings into a single PR comment.
+- **Incubator Pipeline** — Takes a Lovable prototype and produces PRs in both backend (Spring Boot) and mobile (Kotlin/Compose) repos. 7 skills across 4 pipeline phases: analyze → build → refine → ship.
+- **Agency System** — Agents with personality (SOUL.md), schedules (HEARTBEAT.md), and domain context (DOMAIN.md). Hierarchical delegation with budget controls.
+- **MCP Gateway Integration** — External tools (Gmail, Notion, Slack, ClickUp, Granola) connected via centralized auth broker. Skills declare tool access in config.
 
 ## Demo
 
-### Full Demo — Skills, Pipelines & Learning Loop
+### Full Platform Demo
 
 https://github.com/srinidhis05/agentura/raw/main/docs/assets/Agentura-Final.mp4
 
@@ -26,84 +36,133 @@ https://github.com/srinidhis05/agentura/raw/main/docs/assets/Agentura-Final.mp4
 4. **Dashboard** — Domain topology, execution history, knowledge layer
 </details>
 
-### CLI — The Learning Loop in Action
+### CLI — Learning Loop in Action
 
 https://github.com/user-attachments/assets/213bc72a-bbfe-477e-ad59-18bc1ba5360b
 
-<details>
-<summary>What you're seeing</summary>
-
-1. **List skills** — 10 skills across 4 domains, deployed as config
-2. **Run a skill** — HR interview questions generated via Claude Sonnet
-3. **Correct a mistake** — "Need more system design depth" → reflexion rule + test auto-generated
-4. **Re-run** — Same skill now includes the learned rule in its prompt
-</details>
-
-### Web UI — Chat + Dashboard
+### Web Dashboard
 
 https://github.com/user-attachments/assets/48519761-0369-4f5d-9d99-9e5bd9cfc146
 
-<details>
-<summary>What you're seeing</summary>
-
-1. **Chat interface** — Natural language routing to the right skill
-2. **Dashboard** — Domain topology, execution history, knowledge layer
-3. **Skill detail** — Full SKILL.md rendered with config, guardrails, and metrics
-</details>
-
-## What Is This?
-
-Cloud AI forgets you between sessions. Agentura remembers everything.
-
-Skills are **Markdown + YAML config** — not Python code. You define behavior in `SKILL.md`, wire executor types, MCP tools, and guardrails in `agentura.config.yaml`, and chain skills into pipelines with a YAML file. The platform handles execution in isolated K8s pods, memory recall, and the learning loop.
-
-| Concept | What It Means |
-|---------|--------------|
-| **Skill** | SKILL.md (behavior) + config YAML (executor, tools, limits) — no code |
-| **Executor** | How the skill runs: `ptc` (tool-calling), `claude-code` (sandbox), or legacy (in-process) |
-| **Pipeline** | Multi-skill workflow in YAML — each step's output flows to the next |
-| **Domain** | Namespace for isolation (dev/, hr/, productivity/) |
-| **MCP Tools** | External integrations (kubectl, Slack, GitHub, databases) scoped per skill |
-| **Learning Loop** | Correction → reflexion rule → test → prompt injection on next run |
-| **Triggers** | Slack, GitHub webhooks, cron, REST API, CLI |
-
-**The difference**: Every execution feeds a learning loop. Corrections generate reflexion rules that get injected into future prompts, plus DeepEval regression tests. Over time, your skills accumulate domain-specific guardrails stored in PostgreSQL — searchable, versioned, and yours.
+<!-- TODO: Add screenshots of the new dashboard pages
+![Agents Dashboard](docs/assets/agents-dashboard.png)
+![Fleet Session](docs/assets/fleet-session.png)
+![Org Chart](docs/assets/org-chart.png)
+-->
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│          User / Chat Client                                   │
-│  Chat UI · CLI · Slack · REST API · GitHub Webhooks           │
+│          User / Chat Client                                 │
+│  Chat UI · CLI · Slack · REST API · GitHub Webhooks         │
 └──────────────────────────┬──────────────────────────────────┘
                            │ HTTP + SSE streaming
 ┌──────────────────────────▼──────────────────────────────────┐
-│         Go API Gateway (3001 / NodePort 30080)               │
-│  Auth · CORS · Rate Limiting (RPS + Burst) · SSE Streaming   │
-│  Pipeline Router · Cron Scheduler · Webhook Handler           │
+│         Go API Gateway (3001 / NodePort 30080)              │
+│  Auth · CORS · Rate Limiting · SSE Streaming · Cron         │
+│  Pipeline Router · Slack Socket/Webhook · GitHub Checks     │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
-│           Python Skill Executor (8000)                       │
-│  Executor Router (PTC/CC/Legacy) · Skill Loader · Pipelines  │
-│  Memory Recall (prompt injection) · Pipeline Engine           │
+│           Python Skill Executor (8000)                      │
+│  Executor Router (PTC/CC/Legacy) · Skill Loader · Pipelines │
+│  Memory Recall · Agency Loader · Startup Validation         │
 └───────┬──────────────┬──────────────┬───────────────────────┘
         │              │              │ creates per-execution pods
 ┌───────▼───────┐ ┌────▼────────┐ ┌──▼──────────────────────┐
-│ Agent Pods    │ │ MCP Servers │ │ PostgreSQL + Qdrant     │
+│ Agent Pods    │ │ MCP Gateway │ │ PostgreSQL              │
 │ PTC Worker    │ │ kubectl     │ │ Executions, corrections │
-│ CC Worker     │ │ Slack       │ │ Reflexions, vector      │
-│ Deployed Apps │ │ GitHub      │ │ search (semantic recall)│
-└───────────────┘ └─────────────┘ └─────────────────────────┘
+│ CC Worker     │ │ Slack       │ │ Reflexions, agents      │
+│ Deployed Apps │ │ GitHub      │ │ Fleet sessions, tickets │
+└───────────────┘ │ Gmail, etc  │ └─────────────────────────┘
+                  └─────────────┘
 ```
 
-### Three Executor Types
+### Executor Types
 
 | Executor | Config | Pod Size | Use Case |
 |----------|--------|----------|----------|
-| **PTC Worker** | `executor: ptc` | ~200MB, 1 CPU | Tool-calling via MCP (K8s deployer, API workflows) |
-| **Claude Code Worker** | `executor: claude-code` | ~800MB, 2 CPU | File I/O + bash + code editing (app builder, code gen) |
-| **Legacy** | No executor field | No extra pod | Simple prompt-response (email drafter, summarizer) |
+| **PTC Worker** | `executor: ptc` | ~200MB | MCP tool-calling (deployer, API workflows, meeting processor) |
+| **Claude Code Worker** | `executor: claude-code` | ~800MB | File I/O + bash + code gen (app builder, code reviewer, pit builder) |
+| **Legacy** | No executor field | No extra pod | Simple prompt-response (summarizer, classifier) |
+
+## Skills
+
+### `dev/` — Developer Productivity (8 skills)
+
+| Skill | Role | What It Does |
+|-------|------|--------------|
+| `triage` | Manager | Routes dev queries to the right pipeline ($0.01, Haiku) |
+| `app-builder` | Agent | Builds web apps from natural language descriptions |
+| `deployer` | Agent | Deploys apps to K8s via MCP kubectl tools |
+| `pr-code-reviewer` | Agent | Severity-tagged code review (BLOCKER/WARNING/SUGGESTION/PRAISE) |
+| `pr-test-runner` | Agent | Runs tests, reports coverage gaps with evidence |
+| `pr-slt-validator` | Agent | API contract compatibility and breaking change detection |
+| `pr-doc-generator` | Agent | Generates CHANGELOG entries, README patches, docstrings |
+| `pr-reporter` | Specialist | Aggregates parallel PR review results into one comment |
+
+### `incubator/` — Prototype-to-Production (7 skills)
+
+| Skill | Role | What It Does |
+|-------|------|--------------|
+| `orchestrate` | Manager | Routes to analyze/build/refine/ship pipelines |
+| `spec-analyzer` | Specialist | Decomposes prototypes into backend + mobile specs |
+| `pit-builder` | Agent | Creates Spring Boot backend module, pushes PR |
+| `mobile-builder` | Agent | Creates Kotlin/Compose feature module, pushes PR + APK |
+| `quality-gate` | Agent | Clones repos at feature branch, builds, checks conventions |
+| `preview-generator` | Agent | Generates phone-frame preview screenshots |
+| `reporter` | Specialist | Aggregates pipeline results into PM-facing summary |
+
+### `examples/` — Reference Implementations (3 skills)
+
+| Skill | Pattern | What It Demonstrates |
+|-------|---------|---------------------|
+| `ticket-classifier` | Triage routing | Multi-route classification with entity extraction |
+| `meeting-processor` | MCP integration | External tool orchestration (calendar + tasks + messaging) |
+| `daily-digest` | Cron trigger | Scheduled multi-source aggregation with graceful degradation |
+
+## Pipelines
+
+### PR Review Fleet — 4 Agents in Parallel
+
+```
+GitHub PR Webhook (opened / synchronize)
+         │
+    ┌────┴────────────────────────────┐
+    │       analyze (parallel)        │
+    │  ┌──────────┐ ┌──────────────┐  │
+    │  │ reviewer  │ │ test-runner  │  │
+    │  │(required) │ │ (required)   │  │
+    │  └──────────┘ └──────────────┘  │
+    │  ┌──────────┐ ┌──────────────┐  │
+    │  │   slt    │ │ doc-generator│  │
+    │  │(optional)│ │ (optional)   │  │
+    │  └──────────┘ └──────────────┘  │
+    └────────────┬────────────────────┘
+                 │ fan-in
+    ┌────────────▼────────────────────┐
+    │     report (sequential)         │
+    │  ┌──────────────────────────┐   │
+    │  │      pr-reporter         │   │
+    │  │  Aggregated PR comment   │   │
+    │  └──────────────────────────┘   │
+    └─────────────────────────────────┘
+```
+
+### Incubator — Prototype to Production
+
+```
+incubator-analyze → incubator-build → incubator-refine → incubator-ship
+
+Build phase:
+  pit-builder ──┐
+                ├── quality-gate ── reporter
+  mobile-builder┘
+  (parallel)        (sequential fan-in)
+```
+
+Each pipeline is a YAML file in `pipelines/`. New pipeline = new YAML. Zero code changes.
 
 ## Quick Start
 
@@ -113,14 +172,15 @@ git clone https://github.com/srinidhis05/agentura.git
 cd agentura
 
 # 2. Configure
-cp .env.example .env   # add your ANTHROPIC_API_KEY or OPENROUTER_API_KEY
+cp .env.example .env   # add your ANTHROPIC_API_KEY
 
 # 3. Deploy to K8s (K3s / Kind / EKS / GKE)
 kubectl apply -f deploy/k8s/operator/
-kubectl get pods -n agentura   # verify all pods running
+kubectl get pods -n agentura
 
-# 4. Copy skills and start building
+# 4. Copy skills and run
 kubectl cp skills/ executor:/skills/
+agentura list
 agentura run dev/app-builder --input '{"description": "build a counter app"}'
 
 # Gateway: http://localhost:30080
@@ -146,23 +206,14 @@ agentura correct dev/app-builder \
     --execution-id EXEC-20260228 \
     --correction "Always use dark theme with purple accent"
 
-# What happens:
-# ✓ Correction stored in PostgreSQL
-# ✓ Reflexion generated: "User prefers dark mode with purple accent (#8b5cf6)"
-# ✓ Regression test written to tests/generated/test_correction_3.py
-
-# 3. Next execution automatically recalls the reflexion and injects it into the prompt
+# 3. Next run automatically applies the learned reflexion
 agentura run dev/app-builder --input '{"description": "build a counter app"}'
-# → Agent now applies dark theme without being told
+# → Dark theme applied without being told
 ```
-
-See [docs/memory-system.md](docs/memory-system.md) for the full feedback loop, data schemas, and CLI reference.
 
 ## Create a Skill
 
-A skill is a Markdown file (`SKILL.md`) + config YAML (`agentura.config.yaml`). No Python required.
-
-**SKILL.md** — defines behavior:
+A skill is `SKILL.md` (behavior) + `agentura.config.yaml` (execution). No Python required.
 
 ```markdown
 ---
@@ -176,181 +227,121 @@ model: anthropic/claude-sonnet-4-5
 You receive app artifacts and deploy them to Kubernetes via kubectl.
 
 ## Guardrails
-- Always use NodePort services for external access
+- Always use NodePort services
 - Never deploy to the default namespace
 ```
 
-**agentura.config.yaml** — defines execution config:
-
 ```yaml
+# agentura.config.yaml
 agent:
-  executor: ptc              # or claude-code, or omit for legacy
+  executor: ptc
   timeout: 120
-  max_iterations: 15
-  max_tokens: 16384
 
 mcp_tools:
   - server: k8s
-    tools: [kubectl_apply, kubectl_get, kubectl_delete]
-
-triggers:
-  - type: api
-  - type: cron
-    schedule: "0 9 * * 1-5"
+    tools: [kubectl_apply, kubectl_get]
 
 display:
-  icon: "rocket"
-  color: "#f59e0b"
-  conversation_starters:
-    - "Deploy the latest build to staging"
+  title: "Deployer"
+  avatar: "DP"
+  color: "#059669"
+  tags: ["Agent", "K8s"]
 ```
 
-**Pipeline YAML** — chain skills into workflows:
+See [docs/SKILL_ONBOARDING.md](docs/SKILL_ONBOARDING.md) for the full authoring guide.
+
+## Agency System
+
+Agents are defined as YAML + Markdown, not code:
+
+```
+agency/
+  {domain}/
+    {agent-name}/
+      agent.yaml      # Role, skills, budget, delegation rules
+      SOUL.md          # Personality and behavioral guidelines
+      HEARTBEAT.md     # Scheduled check-in protocol
+```
 
 ```yaml
-# pipelines/build-deploy.yaml
-name: build-deploy
-steps:
-  - skill: dev/app-builder    # builds the app
-  - skill: dev/deployer       # deploys to K8s
-# app-builder artifacts automatically flow to deployer as input
+# agency/incubator/pit-builder/agent.yaml
+name: pit-builder
+domain: incubator
+role: field
+executor: claude-code
+model: anthropic/claude-sonnet-4-5-20250929
+reports_to: incubator-lead
+skills:
+  - incubator/pit-builder
+budget:
+  monthly_limit_usd: 100
+  per_execution_limit: 3.00
+delegation:
+  autonomy_level: silent
 ```
-
-New pipeline = new YAML file in `pipelines/`. Zero code changes.
-
-## Triggers
-
-Skills and pipelines can be triggered from multiple sources:
-
-| Trigger | How | Config |
-|---------|-----|--------|
-| **CLI** | `agentura run dev/app-builder` | Always available |
-| **REST API** | `POST /api/v1/skills/{domain}/{skill}/execute` | Always available |
-| **Slack** | @mention, DM, or `/agentura` slash command | `type: slack` in config |
-| **GitHub** | PR opened/updated triggers review pipeline | Webhook handler in gateway |
-| **Cron** | Gateway discovers cron triggers from config | `type: cron` + schedule |
-| **Webhooks** | HMAC-signed inbound from any external system | `POST /api/v1/channels/{channel}/inbound` |
 
 ## Project Structure
 
 ```
 agentura/
-├── sdk/                          # Python SDK + Skill Executor
+├── sdk/                              # Python SDK + Skill Executor
 │   └── agentura_sdk/
-│       ├── server/app.py         # FastAPI server (all endpoints)
-│       ├── pipelines/engine.py   # Generic pipeline executor (YAML-driven)
+│       ├── server/app.py             # FastAPI (all endpoints + startup validation)
+│       ├── pipelines/engine.py       # Pipeline executor (parallel phases, fan-in)
 │       ├── runner/
-│       │   ├── skill_loader.py   # Loads SKILL.md + DOMAIN.md + reflexions
-│       │   ├── local_runner.py   # Pydantic AI execution engine
-│       │   ├── agent_executor.py # Agent loop (tool calling, write-loop detection)
-│       │   ├── claude_code_executor.py  # Claude Code worker pod executor
-│       │   └── openrouter.py     # OpenRouter LLM provider
-│       ├── sandbox/
-│       │   ├── k8s_sandbox.py    # K8s sandbox (production)
-│       │   └── claude_code_worker.py   # Worker pod lifecycle
-│       ├── memory/mem0_store.py  # CompositeStore (PostgreSQL + Qdrant)
-│       ├── cli/
-│       │   ├── run.py            # agentura run
-│       │   └── correct.py        # agentura correct (learning loop)
-│       └── testing/
-│           └── deepeval_runner.py # Auto-generate DeepEval tests
+│       │   ├── skill_loader.py       # Loads SKILL.md + DOMAIN.md + reflexions
+│       │   ├── ptc_executor.py       # PTC worker pod executor
+│       │   └── claude_code_executor.py  # CC worker pod executor
+│       ├── agency/                   # Agent definitions + heartbeat scheduler
+│       ├── memory/                   # PostgreSQL stores (executions, reflexions, agents)
+│       └── cli/                      # agentura CLI (run, deploy, correct, create, ...)
 │
-├── gateway/                      # Go API Gateway
-│   ├── cmd/server/main.go
+├── gateway/                          # Go API Gateway
 │   └── internal/
-│       ├── handler/              # HTTP handlers (skills, pipelines, webhooks)
-│       ├── adapter/executor/     # Python executor client (SSE streaming)
-│       └── middleware/           # Auth, CORS, rate limit, metrics
+│       ├── handler/                  # Skills, pipelines, Slack, GitHub, agents, heartbeats
+│       └── adapter/executor/         # Python executor client (SSE streaming)
 │
-├── web/                          # Next.js Dashboard + Landing Page
-│   └── src/
-│       ├── app/(marketing)/      # Landing page (agenturaai.tech)
-│       ├── app/(chat)/           # Chat interface (/chat)
-│       ├── app/(dashboard)/      # Admin dashboard (/dashboard/*)
-│       └── lib/                  # API client, chat state
+├── web/                              # Next.js Dashboard
+│   └── src/app/(dashboard)/
+│       ├── agents/                   # Agent cards + detail views
+│       ├── fleet/                    # Fleet session tracking
+│       ├── executions/               # Execution history + traces
+│       ├── heartbeats/               # Heartbeat schedule dashboard
+│       └── org-chart/                # Agency hierarchy visualization
 │
-├── skills/                       # Skill definitions (config, not code)
-│   ├── platform/classifier/      # Routes to correct domain
-│   ├── dev/
-│   │   ├── triage/               # Domain router
-│   │   ├── app-builder/          # Agent: builds apps in sandbox
-│   │   └── deployer/             # Agent: deploys to K8s via MCP
-│   ├── hr/
-│   │   ├── triage/               # Domain router
-│   │   ├── resume-screener/      # Resume evaluation
-│   │   └── onboarding-guide/     # 30-day onboarding plans
-│   └── productivity/
-│       ├── triage/               # Domain router
-│       ├── meeting-summarizer/   # Meeting notes + action items
-│       └── email-drafter/        # Professional email drafting
+├── skills/                           # Skill definitions (Markdown + YAML)
+│   ├── dev/                          # 8 skills: PR fleet, app-builder, deployer, triage
+│   ├── incubator/                    # 7 skills: prototype → production pipeline
+│   └── examples/                     # 3 reference implementations
 │
-├── mcp-servers/k8s/              # K8s MCP server (kubectl operations)
-├── deploy/k8s/operator/          # K8s deployment manifests
-├── pipelines/                    # Pipeline definitions (YAML config)
-│   └── build-deploy.yaml         # Build app → deploy to K8s
+├── agency/                           # Agent definitions (YAML + SOUL.md + HEARTBEAT.md)
+│   └── incubator/                    # 6 agents: lead, spec-analyzer, builders, QA, reporter
 │
-├── DECISIONS.md                  # Architecture Decision Records
-└── GUARDRAILS.md                 # Anti-patterns and detection rules
+├── pipelines/                        # Pipeline orchestration (YAML)
+│   ├── github-pr-parallel.yaml       # 4-agent PR review fleet
+│   └── incubator-*.yaml              # 4-phase incubation pipeline
+│
+├── claude-code-worker/               # CC worker Docker image
+├── ptc-worker/                       # PTC worker Docker image
+├── deploy/k8s/operator/              # K8s deployment manifests
+└── docs/                             # Architecture, onboarding, MCP gateway
 ```
-
-## Security
-
-| Feature | Status |
-|---------|--------|
-| HMAC webhook verification (SHA-256) | Built |
-| JWT + domain-scoped RBAC | Built |
-| Ephemeral agent pods (created per-execution, destroyed after) | Built |
-| Rate limiting (RPS + burst control) | Built |
-| Scoped MCP tool bindings (per-skill tool access) | Built |
-| Memory governance (ACL, PII scanning, retention/TTL, audit) | Roadmap |
 
 ## How It Compares
 
 | Feature | Agentura | CrewAI | LangGraph | AutoGen |
 |---------|----------|--------|-----------|---------|
 | Skills as config (no code) | SKILL.md + YAML | Python classes | Python graphs | Python agents |
-| Multi-skill pipelines | YAML config | Python (sequential/hierarchical) | Python graphs | Python conversations |
+| Parallel multi-agent pipelines | YAML phases + fan-in | Sequential/hierarchical | Python graphs | Conversations |
 | Learning loop | Correction → Reflexion → Test | None | None | None |
-| Auto test generation | DeepEval regression tests | None | None | None |
+| Agent personality & schedules | SOUL.md + HEARTBEAT.md | None | None | None |
 | Domain isolation | Namespace-scoped domains | None | None | None |
-| MCP integration | Per-skill tool bindings | None | None | None |
+| MCP tool integration | Per-skill tool bindings | None | None | None |
 | Agent sandbox | Isolated K8s pods per execution | Shared process | Shared process | Shared process |
 | Multiple executor types | PTC / Claude Code / Legacy | Single runtime | Single runtime | Single runtime |
-| Trigger sources | Slack, GitHub, cron, webhooks, API | Code-only | Code-only | Code-only |
-| Self-hosted | K8s-native, Apache 2.0 | Cloud or self-hosted | Cloud or self-hosted | Self-hosted |
-
-## API Endpoints
-
-### Skills
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/skills` | List all skills |
-| GET | `/api/v1/skills/{domain}/{skill}` | Skill detail |
-| POST | `/api/v1/skills/{domain}/{skill}/execute` | Execute a skill |
-| POST | `/api/v1/skills/{domain}/{skill}/correct` | Submit correction |
-
-### Pipelines
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/pipelines` | List available pipelines |
-| POST | `/api/v1/pipelines/{name}/execute` | Run a pipeline |
-| POST | `/api/v1/pipelines/{name}/execute-stream` | Run with SSE streaming |
-
-### Knowledge
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/knowledge/reflexions` | List reflexion rules |
-| GET | `/api/v1/knowledge/corrections` | List corrections |
-| GET | `/api/v1/knowledge/tests` | List generated tests |
-| GET | `/api/v1/knowledge/stats` | Learning metrics |
-
-### Platform
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/domains` | List domains with health |
-| GET | `/api/v1/executions` | Execution history |
-| GET | `/api/v1/events` | Unified event stream |
-| GET | `/api/v1/platform/health` | Component health |
+| Triggers | Slack, GitHub, cron, webhooks, API | Code-only | Code-only | Code-only |
+| Fleet session tracking | PostgreSQL + dashboard | None | None | None |
+| Self-hosted | K8s-native, Apache 2.0 | Cloud or self-host | Cloud or self-host | Self-hosted |
 
 ## Tech Stack
 
@@ -359,23 +350,22 @@ agentura/
 | Skill Executor | Python 3.13, FastAPI, Pydantic AI |
 | API Gateway | Go 1.24, net/http, Prometheus |
 | Dashboard | Next.js 16, React 19, Tailwind, shadcn/ui |
-| Agent Pods | PTC (Python) and Claude Code (Python + Node.js 20) workers |
-| MCP Servers | K8s MCP (Go, kubectl operations) |
-| Memory | PostgreSQL 16 + Qdrant (semantic vector search) |
-| LLM | Claude Sonnet 4.5 via OpenRouter or Anthropic SDK |
+| Agent Pods | PTC (Python) and Claude Code (Python + Node.js) workers |
+| MCP Servers | K8s MCP (Go), external via MCP gateway |
+| Storage | PostgreSQL 16 |
+| LLM | Claude Sonnet 4.5 / Haiku 4.5 via Anthropic or OpenRouter |
 | Runtime | Kubernetes (pods in `agentura` namespace) |
-| Testing | DeepEval (auto-generated regression tests) |
 
 ## Documentation
 
 | Guide | Description |
 |-------|-------------|
-| [Architecture](docs/architecture.md) | Core design principles — choreography, isolation, reconciliation |
-| [Skill Format](docs/skill-format.md) | SKILL.md specification — frontmatter, sections, prompt hierarchy |
-| [Memory System](docs/memory-system.md) | Feedback loop, data schemas, memory store backends |
-| [CLI Reference](docs/cli-reference.md) | CLI commands and operational workflows |
-| [Triggers & Channels](docs/triggers-and-channels.md) | Cron, Slack, webhooks |
-| [Comparisons](docs/comparisons.md) | Agentura vs CrewAI, LangGraph, AutoGen |
+| [Skill Onboarding](docs/SKILL_ONBOARDING.md) | Full skill authoring lifecycle guide |
+| [MCP Gateway](docs/mcp-gateway-architecture.md) | External tool integration via auth broker |
+| [Open Source Edition](docs/OPENSOURCE_EDITION.md) | OSS vs Enterprise tier comparison |
+| [DX Roadmap](docs/DX_ROADMAP.md) | Developer experience improvement plan |
+| [Skills Reference](skills/README.md) | All 18 skills with patterns and executors |
+| [Pipelines Reference](pipelines/README.md) | Pipeline architecture and examples |
 
 ## License
 
@@ -383,4 +373,4 @@ Apache 2.0
 
 ---
 
-*Self-hostable AI agent orchestration with memory that compounds.*
+*Config-driven AI agent orchestration with memory that compounds.*
