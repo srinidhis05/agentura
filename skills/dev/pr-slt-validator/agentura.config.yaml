@@ -26,6 +26,13 @@ guardrails:
 feedback:
   capture_corrections: true
   auto_generate_tests: false
+  capture_failure_cases: true
+
+verify:
+  enabled: true
+  criteria:
+    - "API compatibility checks were performed against the service contract"
+    - "Output clearly states pass or fail with specific findings"
 
 display:
   title: "SLT Validator"
