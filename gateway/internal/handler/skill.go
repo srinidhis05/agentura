@@ -170,6 +170,24 @@ func (h *SkillHandler) ApproveExecution(w http.ResponseWriter, r *http.Request) 
 	w.Write(raw)
 }
 
+// ProxyGet forwards a GET request to the executor, preserving path and query string.
+func (h *SkillHandler) ProxyGet(w http.ResponseWriter, r *http.Request) {
+	raw, err := h.executor.ProxyGet(r.Context(), r.URL.Path, r.URL.RawQuery)
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	// Detect HTML content (OAuth callback returns HTML)
+	if len(raw) > 0 && raw[0] == '<' {
+		w.Header().Set("Content-Type", "text/html")
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write(raw)
+}
+
 func (h *SkillHandler) Correct(w http.ResponseWriter, r *http.Request) {
 	domain := r.PathValue("domain")
 	skill := r.PathValue("skill")

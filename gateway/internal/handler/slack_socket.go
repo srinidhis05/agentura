@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -86,8 +87,12 @@ func (m *SlackSocketManager) runSocket(ctx context.Context, client *socketmode.C
 					slog.Error("slack socket: connection error", "app", app.Name, "data", fmt.Sprintf("%v", evt.Data))
 				}
 
+			case socketmode.EventTypeInteractive:
+				client.Ack(*evt.Request)
+				m.handleSocketInteractive(app, evt)
+
 			default:
-				// ignore interactive_message, etc.
+				// ignore other event types
 			}
 		}
 	}()
@@ -147,6 +152,7 @@ func (m *SlackSocketManager) handleSocketMessage(app *config.SlackAppConfig, cha
 	}
 
 	cmd := parseSlackCommand(cleanText)
+	cmd.UserID = user
 
 	slog.Info("slack socket: message",
 		"app", app.Name,
@@ -174,28 +180,68 @@ func (m *SlackSocketManager) handleSocketMessage(app *config.SlackAppConfig, cha
 
 	// Dispatch async
 	go func() {
-		result := m.dispatchAndFormat(app, channel, user, cmd, replyTS)
+		result, finalCmd := m.dispatchAndFormat(app, channel, user, cmd, threadTS, replyTS)
 
 		if typingReaction != "" {
 			removeSlackReaction(app.BotToken, channel, ts, typingReaction)
 		}
 
+		var postedTS string
 		if replyTS != "" && replyTS != ts {
-			postSlackThreadReply(app.BotToken, channel, replyTS, result)
+			postedTS, _ = postSlackThreadReply(app.BotToken, channel, replyTS, result)
 		} else {
-			postSlackMessage(app.BotToken, channel, result)
+			postedTS, _ = postSlackMessage(app.BotToken, channel, result)
+		}
+
+		// Thread registration: remember skill for thread continuity
+		if finalCmd.Action == "run" && finalCmd.Target != "" && !strings.HasPrefix(result, "Error:") {
+			regKey := threadTS
+			if regKey == "" {
+				regKey = postedTS
+			}
+			if regKey != "" {
+				turn := 1
+				if entry := lookupThread(app.Name, channel, threadTS); entry != nil {
+					turn = entry.turn + 1
+				}
+				registerThread(app.Name, channel, regKey, finalCmd.Target, result, extractEntities(finalCmd.Input), user, turn)
+			}
 		}
 	}()
 }
 
 // ---------- Dispatch (reuses same logic as HTTP handler) ----------
 
-func (m *SlackSocketManager) dispatchAndFormat(app *config.SlackAppConfig, channel, user string, cmd slackCommand, threadTS string) string {
+func (m *SlackSocketManager) dispatchAndFormat(app *config.SlackAppConfig, channel, user string, cmd slackCommand, origThreadTS, replyTS string) (string, slackCommand) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	// For auto commands, try command aliases first
-	if cmd.Action == "auto" {
+	// Thread continuity: thread replies skip triage, reuse previous skill
+	if origThreadTS != "" && cmd.Action == "auto" {
+		if entry := lookupThread(app.Name, channel, origThreadTS); entry != nil {
+			cmd = slackCommand{
+				Action: "run",
+				Target: entry.skill,
+				Input: map[string]any{
+					"text": cmd.Text,
+					"thread_context": map[string]any{
+						"previous_output": entry.lastOutput,
+						"turn":            entry.turn + 1,
+					},
+				},
+				Text:   cmd.Text,
+				UserID: cmd.UserID,
+			}
+			for k, v := range entry.entities {
+				cmd.Input[k] = v
+			}
+			slog.Info("thread continuity: reusing skill", "app", app.Name, "skill", entry.skill, "turn", entry.turn+1)
+		}
+	}
+
+	// For auto commands: if the app has a domain triage skill, let triage route.
+	// Only use command aliases for non-domain-scoped apps (no triage available).
+	if cmd.Action == "auto" && app.DomainScope == "" {
 		if aliasCmd := matchCommandAlias(cmd.Text, app); aliasCmd != nil {
 			cmd = *aliasCmd
 		}
@@ -214,7 +260,11 @@ func (m *SlackSocketManager) dispatchAndFormat(app *config.SlackAppConfig, chann
 	case "help":
 		result = m.helpText(app)
 	default:
-		result, err = m.dispatchAuto(ctx, app, cmd)
+		var routedCmd slackCommand
+		result, routedCmd, err = m.dispatchAuto(ctx, app, cmd)
+		if routedCmd.Target != "" {
+			cmd = routedCmd
+		}
 	}
 
 	if err != nil {
@@ -222,7 +272,7 @@ func (m *SlackSocketManager) dispatchAndFormat(app *config.SlackAppConfig, chann
 		result = fmt.Sprintf("Error: %s", err)
 	}
 
-	return result
+	return result, cmd
 }
 
 func (m *SlackSocketManager) dispatchSkill(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, error) {
@@ -247,7 +297,7 @@ func (m *SlackSocketManager) dispatchSkill(ctx context.Context, app *config.Slac
 		inputData = map[string]any{}
 	}
 
-	resp, err := m.executor.Execute(ctx, skillDomain, skillName, executor.ExecuteRequest{InputData: inputData})
+	resp, err := m.executor.Execute(ctx, skillDomain, skillName, executor.ExecuteRequest{InputData: inputData, UserID: cmd.UserID})
 	if err != nil {
 		return "", fmt.Errorf("executing %s: %w", cmd.Target, err)
 	}
@@ -307,20 +357,71 @@ func (m *SlackSocketManager) listSkills(ctx context.Context, app *config.SlackAp
 	return sb.String(), nil
 }
 
-func (m *SlackSocketManager) dispatchAuto(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, error) {
-	// Domain-scoped bots: route unmatched messages to the domain's triage skill.
-	// If triage fails (404), fall back to help text.
+func (m *SlackSocketManager) dispatchAuto(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, slackCommand, error) {
+	// Domain-scoped bots: route through triage, then chain to routed skill.
 	if app.DomainScope != "" {
-		target := app.DomainScope + "/triage"
 		inputData := map[string]any{"text": cmd.Text}
-		autoCmd := slackCommand{Action: "run", Target: target, Input: inputData, Text: cmd.Text}
-		result, err := m.dispatchSkill(ctx, app, autoCmd)
-		if err == nil {
-			return result, nil
+		resp, err := m.executor.Execute(ctx, app.DomainScope, "triage", executor.ExecuteRequest{InputData: inputData, UserID: cmd.UserID})
+		if err != nil {
+			slog.Debug("dispatchAuto: triage call failed", "domain", app.DomainScope, "error", err)
+			return m.helpText(app) + "\n\n_Type `help` to see available commands._", cmd, nil
 		}
-		slog.Debug("dispatchAuto: triage fallback failed", "domain", app.DomainScope, "error", err)
+
+		routeTo, entities := parseTriageRoute(resp)
+		if routeTo != "" {
+			routeInput := map[string]any{"text": cmd.Text}
+			for k, v := range entities {
+				routeInput[k] = v
+			}
+			routedCmd := slackCommand{Action: "run", Target: routeTo, Input: routeInput, Text: cmd.Text, UserID: cmd.UserID}
+			result, err := m.dispatchSkill(ctx, app, routedCmd)
+			if err == nil {
+				return result, routedCmd, nil
+			}
+			slog.Error("dispatchAuto: routed skill failed", "skill", routeTo, "error", err)
+			return "", routedCmd, err
+		}
 	}
-	return m.helpText(app) + "\n\n_Type `help` to see available commands._", nil
+	return m.helpText(app) + "\n\n_Type `help` to see available commands._", cmd, nil
+}
+
+// checkOAuthConnections queries the executor for the user's OAuth status.
+// Returns a Slack-formatted connection prompt if providers are missing, or "" if all connected.
+func (m *SlackSocketManager) checkOAuthConnections(ctx context.Context, userID string) string {
+	raw, err := m.executor.ProxyGet(ctx, fmt.Sprintf("/api/v1/oauth/status/%s", userID), "")
+	if err != nil {
+		slog.Debug("oauth status check failed", "user", userID, "error", err)
+		return ""
+	}
+
+	var status struct {
+		Connected    []string `json:"connected"`
+		NotConnected []string `json:"not_connected"`
+	}
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return ""
+	}
+
+	if len(status.NotConnected) == 0 {
+		return ""
+	}
+
+	callbackBase := os.Getenv("GATEWAY_PUBLIC_URL")
+	if callbackBase == "" {
+		slog.Warn("GATEWAY_PUBLIC_URL not set, OAuth links may not work")
+		callbackBase = "http://localhost:3001"
+	}
+
+	var sb strings.Builder
+	sb.WriteString("*Connect your accounts to use this skill:*\n")
+	for _, provider := range status.NotConnected {
+		link := fmt.Sprintf("%s/api/v1/oauth/connect/%s/authorize?user_id=%s&callback_base=%s",
+			callbackBase, provider, userID, callbackBase)
+		displayName := strings.ToUpper(provider[:1]) + provider[1:]
+		sb.WriteString(fmt.Sprintf("• <%s|Connect %s>\n", link, displayName))
+	}
+	sb.WriteString("\n_After connecting, try your command again._")
+	return sb.String()
 }
 
 func (m *SlackSocketManager) helpText(app *config.SlackAppConfig) string {
@@ -379,5 +480,67 @@ func (m *SlackSocketManager) isEventEnabled(app *config.SlackAppConfig, eventTyp
 		return app.Events.AppMention
 	default:
 		return true
+	}
+}
+
+func (m *SlackSocketManager) handleSocketInteractive(app *config.SlackAppConfig, evt socketmode.Event) {
+	// Socket mode interactive payloads arrive as slack.InteractionCallback
+	cb, ok := evt.Data.(slack.InteractionCallback)
+	if !ok {
+		slog.Debug("slack socket: interactive event not InteractionCallback")
+		return
+	}
+
+	if len(cb.ActionCallback.BlockActions) == 0 {
+		return
+	}
+
+	action := cb.ActionCallback.BlockActions[0]
+	executionID := action.Value
+	userID := cb.User.ID
+
+	var approved bool
+	switch action.ActionID {
+	case "approve_execution":
+		approved = true
+	case "reject_execution":
+		approved = false
+	default:
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	approvalBody, _ := json.Marshal(map[string]any{
+		"approved":       approved,
+		"reviewer_notes": fmt.Sprintf("Via Slack by <@%s>", userID),
+	})
+
+	_, err := m.executor.ApproveExecution(ctx, executionID, approvalBody)
+
+	statusText := "Approved"
+	statusEmoji := ":white_check_mark:"
+	if !approved {
+		statusText = "Rejected"
+		statusEmoji = ":x:"
+	}
+
+	var updateText string
+	if err != nil {
+		slog.Error("socket interactive approval failed", "execution_id", executionID, "error", err)
+		updateText = fmt.Sprintf(":warning: Failed to process: %s", err)
+	} else {
+		updateText = fmt.Sprintf("%s %s by <@%s>", statusEmoji, statusText, userID)
+	}
+
+	updatePayload, _ := json.Marshal(map[string]any{
+		"channel": cb.Channel.ID,
+		"ts":      cb.Message.Timestamp,
+		"text":    updateText,
+		"blocks":  []map[string]any{},
+	})
+	if err := slackAPIPost(app.BotToken, "/chat.update", updatePayload); err != nil {
+		slog.Error("failed to update slack message via socket", "error", err)
 	}
 }

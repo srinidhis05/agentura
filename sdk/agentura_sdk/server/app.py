@@ -131,6 +131,7 @@ class ExecuteRequest(BaseModel):
     input_data: dict[str, Any] = Field(default_factory=dict)
     model_override: str | None = None
     dry_run: bool = False
+    user_id: str | None = None
 
 
 class CorrectRequest(BaseModel):
@@ -557,17 +558,104 @@ def get_skill(domain: str, skill_name: str):
     )
 
 
+def _load_project_configs(domain_path: Path) -> str:
+    """Load project config files from {domain}/project-configs/ and return as a prompt section.
+
+    Config files are .md files that contain workspace IDs, ClickUp list mappings,
+    assignee IDs, Slack channels, etc. These are injected into the system prompt so
+    PTC workers (which have no filesystem access) can use them.
+    """
+    configs_dir = domain_path / "project-configs"
+    if not configs_dir.is_dir():
+        return ""
+
+    parts: list[str] = []
+    # Load workspace config first (prefixed with _)
+    workspace_file = configs_dir / "_workspace.md"
+    if workspace_file.exists():
+        parts.append(workspace_file.read_text().strip())
+
+    # Load individual project configs
+    for cfg_file in sorted(configs_dir.glob("*.md")):
+        if cfg_file.name.startswith("_"):
+            continue
+        parts.append(cfg_file.read_text().strip())
+
+    if not parts:
+        return ""
+
+    header = "## Project Configurations\n\nUse these configs for workspace IDs, list IDs, assignee mappings, and channel references. Do NOT ask the user for IDs that are listed here.\n"
+    return header + "\n\n---\n\n".join(parts)
+
+
+def _build_mcp_bindings(skill_cfg_raw: dict, user_id: str | None = None) -> list[dict]:
+    """Build MCP server bindings from skill config, with per-user OAuth token overlay."""
+    from agentura_sdk.oauth.providers import PROVIDERS
+
+    bindings: list[dict] = []
+    for mcp_ref in skill_cfg_raw.get("mcp_tools", []):
+        server_name = mcp_ref.get("server", "")
+        env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
+        server_url = os.environ.get(env_key, "")
+
+        binding: dict | None = None
+        if server_url:
+            binding = {
+                "server": server_name,
+                "url": server_url,
+                "tools": mcp_ref.get("tools", []),
+            }
+            auth_key = f"MCP_{server_name.upper().replace('-', '_')}_API_KEY"
+            api_key = os.environ.get(auth_key, "")
+            if api_key:
+                binding["headers"] = {"Authorization": f"Bearer {api_key}"}
+
+        # Per-user OAuth token override
+        if user_id and server_name in PROVIDERS:
+            dsn = os.environ.get("DATABASE_URL", "")
+            if dsn:
+                try:
+                    from agentura_sdk.store.mcp_token_store import McpTokenStore
+                    token_store = McpTokenStore(dsn)
+                    token = token_store.refresh_if_expired(user_id, server_name)
+                    if token:
+                        provider = PROVIDERS[server_name]
+                        if binding is None:
+                            binding = {
+                                "server": server_name,
+                                "url": provider["mcp_url"],
+                                "tools": mcp_ref.get("tools", []),
+                            }
+                        else:
+                            binding["url"] = provider["mcp_url"]
+                        binding["headers"] = {"Authorization": f"Bearer {token}"}
+                except Exception:
+                    _logger.debug("Per-user token lookup failed for %s/%s", user_id, server_name)
+
+        if binding:
+            if mcp_ref.get("approval_required"):
+                binding["approval_required"] = mcp_ref["approval_required"]
+            bindings.append(binding)
+
+    return bindings
+
+
 @app.post(
     "/api/v1/skills/{domain}/{skill_name}/execute",
     response_model=SkillResult,
 )
-async def execute(domain: str, skill_name: str, req: ExecuteRequest):
+async def execute(domain: str, skill_name: str, req: ExecuteRequest, request: Request = None):
     """Execute a skill — mirrors cli/run.py logic."""
     root = SKILLS_DIR / domain / skill_name
     skill_md_path = root / "SKILL.md"
 
     if not root.exists() or not skill_md_path.exists():
         raise HTTPException(status_code=404, detail=f"Skill not found: {domain}/{skill_name}")
+
+    # RBAC: capture triggered_by from user_id (request header or payload)
+    triggered_by = req.user_id or ""
+    if not triggered_by and request:
+        triggered_by = getattr(getattr(request, "state", None), "user_id", "") or ""
 
     skill_md = load_skill_md(skill_md_path)
 
@@ -590,9 +678,13 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
             import json
             input_data = json.loads(fixture.read_text())
 
+    # RBAC: inject triggered_by into input_data for log_execution to pick up
+    if triggered_by:
+        input_data = {**input_data, "_triggered_by": triggered_by}
+
     model = req.model_override or skill_md.metadata.model
 
-    # Compose system prompt: WORKSPACE + DOMAIN + Reflexion + SKILL
+    # Compose system prompt: WORKSPACE + DOMAIN + Reflexion + ProjectConfigs + SKILL
     prompt_parts = []
     if skill_md.workspace_context:
         prompt_parts.append(skill_md.workspace_context)
@@ -600,6 +692,9 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
         prompt_parts.append(skill_md.domain_context)
     if skill_md.reflexion_context:
         prompt_parts.append(skill_md.reflexion_context)
+    project_configs = _load_project_configs(SKILLS_DIR / domain)
+    if project_configs:
+        prompt_parts.append(project_configs)
     prompt_parts.append(skill_md.system_prompt)
     composed_prompt = "\n\n---\n\n".join(prompt_parts)
 
@@ -615,25 +710,7 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest):
                 sandbox_raw = skill_cfg_raw.get("sandbox", {}) or skill_cfg_raw.get("agent", {})
                 if sandbox_raw:
                     sandbox_config = SandboxConfig(**sandbox_raw)
-                for mcp_ref in skill_cfg_raw.get("mcp_tools", []):
-                    server_name = mcp_ref.get("server", "")
-                    env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
-                    server_url = os.environ.get(env_key, "")
-                    if server_url:
-                        binding: dict = {
-                            "server": server_name,
-                            "url": server_url,
-                            "tools": mcp_ref.get("tools", []),
-                        }
-                        # Auth: check for MCP_{SERVER}_API_KEY env var
-                        auth_key = f"MCP_{server_name.upper().replace('-', '_')}_API_KEY"
-                        api_key = os.environ.get(auth_key, "")
-                        if api_key:
-                            binding["headers"] = {"Authorization": f"Bearer {api_key}"}
-                        # Tools requiring human approval before execution
-                        if mcp_ref.get("approval_required"):
-                            binding["approval_required"] = mcp_ref["approval_required"]
-                        mcp_bindings.append(binding)
+                mcp_bindings = _build_mcp_bindings(skill_cfg_raw, user_id=req.user_id)
             except Exception:
                 pass
 
@@ -752,23 +829,7 @@ async def execute_stream(domain: str, skill_name: str, req: ExecuteRequest):
             sandbox_raw = skill_cfg.get("sandbox", {}) or skill_cfg.get("agent", {})
             if sandbox_raw:
                 sandbox_config = SandboxConfig(**sandbox_raw)
-            for mcp_ref in skill_cfg.get("mcp_tools", []):
-                server_name = mcp_ref.get("server", "")
-                env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
-                server_url = os.environ.get(env_key, "")
-                if server_url:
-                    binding: dict = {
-                        "server": server_name,
-                        "url": server_url,
-                        "tools": mcp_ref.get("tools", []),
-                    }
-                    auth_key = f"MCP_{server_name.upper().replace('-', '_')}_API_KEY"
-                    api_key = os.environ.get(auth_key, "")
-                    if api_key:
-                        binding["headers"] = {"Authorization": f"Bearer {api_key}"}
-                    if mcp_ref.get("approval_required"):
-                        binding["approval_required"] = mcp_ref["approval_required"]
-                    mcp_bindings.append(binding)
+            mcp_bindings = _build_mcp_bindings(skill_cfg, user_id=req.user_id)
         except Exception:
             pass
 
@@ -779,6 +840,9 @@ async def execute_stream(domain: str, skill_name: str, req: ExecuteRequest):
         prompt_parts.append(skill_md.domain_context)
     if skill_md.reflexion_context:
         prompt_parts.append(skill_md.reflexion_context)
+    project_configs = _load_project_configs(SKILLS_DIR / domain)
+    if project_configs:
+        prompt_parts.append(project_configs)
     prompt_parts.append(skill_md.system_prompt)
     composed_prompt = "\n\n---\n\n".join(prompt_parts)
 
@@ -1206,11 +1270,23 @@ def _load_knowledge_file(name: str) -> dict:
 
 @app.get("/api/v1/executions", response_model=list[ExecutionEntry])
 def list_executions(
+    request: Request,
     skill: str | None = None,
     outcome: str | None = None,
+    triggered_by: str | None = None,
     domains: set[str] | None = Depends(_get_domain_scope),
 ):
-    """List execution history from store (PostgreSQL) with JSON fallback (domain-scoped)."""
+    """List execution history from store (PostgreSQL) with JSON fallback (domain-scoped).
+
+    RBAC: when triggered_by is provided, only returns executions for that user.
+    Admin users (listed in ADMIN_USER_IDS env var) bypass this filter.
+    """
+    # RBAC: auto-filter by user_id unless admin
+    admin_ids = {uid.strip() for uid in os.environ.get("ADMIN_USER_IDS", "").split(",") if uid.strip()}
+    user_id = getattr(getattr(request, "state", None), "user_id", "") or ""
+    if triggered_by is None and user_id and user_id not in admin_ids:
+        triggered_by = user_id
+
     entries: list[dict] = []
 
     # Try the store first (PostgreSQL/Composite)
@@ -1218,7 +1294,13 @@ def list_executions(
         from agentura_sdk.memory import get_memory_store
 
         store = get_memory_store()
-        entries = store.get_executions(skill) if skill else store.get_executions()
+        pg = getattr(store, "_pg", store)
+        if hasattr(pg, "get_executions") and triggered_by:
+            entries = pg.get_executions(skill, triggered_by=triggered_by)
+        elif skill:
+            entries = store.get_executions(skill)
+        else:
+            entries = store.get_executions()
         entries = _filter_by_domain(entries, domains)
     except Exception:
         pass
@@ -1229,6 +1311,8 @@ def list_executions(
         entries = _filter_by_domain(data.get("entries", []), domains)
         if skill:
             entries = [e for e in entries if e.get("skill") == skill]
+        if triggered_by:
+            entries = [e for e in entries if e.get("triggered_by") == triggered_by]
 
     if outcome:
         entries = [e for e in entries if e.get("outcome") == outcome]
@@ -2682,15 +2766,211 @@ def get_skill_mcp_bindings(domain: str, skill_name: str):
     ]
 
 
+# ---------------------------------------------------------------------------
+# OAuth — Per-User MCP Token Management
+# ---------------------------------------------------------------------------
+
+# DB-backed PKCE store: state -> {code_verifier, client_id, client_secret, token_url, redirect_uri}
+# Stored in PostgreSQL so it works across multiple uvicorn workers.
+
+def _save_oauth_pending(state: str, data: dict) -> None:
+    """Persist OAuth pending state to DB (survives multi-worker routing)."""
+    import json as _json
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return
+    import psycopg2
+    conn = psycopg2.connect(dsn)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS oauth_pending_state ("
+                "  state TEXT PRIMARY KEY,"
+                "  data JSONB NOT NULL,"
+                "  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            )
+            cur.execute(
+                "INSERT INTO oauth_pending_state (state, data) VALUES (%s, %s) "
+                "ON CONFLICT (state) DO UPDATE SET data = EXCLUDED.data, created_at = CURRENT_TIMESTAMP",
+                (state, _json.dumps(data)),
+            )
+            # Clean up entries older than 15 minutes
+            cur.execute("DELETE FROM oauth_pending_state WHERE created_at < NOW() - INTERVAL '15 minutes'")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _pop_oauth_pending(state: str) -> dict | None:
+    """Retrieve and delete OAuth pending state from DB."""
+    import json as _json
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return None
+    import psycopg2
+    conn = psycopg2.connect(dsn)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT data FROM oauth_pending_state WHERE state = %s", (state,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute("DELETE FROM oauth_pending_state WHERE state = %s", (state,))
+        conn.commit()
+        return _json.loads(row[0]) if isinstance(row[0], str) else row[0]
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/oauth/connect/{provider}/authorize")
+def oauth_authorize(provider: str, user_id: str, callback_base: str):
+    """Start OAuth flow: returns authorize_url for the user to visit."""
+    from agentura_sdk.oauth.providers import PROVIDERS, build_authorize_url
+
+    if provider not in PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown OAuth provider: {provider}")
+
+    try:
+        result = build_authorize_url(provider, user_id, callback_base)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Store PKCE + client creds keyed by state for the callback (DB-backed for multi-worker)
+    _save_oauth_pending(result["state"], {
+        "code_verifier": result["code_verifier"],
+        "client_id": result["client_id"],
+        "client_secret": result["client_secret"],
+        "token_url": result["token_url"],
+        "redirect_uri": result["redirect_uri"],
+    })
+
+    return {"authorize_url": result["authorize_url"]}
+
+
+@app.get("/api/v1/oauth/connect/{provider}/callback")
+def oauth_callback(
+    provider: str,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    """OAuth callback: exchanges code for tokens, stores in DB."""
+    from fastapi.responses import HTMLResponse
+
+    from agentura_sdk.oauth.providers import PROVIDERS, exchange_code, verify_state
+
+    if error:
+        desc = error_description or error
+        return HTMLResponse(
+            f"<html><body><h2>OAuth Error</h2><p>{desc}</p>"
+            "<p>Please try again.</p></body></html>",
+            status_code=400,
+        )
+
+    if not code or not state:
+        return HTMLResponse(
+            "<html><body><h2>OAuth Error</h2>"
+            "<p>Missing code or state parameter. The OAuth provider may have denied the request.</p>"
+            "</body></html>",
+            status_code=400,
+        )
+
+    if provider not in PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown OAuth provider: {provider}")
+
+    state_data = verify_state(state)
+    if not state_data:
+        raise HTTPException(status_code=400, detail="Invalid or expired state parameter")
+
+    if state_data["provider"] != provider:
+        raise HTTPException(status_code=400, detail="Provider mismatch in state")
+
+    pending = _pop_oauth_pending(state)
+    if not pending:
+        raise HTTPException(status_code=400, detail="No pending OAuth flow for this state (expired or already used)")
+
+    tokens = exchange_code(
+        provider_name=provider,
+        code=code,
+        redirect_uri=pending["redirect_uri"],
+        client_id=pending["client_id"],
+        client_secret=pending["client_secret"],
+        code_verifier=pending["code_verifier"],
+        token_url=pending["token_url"],
+    )
+    if not tokens:
+        raise HTTPException(status_code=500, detail="Token exchange failed")
+
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=500, detail="DATABASE_URL not configured")
+
+    from agentura_sdk.store.mcp_token_store import McpTokenStore
+    store = McpTokenStore(dsn)
+    store.save_token(
+        user_id=state_data["user_id"],
+        provider=provider,
+        access_token=tokens["access_token"],
+        refresh_token=tokens.get("refresh_token"),
+        token_type=tokens.get("token_type", "Bearer"),
+        expires_at=tokens.get("expires_at"),
+        scope=tokens.get("scope"),
+        client_id=pending["client_id"],
+        client_secret=pending["client_secret"],
+    )
+
+    return HTMLResponse(
+        "<html><body><h2>Connected!</h2>"
+        f"<p>Successfully connected <strong>{provider}</strong>. You can close this tab.</p>"
+        "</body></html>"
+    )
+
+
+@app.get("/api/v1/oauth/status/{user_id}")
+def oauth_status(user_id: str):
+    """Check which OAuth providers a user has connected."""
+    from agentura_sdk.oauth.providers import PROVIDERS
+
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return {"connected": [], "not_connected": list(PROVIDERS.keys())}
+
+    from agentura_sdk.store.mcp_token_store import McpTokenStore
+    store = McpTokenStore(dsn)
+    connected = store.list_connected(user_id)
+    not_connected = [p for p in PROVIDERS if p not in connected]
+    return {"connected": connected, "not_connected": not_connected}
+
+
 @app.post("/api/v1/pipelines/github-pr")
 async def github_pr_pipeline(request: Request):
     """Run the full PR review pipeline triggered by a GitHub webhook."""
     data = await request.json()
+    # Support both raw payload and ExecuteRequest-wrapped format (GR-009)
+    if "input_data" in data:
+        data = data["input_data"]
     from agentura_sdk.pipelines.github_pr import run_pr_pipeline
 
     result = await run_pr_pipeline(data)
     return result
 
+
+@app.post("/api/v1/github/comment")
+async def post_github_comment(request: Request):
+    """Post a comment on a GitHub PR. Used by gateway for @agentura mention replies."""
+    data = await request.json()
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+    body = data.get("body")
+    if not repo or not pr_number or not body:
+        raise HTTPException(status_code=400, detail="repo, pr_number, and body are required")
+
+    from agentura_sdk.pipelines.github_client import post_comment
+
+    result = await post_comment(repo=repo, pr_number=pr_number, body=body)
+    return result
 
 
 # ---------------------------------------------------------------------------
