@@ -67,6 +67,9 @@ Total cost: $0.42 | Duration: 45s | Fleet session: `fleet-abc123`
 - Show pass/fail counts and evidence type
 - Include test command if available
 - List coverage gaps count
+- If `tests_written` is present, show count of new test files and methods written
+- If `tests_pushed` is true, note that tests were committed to the PR branch
+- If `commit_sha` is present, link to the commit
 
 ### `slt` (SLT Validator)
 - Show breaking change detection result

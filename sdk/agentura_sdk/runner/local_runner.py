@@ -37,7 +37,8 @@ def _get_knowledge_dir() -> Path:
 
 def log_execution(ctx: SkillContext, result: SkillResult) -> str:
     """Log execution to the memory store (JSON fallback or mem0)."""
-    execution_id = f"EXEC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    from uuid import uuid4
+    execution_id = f"EXEC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:6]}"
     skill_path = f"{ctx.domain}/{ctx.skill_name}"
     if result.approval_required:
         outcome = "pending_approval"
@@ -55,6 +56,7 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
         "cost_usd": result.cost_usd,
         "latency_ms": result.latency_ms,
         "model_used": result.model_used,
+        "triggered_by": ctx.input_data.get("_triggered_by", ""),
     }
 
     try:

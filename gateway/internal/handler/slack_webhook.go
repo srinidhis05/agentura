@@ -12,7 +12,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -33,12 +36,92 @@ const (
 	slackTimestampMaxDrift = 5 * time.Minute
 	slackAPIBaseURL        = "https://slack.com/api"
 	slackMaxMessageLen     = 3900
+	threadTTL              = 30 * time.Minute
 )
+
+// ---------- Thread Continuity Registry ----------
+
+type threadEntry struct {
+	skill      string
+	lastOutput string
+	entities   map[string]any
+	userID     string
+	turn       int
+	expiry     time.Time
+}
+
+var threadRegistry sync.Map // key: "{appName}:{channelID}:{threadTS}"
+
+func init() {
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			now := time.Now()
+			threadRegistry.Range(func(key, value any) bool {
+				if entry := value.(*threadEntry); now.After(entry.expiry) {
+					threadRegistry.Delete(key)
+				}
+				return true
+			})
+		}
+	}()
+}
+
+func threadKey(app, channel, ts string) string {
+	return app + ":" + channel + ":" + ts
+}
+
+func registerThread(app, channel, ts, skill, output string, entities map[string]any, userID string, turn int) {
+	if len(output) > 2000 {
+		output = output[:2000]
+	}
+	threadRegistry.Store(threadKey(app, channel, ts), &threadEntry{
+		skill:      skill,
+		lastOutput: output,
+		entities:   entities,
+		userID:     userID,
+		turn:       turn,
+		expiry:     time.Now().Add(threadTTL),
+	})
+}
+
+func lookupThread(app, channel, threadTS string) *threadEntry {
+	if threadTS == "" {
+		return nil
+	}
+	v, ok := threadRegistry.Load(threadKey(app, channel, threadTS))
+	if !ok {
+		return nil
+	}
+	entry := v.(*threadEntry)
+	if time.Now().Before(entry.expiry) {
+		return entry
+	}
+	threadRegistry.Delete(threadKey(app, channel, threadTS))
+	return nil
+}
+
+func extractEntities(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	entities := make(map[string]any)
+	for k, v := range input {
+		if k != "text" && k != "thread_context" {
+			entities[k] = v
+		}
+	}
+	if len(entities) == 0 {
+		return nil
+	}
+	return entities
+}
 
 // SlackWebhookHandler processes inbound Slack Events API webhooks.
 type SlackWebhookHandler struct {
-	executor *executor.Client
-	apps     []config.SlackAppConfig
+	executor         *executor.Client
+	apps             []config.SlackAppConfig
+	gatewayPublicURL string // Public URL for OAuth callbacks (env: GATEWAY_PUBLIC_URL)
 }
 
 // NewSlackWebhookHandler creates a handler for Slack webhooks.
@@ -47,7 +130,11 @@ func NewSlackWebhookHandler(exec *executor.Client, cfg config.SlackConfig) *Slac
 	for i := range cfg.Apps {
 		applyEventDefaults(&cfg.Apps[i])
 	}
-	return &SlackWebhookHandler{executor: exec, apps: cfg.Apps}
+	return &SlackWebhookHandler{
+		executor:         exec,
+		apps:             cfg.Apps,
+		gatewayPublicURL: os.Getenv("GATEWAY_PUBLIC_URL"),
+	}
 }
 
 func applyEventDefaults(app *config.SlackAppConfig) {
@@ -286,6 +373,7 @@ func (h *SlackWebhookHandler) handleMessage(w http.ResponseWriter, app *config.S
 	}
 
 	cmd := parseSlackCommand(text)
+	cmd.UserID = event.User
 
 	slog.Info("slack webhook received",
 		"app", app.Name,
@@ -317,7 +405,7 @@ func (h *SlackWebhookHandler) handleMessage(w http.ResponseWriter, app *config.S
 	}
 
 	go func() {
-		result := h.dispatchAndFormat(app, event.Channel, event.User, cmd, threadTS)
+		result, finalCmd := h.dispatchAndFormat(app, event.Channel, event.User, cmd, event.ThreadTS, threadTS)
 
 		// Remove typing indicator
 		if typingReaction != "" {
@@ -325,10 +413,26 @@ func (h *SlackWebhookHandler) handleMessage(w http.ResponseWriter, app *config.S
 		}
 
 		// Post result as thread reply if in a thread, otherwise as a new message
+		var postedTS string
 		if threadTS != "" && threadTS != event.TS {
-			postSlackThreadReply(app.BotToken, event.Channel, threadTS, result)
+			postedTS, _ = postSlackThreadReply(app.BotToken, event.Channel, threadTS, result)
 		} else {
-			postSlackMessage(app.BotToken, event.Channel, result)
+			postedTS, _ = postSlackMessage(app.BotToken, event.Channel, result)
+		}
+
+		// Thread registration: remember skill for thread continuity
+		if finalCmd.Action == "run" && finalCmd.Target != "" && !strings.HasPrefix(result, "Error:") {
+			regKey := event.ThreadTS
+			if regKey == "" {
+				regKey = postedTS
+			}
+			if regKey != "" {
+				turn := 1
+				if entry := lookupThread(app.Name, event.Channel, event.ThreadTS); entry != nil {
+					turn = entry.turn + 1
+				}
+				registerThread(app.Name, event.Channel, regKey, finalCmd.Target, result, extractEntities(finalCmd.Input), event.User, turn)
+			}
 		}
 	}()
 }
@@ -415,6 +519,7 @@ type slackCommand struct {
 	InputRaw string         // raw JSON input string
 	Input    map[string]any // parsed input
 	Text     string         // original text (for auto-routing)
+	UserID   string         // Slack user ID (e.g. "U12345") for per-user OAuth
 }
 
 func parseSlackCommand(text string) slackCommand {
@@ -593,14 +698,40 @@ func matchPattern(text, pattern string) map[string]string {
 	return result
 }
 
-func (h *SlackWebhookHandler) dispatchAndFormat(app *config.SlackAppConfig, channel, user string, cmd slackCommand, threadTS string) string {
+func (h *SlackWebhookHandler) dispatchAndFormat(app *config.SlackAppConfig, channel, user string, cmd slackCommand, origThreadTS, replyTS string) (string, slackCommand) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	// For auto commands, try command aliases first
-	if cmd.Action == "auto" {
+	// Thread continuity: thread replies skip triage, reuse previous skill
+	if origThreadTS != "" && cmd.Action == "auto" {
+		if entry := lookupThread(app.Name, channel, origThreadTS); entry != nil {
+			cmd = slackCommand{
+				Action: "run",
+				Target: entry.skill,
+				Input: map[string]any{
+					"text": cmd.Text,
+					"thread_context": map[string]any{
+						"previous_output": entry.lastOutput,
+						"turn":            entry.turn + 1,
+					},
+				},
+				Text:   cmd.Text,
+				UserID: cmd.UserID,
+			}
+			for k, v := range entry.entities {
+				cmd.Input[k] = v
+			}
+			slog.Info("thread continuity: reusing skill", "app", app.Name, "skill", entry.skill, "turn", entry.turn+1)
+		}
+	}
+
+	// For auto commands: if the app has a domain triage skill, let triage route.
+	// Only use command aliases for non-domain-scoped apps (no triage available).
+	if cmd.Action == "auto" && app.DomainScope == "" {
 		if aliasCmd := matchCommandAlias(cmd.Text, app); aliasCmd != nil {
+			savedUserID := cmd.UserID
 			cmd = *aliasCmd
+			cmd.UserID = savedUserID
 		}
 	}
 
@@ -617,8 +748,11 @@ func (h *SlackWebhookHandler) dispatchAndFormat(app *config.SlackAppConfig, chan
 	case "help":
 		result = h.helpText(app)
 	default:
-		// Auto-route: pass text to classifier scoped to domain
-		result, err = h.dispatchAuto(ctx, app, cmd)
+		var routedCmd slackCommand
+		result, routedCmd, err = h.dispatchAuto(ctx, app, cmd)
+		if routedCmd.Target != "" {
+			cmd = routedCmd
+		}
 	}
 
 	if err != nil {
@@ -630,7 +764,12 @@ func (h *SlackWebhookHandler) dispatchAndFormat(app *config.SlackAppConfig, chan
 		result = fmt.Sprintf("Error: %s", err)
 	}
 
-	return result
+	// Check for pending approvals in skill result and post Block Kit buttons
+	if err == nil && cmd.Action == "run" {
+		h.maybePostApprovalButtons(app, channel, replyTS, result)
+	}
+
+	return result, cmd
 }
 
 func (h *SlackWebhookHandler) dispatchSkill(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, error) {
@@ -659,13 +798,60 @@ func (h *SlackWebhookHandler) dispatchSkill(ctx context.Context, app *config.Sla
 		inputData = map[string]any{}
 	}
 
-	execReq := executor.ExecuteRequest{InputData: inputData}
+	// Check if user has connected required OAuth providers
+	if cmd.UserID != "" {
+		if msg := h.checkOAuthConnections(ctx, cmd.UserID, app); msg != "" {
+			return msg, nil
+		}
+	}
+
+	execReq := executor.ExecuteRequest{InputData: inputData, UserID: cmd.UserID}
 	resp, err := h.executor.Execute(ctx, skillDomain, skillName, execReq)
 	if err != nil {
 		return "", fmt.Errorf("executing %s: %w", cmd.Target, err)
 	}
 
 	return formatSkillResult(resp), nil
+}
+
+// checkOAuthConnections queries the executor for the user's OAuth status.
+// Returns a Slack-formatted connection prompt if providers are missing, or "" if all connected.
+func (h *SlackWebhookHandler) checkOAuthConnections(ctx context.Context, userID string, app *config.SlackAppConfig) string {
+	raw, err := h.executor.ProxyGet(ctx, fmt.Sprintf("/api/v1/oauth/status/%s", userID), "")
+	if err != nil {
+		slog.Debug("oauth status check failed", "user", userID, "error", err)
+		return ""
+	}
+
+	var status struct {
+		Connected    []string `json:"connected"`
+		NotConnected []string `json:"not_connected"`
+	}
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return ""
+	}
+
+	if len(status.NotConnected) == 0 {
+		return ""
+	}
+
+	// Determine gateway base URL for OAuth links (must be publicly reachable for browser redirects)
+	callbackBase := h.gatewayPublicURL
+	if callbackBase == "" {
+		slog.Warn("GATEWAY_PUBLIC_URL not set, OAuth links may not work")
+		callbackBase = "http://localhost:3001"
+	}
+
+	var sb strings.Builder
+	sb.WriteString("*Connect your accounts to use this skill:*\n")
+	for _, provider := range status.NotConnected {
+		link := fmt.Sprintf("%s/api/v1/oauth/connect/%s/authorize?user_id=%s&callback_base=%s",
+			callbackBase, provider, userID, callbackBase)
+		displayName := strings.ToUpper(provider[:1]) + provider[1:]
+		sb.WriteString(fmt.Sprintf("• <%s|Connect %s>\n", link, displayName))
+	}
+	sb.WriteString("\n_After connecting, try your command again._")
+	return sb.String()
 }
 
 func (h *SlackWebhookHandler) dispatchPipeline(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, error) {
@@ -723,21 +909,74 @@ func (h *SlackWebhookHandler) listSkills(ctx context.Context, app *config.SlackA
 	return sb.String(), nil
 }
 
-func (h *SlackWebhookHandler) dispatchAuto(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, error) {
+func (h *SlackWebhookHandler) dispatchAuto(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, slackCommand, error) {
 	// Domain-scoped bots: route unmatched messages to the domain's triage skill.
-	// If triage fails (404), fall back to help text.
+	// Triage returns a route_to field — chain to the routed skill.
 	if app.DomainScope != "" {
-		target := app.DomainScope + "/triage"
-		inputData := map[string]any{"text": cmd.Text}
-		autoCmd := slackCommand{Action: "run", Target: target, Input: inputData, Text: cmd.Text}
-		result, err := h.dispatchSkill(ctx, app, autoCmd)
-		if err == nil {
-			return result, nil
+		routedSkill, entities := h.triageAndRoute(ctx, app, cmd)
+		if routedSkill != "" {
+			inputData := map[string]any{"text": cmd.Text}
+			for k, v := range entities {
+				inputData[k] = v
+			}
+			routedCmd := slackCommand{Action: "run", Target: routedSkill, Input: inputData, Text: cmd.Text, UserID: cmd.UserID}
+			result, err := h.dispatchSkill(ctx, app, routedCmd)
+			if err == nil {
+				return result, routedCmd, nil
+			}
+			slog.Error("dispatchAuto: routed skill failed", "skill", routedSkill, "error", err)
+			return "", routedCmd, err
 		}
-		// Triage skill not found — fall through to help text
-		slog.Debug("dispatchAuto: triage fallback failed", "domain", app.DomainScope, "error", err)
 	}
-	return h.helpText(app) + "\n\n_Type `help` to see available commands._", nil
+	return h.helpText(app) + "\n\n_Type `help` to see available commands._", cmd, nil
+}
+
+// triageAndRoute calls the triage skill and parses the route_to from its JSON output.
+func (h *SlackWebhookHandler) triageAndRoute(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, map[string]any) {
+	target := app.DomainScope + "/triage"
+	inputData := map[string]any{"text": cmd.Text}
+	triageCmd := slackCommand{Action: "run", Target: target, Input: inputData, Text: cmd.Text, UserID: cmd.UserID}
+	resp, err := h.executor.Execute(ctx, app.DomainScope, "triage", executor.ExecuteRequest{InputData: inputData, UserID: triageCmd.UserID})
+	if err != nil {
+		slog.Debug("triageAndRoute: triage call failed", "error", err)
+		return "", nil
+	}
+
+	return parseTriageRoute(resp)
+}
+
+// parseTriageRoute extracts route_to and entities from triage skill output.
+func parseTriageRoute(raw json.RawMessage) (string, map[string]any) {
+	var result map[string]any
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return "", nil
+	}
+
+	// Triage output is in result["output"]["raw_output"] as a JSON code block
+	output, _ := result["output"].(map[string]any)
+	if output == nil {
+		return "", nil
+	}
+	rawOutput, _ := output["raw_output"].(string)
+	if rawOutput == "" {
+		return "", nil
+	}
+
+	// Strip markdown code fences
+	rawOutput = strings.TrimSpace(rawOutput)
+	rawOutput = strings.TrimPrefix(rawOutput, "```json")
+	rawOutput = strings.TrimPrefix(rawOutput, "```")
+	rawOutput = strings.TrimSuffix(rawOutput, "```")
+	rawOutput = strings.TrimSpace(rawOutput)
+
+	var triageResult map[string]any
+	if err := json.Unmarshal([]byte(rawOutput), &triageResult); err != nil {
+		return "", nil
+	}
+
+	routeTo, _ := triageResult["route_to"].(string)
+	entities, _ := triageResult["entities"].(map[string]any)
+	return routeTo, entities
 }
 
 func (h *SlackWebhookHandler) helpText(app *config.SlackAppConfig) string {
@@ -771,9 +1010,9 @@ func (h *SlackWebhookHandler) helpText(app *config.SlackAppConfig) string {
 
 // ---------- Slack API Helpers ----------
 
-func postSlackMessage(botToken, channel, text string) error {
+func postSlackMessage(botToken, channel, text string) (string, error) {
 	if botToken == "" || isSlackSecretPlaceholder(botToken) {
-		return fmt.Errorf("bot token not configured")
+		return "", fmt.Errorf("bot token not configured")
 	}
 
 	text = markdownToSlackMrkdwn(text)
@@ -787,15 +1026,25 @@ func postSlackMessage(botToken, channel, text string) error {
 		"text":    text,
 	})
 	if err != nil {
-		return fmt.Errorf("marshaling slack message: %w", err)
+		return "", fmt.Errorf("marshaling slack message: %w", err)
 	}
 
-	return slackAPIPost(botToken, "/chat.postMessage", payload)
+	respBody, err := slackAPIPostWithBody(botToken, "/chat.postMessage", payload)
+	if err != nil {
+		return "", err
+	}
+
+	var slackResp struct {
+		OK bool   `json:"ok"`
+		TS string `json:"ts"`
+	}
+	json.Unmarshal(respBody, &slackResp)
+	return slackResp.TS, nil
 }
 
-func postSlackThreadReply(botToken, channel, threadTS, text string) error {
+func postSlackThreadReply(botToken, channel, threadTS, text string) (string, error) {
 	if botToken == "" || isSlackSecretPlaceholder(botToken) {
-		return fmt.Errorf("bot token not configured")
+		return "", fmt.Errorf("bot token not configured")
 	}
 
 	text = markdownToSlackMrkdwn(text)
@@ -810,10 +1059,20 @@ func postSlackThreadReply(botToken, channel, threadTS, text string) error {
 		"thread_ts": threadTS,
 	})
 	if err != nil {
-		return fmt.Errorf("marshaling slack thread reply: %w", err)
+		return "", fmt.Errorf("marshaling slack thread reply: %w", err)
 	}
 
-	return slackAPIPost(botToken, "/chat.postMessage", payload)
+	respBody, err := slackAPIPostWithBody(botToken, "/chat.postMessage", payload)
+	if err != nil {
+		return "", err
+	}
+
+	var slackResp struct {
+		OK bool   `json:"ok"`
+		TS string `json:"ts"`
+	}
+	json.Unmarshal(respBody, &slackResp)
+	return slackResp.TS, nil
 }
 
 func addSlackReaction(botToken, channel, timestamp, reaction string) {
@@ -854,10 +1113,10 @@ func removeSlackReaction(botToken, channel, timestamp, reaction string) {
 	}
 }
 
-func slackAPIPost(botToken, endpoint string, payload []byte) error {
+func slackAPIPostWithBody(botToken, endpoint string, payload []byte) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodPost, slackAPIBaseURL+endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("creating slack request: %w", err)
+		return nil, fmt.Errorf("creating slack request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+botToken)
@@ -865,16 +1124,21 @@ func slackAPIPost(botToken, endpoint string, payload []byte) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("posting to slack: %w", err)
+		return nil, fmt.Errorf("posting to slack: %w", err)
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("slack API returned %d: %s", resp.StatusCode, respBody)
+		return nil, fmt.Errorf("slack API returned %d: %s", resp.StatusCode, respBody)
 	}
 
-	return nil
+	return respBody, nil
+}
+
+func slackAPIPost(botToken, endpoint string, payload []byte) error {
+	_, err := slackAPIPostWithBody(botToken, endpoint, payload)
+	return err
 }
 
 // ---------- Signature & Utilities ----------
@@ -991,6 +1255,245 @@ func markdownToSlackMrkdwn(text string) string {
 	text = mdTableSep.ReplaceAllString(text, "")
 	// Table data rows: keep as-is (Slack renders pipes fine in monospace)
 	return text
+}
+
+// ---------- Slack Interactive Approvals (Block Kit) ----------
+
+// SlackInteractivePayload represents the JSON payload from Slack interactive actions.
+type SlackInteractivePayload struct {
+	Type    string `json:"type"`
+	User    struct {
+		ID string `json:"id"`
+	} `json:"user"`
+	Actions []struct {
+		ActionID string `json:"action_id"`
+		Value    string `json:"value"`
+	} `json:"actions"`
+	ResponseURL string `json:"response_url"`
+	Channel     struct {
+		ID string `json:"id"`
+	} `json:"channel"`
+	Message struct {
+		TS string `json:"ts"`
+	} `json:"message"`
+}
+
+// HandleInteractive processes Slack interactive payloads (button clicks).
+func (h *SlackWebhookHandler) HandleInteractive(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+
+	// Slack sends interactive payloads as application/x-www-form-urlencoded with a "payload" field
+	if err := r.ParseForm(); err != nil {
+		// Re-parse from raw body since we already consumed r.Body
+		bodyStr := string(body)
+		if !strings.Contains(bodyStr, "payload=") {
+			httputil.RespondError(w, http.StatusBadRequest, "invalid interactive payload")
+			return
+		}
+	}
+
+	// Extract payload from form data or raw body
+	payloadStr := r.FormValue("payload")
+	if payloadStr == "" {
+		// Try to extract from raw body (URL-encoded)
+		parts := strings.SplitN(string(body), "payload=", 2)
+		if len(parts) != 2 {
+			httputil.RespondError(w, http.StatusBadRequest, "missing payload field")
+			return
+		}
+		decoded, err := url.QueryUnescape(parts[1])
+		if err != nil {
+			httputil.RespondError(w, http.StatusBadRequest, "failed to decode payload")
+			return
+		}
+		payloadStr = decoded
+	}
+
+	// Verify signature using raw body
+	timestamp := r.Header.Get("X-Slack-Request-Timestamp")
+	signature := r.Header.Get("X-Slack-Signature")
+	matchedApp := h.matchApp(body, timestamp, signature)
+	if matchedApp == nil {
+		httputil.RespondError(w, http.StatusUnauthorized, "invalid slack signature")
+		return
+	}
+
+	var payload SlackInteractivePayload
+	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "invalid payload JSON")
+		return
+	}
+
+	if payload.Type != "block_actions" || len(payload.Actions) == 0 {
+		httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return
+	}
+
+	// Respond 200 immediately
+	httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "processing"})
+
+	go h.processInteractiveAction(matchedApp, payload)
+}
+
+func (h *SlackWebhookHandler) processInteractiveAction(app *config.SlackAppConfig, payload SlackInteractivePayload) {
+	action := payload.Actions[0]
+	executionID := action.Value
+	userID := payload.User.ID
+
+	var approved bool
+	switch action.ActionID {
+	case "approve_execution":
+		approved = true
+	case "reject_execution":
+		approved = false
+	default:
+		slog.Warn("unknown interactive action", "action_id", action.ActionID)
+		return
+	}
+
+	// Call executor approval API
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	approvalBody, _ := json.Marshal(map[string]any{
+		"approved":       approved,
+		"reviewer_notes": fmt.Sprintf("Via Slack by <@%s>", userID),
+	})
+
+	_, err := h.executor.ApproveExecution(ctx, executionID, approvalBody)
+
+	// Update the original Slack message
+	statusText := "Approved"
+	statusEmoji := ":white_check_mark:"
+	if !approved {
+		statusText = "Rejected"
+		statusEmoji = ":x:"
+	}
+
+	var updateText string
+	if err != nil {
+		slog.Error("interactive approval failed", "execution_id", executionID, "error", err)
+		updateText = fmt.Sprintf(":warning: Failed to process: %s", err)
+	} else {
+		updateText = fmt.Sprintf("%s %s by <@%s>", statusEmoji, statusText, userID)
+	}
+
+	// Update original message via chat.update — replace buttons with result
+	updatePayload, _ := json.Marshal(map[string]any{
+		"channel": payload.Channel.ID,
+		"ts":      payload.Message.TS,
+		"text":    updateText,
+		"blocks":  []map[string]any{},
+	})
+	if err := slackAPIPost(app.BotToken, "/chat.update", updatePayload); err != nil {
+		slog.Error("failed to update slack message", "error", err)
+	}
+}
+
+// maybePostApprovalButtons parses skill result for pending_approvals and posts Block Kit buttons.
+func (h *SlackWebhookHandler) maybePostApprovalButtons(app *config.SlackAppConfig, channel, threadTS, result string) {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		return
+	}
+
+	// Check output.pending_approvals or top-level pending_approvals
+	var pendingApprovals []any
+	if output, ok := parsed["output"].(map[string]any); ok {
+		if pa, ok := output["pending_approvals"].([]any); ok && len(pa) > 0 {
+			pendingApprovals = pa
+		}
+	}
+	if pendingApprovals == nil {
+		if pa, ok := parsed["pending_approvals"].([]any); ok && len(pa) > 0 {
+			pendingApprovals = pa
+		}
+	}
+	if len(pendingApprovals) == 0 {
+		return
+	}
+
+	// Extract execution_id
+	executionID, _ := parsed["execution_id"].(string)
+	if executionID == "" {
+		if output, ok := parsed["output"].(map[string]any); ok {
+			executionID, _ = output["execution_id"].(string)
+		}
+	}
+	if executionID == "" {
+		return
+	}
+
+	// Build summary of pending actions
+	var summaryLines []string
+	for _, pa := range pendingApprovals {
+		if item, ok := pa.(map[string]any); ok {
+			toolName, _ := item["tool_name"].(string)
+			if toolName == "" {
+				toolName = "unknown tool"
+			}
+			summaryLines = append(summaryLines, fmt.Sprintf("- `%s`", toolName))
+		}
+	}
+	summary := strings.Join(summaryLines, "\n")
+
+	blocks := []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("*Approval Required* (%s)\n\nPending actions:\n%s", executionID, summary),
+			},
+		},
+		{
+			"type": "actions",
+			"elements": []map[string]any{
+				{
+					"type":      "button",
+					"text":      map[string]string{"type": "plain_text", "text": "Approve"},
+					"style":     "primary",
+					"action_id": "approve_execution",
+					"value":     executionID,
+				},
+				{
+					"type":      "button",
+					"text":      map[string]string{"type": "plain_text", "text": "Reject"},
+					"style":     "danger",
+					"action_id": "reject_execution",
+					"value":     executionID,
+				},
+			},
+		},
+	}
+
+	postSlackBlocks(app.BotToken, channel, threadTS, "Approval required", blocks)
+}
+
+// postSlackBlocks posts a Block Kit message to Slack.
+func postSlackBlocks(botToken, channel, threadTS, fallbackText string, blocks []map[string]any) error {
+	if botToken == "" || isSlackSecretPlaceholder(botToken) {
+		return fmt.Errorf("bot token not configured")
+	}
+
+	msg := map[string]any{
+		"channel": channel,
+		"text":    fallbackText,
+		"blocks":  blocks,
+	}
+	if threadTS != "" {
+		msg["thread_ts"] = threadTS
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshaling slack blocks: %w", err)
+	}
+
+	return slackAPIPost(botToken, "/chat.postMessage", payload)
 }
 
 func formatPipelineResult(raw json.RawMessage) string {

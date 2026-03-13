@@ -143,6 +143,19 @@ def _build_skill_context(
         prompt_parts.append(loaded.domain_context)
     if loaded.reflexion_context:
         prompt_parts.append(loaded.reflexion_context)
+    # Inject project configs (ClickUp IDs, assignees, channels)
+    configs_dir = skill_dir.parent / "project-configs"
+    if configs_dir.is_dir():
+        cfg_parts: list[str] = []
+        ws_file = configs_dir / "_workspace.md"
+        if ws_file.exists():
+            cfg_parts.append(ws_file.read_text().strip())
+        for cf in sorted(configs_dir.glob("*.md")):
+            if not cf.name.startswith("_"):
+                cfg_parts.append(cf.read_text().strip())
+        if cfg_parts:
+            header = "## Project Configurations\n\nUse these configs for workspace IDs, list IDs, assignee mappings, and channel references. Do NOT ask the user for IDs that are listed here.\n"
+            prompt_parts.append(header + "\n\n---\n\n".join(cfg_parts))
     prompt_parts.append(loaded.system_prompt)
     system_prompt = "\n\n---\n\n".join(prompt_parts)
 
@@ -254,6 +267,194 @@ def _get_fleet_store():
         return None
 
 
+def _compact_agent_results(results: list[dict]) -> list[dict]:
+    """Strip large fields from agent results for fan-in phases.
+
+    Specialist skills wrap JSON output in markdown code blocks (```json ... ```).
+    Parse these to clean structured data to avoid blowing the context window.
+    """
+    compacted = []
+    for r in results:
+        entry = {
+            "agent_id": r.get("agent_id", ""),
+            "skill": r.get("skill", ""),
+            "success": r.get("success", False),
+            "execution_id": r.get("execution_id", ""),
+            "cost_usd": r.get("cost_usd", 0),
+            "latency_ms": r.get("latency_ms", 0),
+        }
+        output = r.get("output", {})
+        if isinstance(output, dict):
+            raw = output.get("raw_output", "")
+            if isinstance(raw, str) and raw.strip().startswith("```"):
+                # Parse JSON from markdown code block
+                import re
+                match = re.search(r"```(?:json)?\s*\n(.*?)\n```", raw, re.DOTALL)
+                if match:
+                    try:
+                        entry["output"] = json.loads(match.group(1))
+                    except json.JSONDecodeError:
+                        entry["output"] = output
+                else:
+                    entry["output"] = output
+            else:
+                entry["output"] = output
+        else:
+            entry["output"] = output
+        compacted.append(entry)
+    return compacted
+
+
+async def _prefetch_pr_data(input_data: dict[str, Any]) -> dict[str, Any]:
+    """For GitHub PR pipelines, fetch diff and changed files before fan-out."""
+    repo = input_data.get("Repo") or input_data.get("repo")
+    pr_number = input_data.get("PRNumber") or input_data.get("pr_number")
+    if not repo or not pr_number:
+        return input_data
+
+    enriched = dict(input_data)
+    try:
+        from agentura_sdk.pipelines.github_client import fetch_pr_diff, fetch_pr_files
+        diff = await fetch_pr_diff(repo=repo, pr_number=int(pr_number))
+        files = await fetch_pr_files(repo=repo, pr_number=int(pr_number))
+        enriched["diff"] = diff
+        enriched["changed_files"] = files
+        logger.info("prefetched PR diff (%d chars) and %d changed files for %s#%s",
+                     len(diff), len(files), repo, pr_number)
+    except Exception as e:
+        logger.error("failed to prefetch PR data for %s#%s: %s", repo, pr_number, e)
+    return enriched
+
+
+def _extract_reviewer_output(all_results: list[dict]) -> dict[str, Any]:
+    """Find the pr-code-reviewer output from pipeline results."""
+    logger.debug("searching %d results for pr-code-reviewer output: skills=%s",
+                 len(all_results), [r.get("skill") for r in all_results])
+    for r in all_results:
+        skill = r.get("skill", "")
+        success = r.get("success") or r.get("status") == "success"
+        logger.debug("checking result: skill=%s success=%s has_output=%s", skill, success, bool(r.get("output")))
+        if skill == "dev/pr-code-reviewer" and success:
+            output = r.get("output", {})
+            # Output may be nested under raw_output as JSON in a markdown code block
+            if isinstance(output, dict) and "findings" in output:
+                return output
+            raw = output.get("raw_output", "") if isinstance(output, dict) else ""
+            if isinstance(raw, str) and "```" in raw:
+                import re
+                match = re.search(r"```(?:json)?\s*\n(.*?)\n```", raw, re.DOTALL)
+                if match:
+                    try:
+                        return json.loads(match.group(1))
+                    except json.JSONDecodeError:
+                        pass
+            return output
+    return {}
+
+
+def _format_review_comments(review_output: dict[str, Any]) -> list[dict]:
+    """Format findings as GitHub inline review comments."""
+    comments = []
+    severity_icon = {
+        "BLOCKER": "rotating_light",
+        "WARNING": "warning",
+        "SUGGESTION": "bulb",
+    }
+
+    for finding in review_output.get("findings", []):
+        severity = finding.get("severity", "").upper()
+        if severity == "PRAISE" or not finding.get("file") or not finding.get("line"):
+            continue
+
+        icon = severity_icon.get(severity, "memo")
+        body_parts = [f":{icon}: **{severity}**: {finding.get('title', '')}"]
+        if finding.get("reason"):
+            body_parts.append(f"\n{finding['reason']}")
+        if finding.get("snippet"):
+            body_parts.append(f"\n```\n{finding['snippet']}\n```")
+        if finding.get("suggestion"):
+            body_parts.append(f"\n> **Suggestion**: {finding['suggestion']}")
+
+        comments.append({
+            "path": finding["file"],
+            "line": finding["line"],
+            "body": "\n".join(body_parts),
+        })
+
+    return comments
+
+
+async def _maybe_post_pr_review(
+    pipeline_name: str,
+    input_data: dict[str, Any],
+    all_results: list[dict],
+) -> None:
+    """Post inline review comments and summary comment for PR pipelines."""
+    if not pipeline_name.startswith("github-pr"):
+        logger.debug("skipping PR review posting — pipeline %r is not a github-pr pipeline", pipeline_name)
+        return
+
+    repo = input_data.get("Repo") or input_data.get("repo")
+    pr_number = input_data.get("PRNumber") or input_data.get("pr_number")
+    head_sha = input_data.get("HeadSHA") or input_data.get("head_sha")
+    logger.info("PR review posting: repo=%s pr_number=%s head_sha=%s input_keys=%s",
+                repo, pr_number, head_sha, list(input_data.keys()))
+    if not repo or not pr_number:
+        logger.warning("skipping PR review posting — missing repo=%s or pr_number=%s", repo, pr_number)
+        return
+
+    from agentura_sdk.pipelines import github_client
+    token = github_client.get_token()
+    if not token:
+        logger.warning("GITHUB_TOKEN not set — skipping PR review posting")
+        return
+
+    # Post inline review from code reviewer findings
+    review_output = _extract_reviewer_output(all_results)
+    logger.info("reviewer output extracted: has_findings=%s, verdict=%s, keys=%s",
+                bool(review_output.get("findings")),
+                review_output.get("verdict", "<none>"),
+                list(review_output.keys()) if review_output else [])
+    if review_output:
+        try:
+            inline_comments = _format_review_comments(review_output)
+            summary = review_output.get("summary", "Automated review by Agentura")
+
+            verdict = review_output.get("verdict", "")
+            has_blocking = verdict == "request-changes" or any(
+                f.get("severity", "").upper() == "BLOCKER"
+                for f in review_output.get("findings", [])
+            )
+            event = "REQUEST_CHANGES" if has_blocking else "COMMENT"
+
+            await github_client.post_review(
+                repo=repo,
+                pr_number=int(pr_number),
+                comments=inline_comments,
+                body=summary,
+                event=event,
+                commit_id=head_sha,
+                token=token,
+            )
+            logger.info("posted PR inline review on %s#%s (%d comments, event=%s)",
+                        repo, pr_number, len(inline_comments), event)
+        except Exception as e:
+            logger.error("failed to post PR inline review on %s#%s: %s", repo, pr_number, e, exc_info=True)
+    else:
+        logger.warning("no reviewer output found — skipping inline review on %s#%s", repo, pr_number)
+
+    # Post reporter summary as a PR comment
+    final_output = all_results[-1].get("output", {}) if all_results else {}
+    logger.debug("reporter final_output keys=%s", list(final_output.keys()) if isinstance(final_output, dict) else type(final_output))
+    body = final_output.get("raw_output") or final_output.get("output", "")
+    if body:
+        try:
+            await github_client.post_comment(repo=repo, pr_number=int(pr_number), body=body, token=token)
+            logger.info("posted PR summary comment on %s#%s", repo, pr_number)
+        except Exception as e:
+            logger.error("failed to post PR summary comment on %s#%s: %s", repo, pr_number, e)
+
+
 async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, Any]:
     """Run a named pipeline synchronously, return aggregated result.
 
@@ -269,6 +470,10 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
     session_id = ""
 
     normalized = _apply_input_mapping(pipeline_input, pipeline.input_mapping)
+
+    # Prefetch PR diff + changed files for GitHub PR pipelines
+    if name.startswith("github-pr"):
+        normalized = await _prefetch_pr_data(normalized)
 
     if pipeline.phases:
         # --- Fleet session tracking for phase-based pipelines ---
@@ -286,7 +491,18 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
         # --- Phase-based execution (parallel + sequential mix) ---
         for phase in pipeline.phases:
             total_expected += len(phase.steps)
-            phase_input = dict(normalized)
+
+            # For fan-in phases, strip large fields (diff, changed_files) that
+            # upstream phases already consumed.  Downstream skills only need
+            # agent_results + lightweight PR metadata — not the raw diff which
+            # can blow past the 200K token context limit.
+            if phase.fan_in_from:
+                phase_input = {
+                    k: v for k, v in normalized.items()
+                    if k not in ("diff", "changed_files")
+                }
+            else:
+                phase_input = dict(normalized)
             phase_input.update(carry_forward)
 
             if phase.type == "parallel":
@@ -295,7 +511,7 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                     for step in phase.steps:
                         aid = step.agent_id or step.skill.replace("/", "-")
                         try:
-                            store.create_agent(f"{session_id}-{aid}", session_id, step.skill)
+                            store.create_agent(session_id, f"{session_id}-{aid}", step.skill)
                         except Exception:
                             pass
 
@@ -324,8 +540,10 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                     cfn = r.pop("context_for_next", {})
                     if cfn:
                         carry_forward.update(cfn)
-                # Inject agent_results for downstream fan-in phases
-                carry_forward["agent_results"] = phase_results
+                # Inject agent_results for downstream fan-in phases.
+                # Parse raw_output (JSON wrapped in ```json ... ```) to clean
+                # structured data so downstream phases don't get bloated strings.
+                carry_forward["agent_results"] = _compact_agent_results(phase_results)
             else:
                 seq_results = await _run_flat_steps(phase.steps, phase_input, carry_forward, skills_dir)
                 all_results.extend(seq_results)
@@ -363,6 +581,9 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                 failed_agents=failed,
                 total_cost_usd=total_cost,
             )
+
+    # Post inline review + summary comment for GitHub PR pipelines
+    await _maybe_post_pr_review(name, normalized, all_results)
 
     return {
         "pipeline": name,

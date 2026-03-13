@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -149,7 +150,7 @@ func TestGitHubWebhookHandler_PullRequest(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Mock executor that accepts pipeline dispatch
 			mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +169,7 @@ func TestGitHubWebhookHandler_PullRequest(t *testing.T) {
 			req := httptest.NewRequest("POST", "/api/v1/webhooks/github", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-GitHub-Event", tt.event)
-			req.Header.Set("X-GitHub-Delivery", "test-delivery-123")
+			req.Header.Set("X-GitHub-Delivery", fmt.Sprintf("test-pr-delivery-%d", i))
 
 			if tt.addSig && tt.secret != "" && !isGitHubSecretPlaceholder(tt.secret) {
 				req.Header.Set("X-Hub-Signature-256", buildSignature([]byte(tt.body), tt.secret))
@@ -257,7 +258,7 @@ func TestGitHubWebhookHandler_IssueComment(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
@@ -275,7 +276,7 @@ func TestGitHubWebhookHandler_IssueComment(t *testing.T) {
 			req := httptest.NewRequest("POST", "/api/v1/webhooks/github", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-GitHub-Event", "issue_comment")
-			req.Header.Set("X-GitHub-Delivery", "test-delivery-456")
+			req.Header.Set("X-GitHub-Delivery", fmt.Sprintf("test-comment-delivery-%d", i))
 
 			w := httptest.NewRecorder()
 			h.Handle(w, req)

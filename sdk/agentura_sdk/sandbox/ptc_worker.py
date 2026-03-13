@@ -60,12 +60,13 @@ def _build_worker_manifest(
         ),
     )
 
+    use_host_network = os.environ.get("PTC_HOST_NETWORK", "false").lower() in ("true", "1", "yes")
     spec = client.V1PodSpec(
         containers=[container],
         restart_policy="Never",
         automount_service_account_token=False,
-        host_network=True,
-        dns_policy="Default",
+        host_network=use_host_network,
+        dns_policy="Default" if use_host_network else "ClusterFirst",
     )
 
     return client.V1Pod(

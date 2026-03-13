@@ -150,6 +150,14 @@ func NewRouter(h Handlers, mw MiddlewareConfig) http.Handler {
 	// Slack webhook — no auth (uses Slack signing secret verification)
 	if h.Slack != nil {
 		mux.HandleFunc("POST /api/v1/webhooks/slack", h.Slack.Handle)
+		mux.HandleFunc("POST /api/v1/webhooks/slack/interactive", h.Slack.HandleInteractive)
+	}
+
+	// OAuth endpoints — no auth (browser redirects can't carry auth tokens)
+	if h.Skill != nil {
+		mux.HandleFunc("GET /api/v1/oauth/connect/{provider}/authorize", h.Skill.ProxyGet)
+		mux.HandleFunc("GET /api/v1/oauth/connect/{provider}/callback", h.Skill.ProxyGet)
+		mux.HandleFunc("GET /api/v1/oauth/status/{user_id}", h.Skill.ProxyGet)
 	}
 
 	// Trigger status — cron scheduler info
