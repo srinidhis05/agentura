@@ -173,25 +173,38 @@ def _format_inline_comments(
     review_result: dict,
     doc_result: dict,
 ) -> list[dict]:
-    """Extract inline review comments from code review and doc suggestions."""
+    """Extract inline review comments from code review and doc suggestions.
+
+    Handles the skill output schema: findings[] with severity field.
+    Skips PRAISE items (no inline comment needed).
+    """
     comments = []
 
-    # From code review: blocking issues + suggestions
-    for issue in review_result.get("blocking_issues", []):
-        if issue.get("file") and issue.get("line"):
-            comments.append({
-                "path": issue["file"],
-                "line": issue["line"],
-                "body": f"**{issue.get('severity', 'issue').upper()}** ({issue.get('category', '')}): {issue.get('description', '')}\n\n> {issue.get('suggestion', '')}",
-            })
+    _SEVERITY_ICON = {
+        "BLOCKER": "rotating_light",
+        "WARNING": "warning",
+        "SUGGESTION": "bulb",
+    }
 
-    for suggestion in review_result.get("suggestions", []):
-        if suggestion.get("file") and suggestion.get("line"):
-            comments.append({
-                "path": suggestion["file"],
-                "line": suggestion["line"],
-                "body": f"**Suggestion** ({suggestion.get('category', '')}): {suggestion.get('description', '')}\n\n> {suggestion.get('suggestion', '')}",
-            })
+    for finding in review_result.get("findings", []):
+        severity = finding.get("severity", "").upper()
+        if severity == "PRAISE" or not finding.get("file") or not finding.get("line"):
+            continue
+
+        icon = _SEVERITY_ICON.get(severity, "memo")
+        body_parts = [f":{icon}: **{severity}**: {finding.get('title', '')}"]
+        if finding.get("reason"):
+            body_parts.append(f"\n{finding['reason']}")
+        if finding.get("snippet"):
+            body_parts.append(f"\n```\n{finding['snippet']}\n```")
+        if finding.get("suggestion"):
+            body_parts.append(f"\n> **Suggestion**: {finding['suggestion']}")
+
+        comments.append({
+            "path": finding["file"],
+            "line": finding["line"],
+            "body": "\n".join(body_parts),
+        })
 
     # From doc generator: documentation suggestions
     for sugg in doc_result.get("suggestions", []):
@@ -234,9 +247,16 @@ def _format_summary_comment(
         elif skill == "dev/github-pr-reviewer":
             lines.append(f"**Verdict**: {output.get('verdict', 'N/A')}")
             lines.append(f"\n{output.get('summary', '')}")
-            blocking = output.get("blocking_issues", [])
-            if blocking:
-                lines.append(f"\n**Blocking Issues**: {len(blocking)}")
+            stats = output.get("stats", {})
+            if stats:
+                lines.append(f"\n| Blockers | Warnings | Suggestions | Praise |")
+                lines.append(f"|:---:|:---:|:---:|:---:|")
+                lines.append(f"| {stats.get('blockers', 0)} | {stats.get('warnings', 0)} | {stats.get('suggestions', 0)} | {stats.get('praise', 0)} |")
+            blockers = [f for f in output.get("findings", []) if f.get("severity", "").upper() == "BLOCKER"]
+            if blockers:
+                lines.append(f"\n**Blockers** ({len(blockers)}):")
+                for b in blockers:
+                    lines.append(f"- `{b.get('file', '')}:{b.get('line', '')}` — {b.get('title', '')}")
         elif skill == "dev/pr-doc-generator":
             coverage = output.get("doc_coverage", {})
             lines.append(f"**Coverage**: {coverage.get('documented', 0)}/{coverage.get('new_public_apis', 0)} public APIs documented")
@@ -413,8 +433,12 @@ async def run_pr_pipeline(pr_event: dict) -> dict:
             review_body = review_output.get("summary", "Automated review by Agentura PR Pipeline")
 
             if inline_comments or review_body:
-                # Determine review event based on blocking issues
-                has_blocking = bool(review_output.get("blocking_issues"))
+                # Determine review event based on verdict or blocker findings
+                verdict = review_output.get("verdict", "")
+                has_blocking = verdict == "request-changes" or any(
+                    f.get("severity", "").upper() == "BLOCKER"
+                    for f in review_output.get("findings", [])
+                )
                 event = "REQUEST_CHANGES" if has_blocking else "COMMENT"
 
                 await github_client.post_review(

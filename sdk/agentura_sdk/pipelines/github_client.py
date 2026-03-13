@@ -82,16 +82,26 @@ async def post_review(
     token = token or get_token()
     url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}/reviews"
 
+    # GitHub requires subject_type=file for absolute line numbers (vs diff positions)
+    enriched_comments = [
+        {**c, "subject_type": "file"} for c in comments
+    ]
+
     payload: dict = {
         "body": body,
         "event": event,
-        "comments": comments,
+        "comments": enriched_comments,
     }
     if commit_id:
         payload["commit_id"] = commit_id
 
     async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
         resp = await client.post(url, headers=_headers(token), json=payload)
+        if resp.status_code == 422:
+            # Fallback: post review without inline comments (verdict + summary only)
+            logger.warning("GitHub rejected inline comments (422), posting review without them: %s", resp.text)
+            payload["comments"] = []
+            resp = await client.post(url, headers=_headers(token), json=payload)
         resp.raise_for_status()
         return resp.json()
 

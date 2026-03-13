@@ -141,6 +141,10 @@ CREATE INDEX IF NOT EXISTS idx_failure_cases_domain ON failure_cases(domain);
 
 -- Approval engine: pending tool calls stored per execution
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS pending_approvals JSONB DEFAULT '[]'::jsonb;
+
+-- RBAC: track who triggered each execution
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS triggered_by VARCHAR(200) DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_executions_triggered_by ON executions(triggered_by);
 """
 
 
@@ -194,9 +198,10 @@ class PgStore:
         return d
 
     def log_execution(self, skill_path: str, data: dict) -> str:
+        from uuid import uuid4
         execution_id = data.get(
             "execution_id",
-            f"EXEC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+            f"EXEC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:6]}",
         )
         domain = self._domain_from_skill(skill_path)
         conn = self._pool.getconn()
@@ -206,8 +211,8 @@ class PgStore:
                     """INSERT INTO executions
                        (execution_id, domain, workspace_id, skill, timestamp,
                         input_summary, output_summary, outcome, cost_usd,
-                        latency_ms, model_used)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        latency_ms, model_used, triggered_by)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (execution_id) DO NOTHING""",
                     (
                         execution_id,
@@ -221,6 +226,7 @@ class PgStore:
                         data.get("cost_usd", 0.0),
                         data.get("latency_ms", 0.0),
                         data.get("model_used", ""),
+                        data.get("triggered_by", ""),
                     ),
                 )
             conn.commit()
@@ -430,22 +436,22 @@ class PgStore:
         finally:
             self._pool.putconn(conn)
 
-    def get_executions(self, skill_path: str | None = None) -> list[dict]:
+    def get_executions(self, skill_path: str | None = None, triggered_by: str | None = None) -> list[dict]:
         conn = self._pool.getconn()
         try:
             with conn.cursor(
                 cursor_factory=psycopg2.extras.RealDictCursor
             ) as cur:
+                conditions = ["workspace_id = %s"]
+                params: list[object] = [self._workspace_id]
                 if skill_path:
-                    cur.execute(
-                        "SELECT * FROM executions WHERE skill = %s AND workspace_id = %s ORDER BY timestamp DESC",
-                        (skill_path, self._workspace_id),
-                    )
-                else:
-                    cur.execute(
-                        "SELECT * FROM executions WHERE workspace_id = %s ORDER BY timestamp DESC",
-                        (self._workspace_id,),
-                    )
+                    conditions.append("skill = %s")
+                    params.append(skill_path)
+                if triggered_by:
+                    conditions.append("triggered_by = %s")
+                    params.append(triggered_by)
+                query = f"SELECT * FROM executions WHERE {' AND '.join(conditions)} ORDER BY timestamp DESC"
+                cur.execute(query, params)
                 return [self._deserialize_row(row) for row in cur.fetchall()]
         finally:
             self._pool.putconn(conn)
