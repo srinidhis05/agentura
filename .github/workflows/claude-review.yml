@@ -1,0 +1,33 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this pull request. Focus on:
+            1. Correctness — logic bugs, off-by-one errors, nil/null dereferences
+            2. Security — injection, auth bypass, secret leaks, OWASP top 10
+            3. Architecture — does it match existing patterns? Config-driven vs hardcoded?
+            4. Go specifics — error wrapping with %w, interface compliance, goroutine leaks
+            5. Python specifics — type safety, async correctness, missing error handling
+
+            Post findings as inline review comments on the specific lines.
+            Post a summary comment with verdict (approve / request changes).
+            Be concise — developers skim reviews. No praise unless exceptional.
+          claude_args: "--model claude-sonnet-4-5-20250929 --max-turns 10"

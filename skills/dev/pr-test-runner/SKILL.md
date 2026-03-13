@@ -75,10 +75,11 @@ For each changed function/method without adequate test coverage:
 
 After writing test files:
 1. Run the new tests to verify they compile/pass
-2. Stage only the test files you created:
+2. Stage ONLY the test files you created — NEVER use `git add .` or `git add -A`:
    ```bash
-   git add <test-file-paths>
+   git add src/test/java/path/to/YourTest.java
    ```
+   NEVER commit these files: `TASK_RESULT.json`, `test_output.txt`, `*.log`, `.claude/`
 3. Commit with a clear message:
    ```bash
    git commit -m "test: add missing tests for PR #${pr_number} changes

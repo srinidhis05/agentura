@@ -82,10 +82,11 @@ async def post_review(
     token = token or get_token()
     url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}/reviews"
 
-    # GitHub requires subject_type=file for absolute line numbers (vs diff positions)
-    enriched_comments = [
-        {**c, "subject_type": "file"} for c in comments
-    ]
+    # Use line + side=RIGHT for GitHub review comments (absolute line in new file)
+    enriched_comments = []
+    for c in comments:
+        comment = {"path": c["path"], "line": c["line"], "body": c["body"], "side": "RIGHT"}
+        enriched_comments.append(comment)
 
     payload: dict = {
         "body": body,

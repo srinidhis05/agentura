@@ -25,6 +25,7 @@ type ExecuteRequest struct {
 	InputData     map[string]any `json:"input_data"`
 	ModelOverride *string        `json:"model_override,omitempty"`
 	DryRun        bool           `json:"dry_run"`
+	UserID        string         `json:"user_id,omitempty"`
 }
 
 // CorrectRequest is the body sent to the executor's correct endpoint.
@@ -128,9 +129,40 @@ func (c *Client) GetAnalytics(ctx context.Context) (json.RawMessage, error) {
 	return c.getJSON(ctx, "/api/v1/analytics")
 }
 
-// Execute runs a skill on the executor.
+// Execute runs a skill on the executor, forwarding user_id as X-User-ID header.
 func (c *Client) Execute(ctx context.Context, domain, skill string, body ExecuteRequest) (json.RawMessage, error) {
-	return c.postJSON(ctx, fmt.Sprintf("/api/v1/skills/%s/%s/execute", domain, skill), body)
+	path := fmt.Sprintf("/api/v1/skills/%s/%s/execute", domain, skill)
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if body.UserID != "" {
+		req.Header.Set("X-User-ID", body.UserID)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling executor: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("executor returned %d: %s", resp.StatusCode, respBody)
+	}
+
+	return json.RawMessage(respBody), nil
 }
 
 // Correct sends a correction to the executor.
