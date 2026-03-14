@@ -283,3 +283,9 @@
 **Over**: Hardcoded interaction routing in gateway code, per-interaction handler functions, MCP-based interaction handling
 **Why**: Slack interactions (modals, selects, shortcuts) are essential for rich UX but were completely missing — only approval buttons existed. Config-driven routing matches existing pattern (commands, events). Single dispatch mechanism handles all 7 interaction types. Skills receive structured input (form_values, message_text, etc.) and can return outputs, modals, or validation errors.
 **Constraint**: InteractionHandler requires callback_id (matches Slack callback_id or action_id); type field is optional (allows wildcard matching); exactly one of skill or pipeline must be specified; form value extraction uses "block_id.action_id" format; executor integration uses direct HTTP calls (not via executor adapter)
+
+## DEC-091: Configurable POD_READY_TIMEOUT to handle cluster resource pressure (2026-03-14)
+**Chose**: POD_READY_TIMEOUT env var (default 120s, set to 300s in production) for K8s sandbox and worker pod readiness checks
+**Over**: Hardcoded 120s timeout, reducing worker resource requests, aggressive auto-scaling
+**Why**: EKS cluster resource pressure during peak hours causes PTC/CC worker pods to exceed 120s startup (image pull + init container + readiness probe). "Peer closed connection" errors blocked all skill executions. Configurable timeout allows cluster-specific tuning without code changes. 300s handles Karpenter node spin-up + image pull on fresh nodes.
+**Constraint**: Timeout applies to all K8s sandbox pods and PTC/CC worker pods; set via POD_READY_TIMEOUT env var in executor deployment; must be ≥120s (lower values cause false timeouts on cold starts)
