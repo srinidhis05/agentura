@@ -1,0 +1,48 @@
+# Internal ALB Ingress — exposes web UI + gateway API over VPN
+# Cluster: vance-core-infrastructure-mumbai-01-backend-cluster (ap-south-1)
+# Namespace: agentura-system
+#
+# Prerequisites:
+#   1. AWS Load Balancer Controller installed on the cluster
+#   2. Private subnets tagged: kubernetes.io/role/internal-elb = 1
+#   3. VPN connectivity to the VPC
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agentura-internal
+  namespace: agentura-system
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+
+    alb.ingress.kubernetes.io/tags: Environment=production,Service=agentura
+
+    # HTTP only — no TLS needed for internal VPN traffic
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+
+    # Health check against web service
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-port: "3000"
+spec:
+  rules:
+    - http:
+        paths:
+          # Gateway API — direct access for CLI and tools
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 3001
+          # Web UI — default catch-all
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 3000

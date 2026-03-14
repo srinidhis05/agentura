@@ -1,0 +1,67 @@
+# GitHub Webhook Ingress — exposes ONLY POST /api/v1/webhooks/github
+# Cluster: vance-core-infrastructure-mumbai-01-backend-cluster (ap-south-1)
+# Namespace: agentura-system
+#
+# Prerequisites:
+#   1. AWS Load Balancer Controller installed on the cluster
+#   2. Public subnets tagged: kubernetes.io/role/elb = 1
+#   3. GitHub webhook secret in agentura-api-keys secret
+#
+# To get current GitHub webhook IP ranges:
+#   curl -s https://api.github.com/meta | jq '.hooks'
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: github-webhook
+  namespace: agentura-system
+  annotations:
+    # ALB Ingress Controller
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+
+    # Auto-discover public subnets tagged with kubernetes.io/role/elb=1
+    # If auto-discovery doesn't work, hardcode:
+    #   alb.ingress.kubernetes.io/subnets: subnet-xxx,subnet-yyy
+    alb.ingress.kubernetes.io/tags: Environment=production,Service=agentura
+
+    # HTTP only — no ACM certificate available yet
+    # Future: switch to HTTPS:443 + certificate-arn when ACM cert is provisioned
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+
+    # Lock source IPs to GitHub webhook ranges (from https://api.github.com/meta .hooks)
+    alb.ingress.kubernetes.io/inbound-cidrs: >-
+      140.82.112.0/20,
+      185.199.108.0/22,
+      192.30.252.0/22,
+      143.55.64.0/20
+
+    # Health check against gateway
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-port: "3001"
+
+    # Default action: 403 for any path not matched
+    alb.ingress.kubernetes.io/actions.block-all: >-
+      {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"403","messageBody":"Forbidden"}}
+spec:
+  rules:
+    - http:
+        paths:
+          # The only path that reaches the gateway
+          - path: /api/v1/webhooks/github
+            pathType: Exact
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 3001
+          # Catch-all → 403
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: block-all
+                port:
+                  name: use-annotation

@@ -589,28 +589,25 @@ def _load_project_configs(domain_path: Path) -> str:
 
 
 def _build_mcp_bindings(skill_cfg_raw: dict, user_id: str | None = None) -> list[dict]:
-    """Build MCP server bindings from skill config, with per-user OAuth token overlay."""
+    """Build MCP server bindings from skill config.
+
+    Resolution order per server:
+    1. Per-user OAuth token (if user_id provided and provider configured)
+    2. Explicit env var: MCP_{SERVER}_URL + MCP_{SERVER}_API_KEY
+    3. MCP registry (auto-discovered from Obot via OBOT_URL) + MCP_GATEWAY_API_KEY
+    """
     from agentura_sdk.oauth.providers import PROVIDERS
+
+    gateway_api_key = os.environ.get("MCP_GATEWAY_API_KEY", "")
 
     bindings: list[dict] = []
     for mcp_ref in skill_cfg_raw.get("mcp_tools", []):
         server_name = mcp_ref.get("server", "")
-        env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
-        server_url = os.environ.get(env_key, "")
+        tools = mcp_ref.get("tools", [])
 
         binding: dict | None = None
-        if server_url:
-            binding = {
-                "server": server_name,
-                "url": server_url,
-                "tools": mcp_ref.get("tools", []),
-            }
-            auth_key = f"MCP_{server_name.upper().replace('-', '_')}_API_KEY"
-            api_key = os.environ.get(auth_key, "")
-            if api_key:
-                binding["headers"] = {"Authorization": f"Bearer {api_key}"}
 
-        # Per-user OAuth token override
+        # 1. Per-user OAuth token override (highest priority)
         if user_id and server_name in PROVIDERS:
             dsn = os.environ.get("DATABASE_URL", "")
             if dsn:
@@ -620,22 +617,47 @@ def _build_mcp_bindings(skill_cfg_raw: dict, user_id: str | None = None) -> list
                     token = token_store.refresh_if_expired(user_id, server_name)
                     if token:
                         provider = PROVIDERS[server_name]
-                        if binding is None:
-                            binding = {
-                                "server": server_name,
-                                "url": provider["mcp_url"],
-                                "tools": mcp_ref.get("tools", []),
-                            }
-                        else:
-                            binding["url"] = provider["mcp_url"]
-                        binding["headers"] = {"Authorization": f"Bearer {token}"}
+                        binding = {
+                            "server": server_name,
+                            "url": provider["mcp_url"],
+                            "tools": tools,
+                            "headers": {"Authorization": f"Bearer {token}"},
+                        }
                 except Exception:
                     _logger.debug("Per-user token lookup failed for %s/%s", user_id, server_name)
 
-        if binding:
-            if mcp_ref.get("approval_required"):
-                binding["approval_required"] = mcp_ref["approval_required"]
-            bindings.append(binding)
+        # 2. Explicit env var override
+        if binding is None:
+            env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
+            server_url = os.environ.get(env_key, "")
+            if server_url:
+                binding = {"server": server_name, "url": server_url, "tools": tools}
+                auth_key = f"MCP_{server_name.upper().replace('-', '_')}_API_KEY"
+                api_key = os.environ.get(auth_key, "")
+                if api_key:
+                    binding["headers"] = {"Authorization": f"Bearer {api_key}"}
+
+        # 3. MCP registry fallback (Obot auto-discovery)
+        if binding is None:
+            try:
+                from agentura_sdk.mcp.registry import get_registry
+                registry = get_registry()
+                server_cfg = registry.get(server_name)
+                if server_cfg and server_cfg.url:
+                    binding = {"server": server_name, "url": server_cfg.url, "tools": tools}
+                    if gateway_api_key:
+                        binding["headers"] = {"Authorization": f"Bearer {gateway_api_key}"}
+                    _logger.debug("MCP server %s resolved via registry: %s", server_name, server_cfg.url)
+            except Exception:
+                _logger.debug("Registry lookup failed for MCP server %s", server_name)
+
+        if binding is None:
+            _logger.warning("MCP server %s: no URL found (env, registry, or OAuth)", server_name)
+            continue
+
+        if mcp_ref.get("approval_required"):
+            binding["approval_required"] = mcp_ref["approval_required"]
+        bindings.append(binding)
 
     return bindings
 

@@ -1,0 +1,21 @@
+Every 2.0s: kubectl get pods                                                                              192.168.1.6: 20:51:26
+                                                                                                                  in 0.727s (0)
+NAME                            READY   STATUS             RESTARTS   AGE                                                      
+appetize-mcp-7557bd9796-lhz2b   1/1     Running            0          5h16m                                                    
+executor-7746d4f5f-5lxtf        1/1     Running            0          2m57s                                                    
+gateway-c58f9c7bc-dvz8q         1/1     Running            0          7h55m                                                    
+k8s-mcp-56dbbfb86-mdlhv         1/1     Running            0          5h16m                                                    
+postgres-5844968f84-nptdt       1/1     Running            0          29h                                                      
+sandbox-1545049                 0/1     ImagePullBackOff   0          2m22s                                                    
+sandbox-1679592                 0/1     Pending            0          8s                                                       
+sandbox-8203347                 0/1     ImagePullBackOff   0          58m                                                      
+sandbox-8306743                 0/1     ImagePullBackOff   0          56m                                                      
+slack-mcp-859675cbb7-98smm      1/1     Running            0          106s                                                     
+web-76fd74d95-vjsqh             1/1     Running            0          2d5h                                                     
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               

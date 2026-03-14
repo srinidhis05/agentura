@@ -114,10 +114,16 @@ def _fetch_tools_rest(server_url: str) -> list[dict] | None:
     try:
         resp = httpx.get(f"{server_url}/tools", timeout=MCP_FETCH_TIMEOUT)
         if resp.status_code in (405, 406):
+            logger.debug("REST GET /tools returned %d for %s — falling back to MCP protocol", resp.status_code, server_url)
             return None  # Not REST — signal to try MCP protocol
         resp.raise_for_status()
-        return resp.json()
-    except Exception:
+        data = resp.json()
+        # Handle both list and dict formats (some servers return {"tools": [...]})
+        if isinstance(data, dict):
+            return data.get("tools", [])
+        return data
+    except Exception as exc:
+        logger.debug("REST GET /tools failed for %s: %s", server_url, exc)
         return None
 
 
@@ -165,10 +171,14 @@ def _fetch_mcp_tools(
     _mcp_session_ids.clear()
     _mcp_server_headers.clear()
 
+    logger.info("MCP discovery: %d servers configured: %s", len(mcp_servers), list(mcp_servers.keys()))
     for server_name, server_cfg in mcp_servers.items():
         server_url = server_cfg.get("url", "")
         if not server_url:
+            logger.warning("MCP server %s has no URL — skipping", server_name)
             continue
+        has_auth = bool(server_cfg.get("headers"))
+        logger.info("MCP server %s: url=%s auth=%s", server_name, server_url, has_auth)
 
         # Store auth headers for this server
         if server_cfg.get("headers"):
@@ -323,7 +333,9 @@ async def execute_stream(request: PTCRequest):
         )
 
         if not tool_server_map:
-            yield _sse("error", {"error": "No MCP tools discovered. Check MCP server URLs."})
+            server_names = list(request.mcp_servers.keys()) if request.mcp_servers else []
+            detail = f"servers_received={server_names}" if server_names else "no MCP servers in request — check skill config mcp_tools and MCP_*_URL env vars in executor"
+            yield _sse("error", {"error": f"No MCP tools discovered. {detail}"})
             return
 
         logger.info("Discovered MCP tools: %s", list(tool_server_map.keys()))

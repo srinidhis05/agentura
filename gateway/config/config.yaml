@@ -166,6 +166,19 @@ triggers:
             skill: "pm-heartbeat"
             extract: {"project_slug": "{project}"}
             description: "Check status for a specific project"
+        interaction_handlers:
+          - callback_id: "triage_message"
+            type: "message_action"
+            skill: "pm/triage"
+            description: "Triage this message - route to appropriate project/team"
+          - callback_id: "quick_status"
+            type: "shortcut"
+            skill: "pm/project-status"
+            description: "Get quick project status report"
+          - callback_id: "create_task_modal"
+            type: "view_submission"
+            skill: "pm/triage"
+            description: "Create task from modal form"
       - name: ge
         signing_secret: "${SLACK_GE_SIGNING_SECRET}"
         bot_token: "${SLACK_GE_BOT_TOKEN}"

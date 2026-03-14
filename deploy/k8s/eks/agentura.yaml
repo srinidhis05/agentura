@@ -1,0 +1,497 @@
+# Agentura EKS Deployment — all-in-one manifest
+# Account: 441250065216 (infrastructure)
+# Cluster: vance-core-infrastructure-mumbai-01-backend-cluster (ap-south-1)
+# No LB/Ingress — test via kubectl port-forward
+
+---
+# ── PostgreSQL (Deployment with emptyDir — no EBS CSI driver on cluster) ──
+# TODO: Switch to StatefulSet + PVC once EBS CSI driver is installed
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: agentura-system
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: agentura-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+      annotations:
+        karpenter.sh/do-not-disrupt: "true"
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: agentura
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentura-db
+                  key: password
+            - name: POSTGRES_DB
+              value: agentura
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "agentura"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "agentura"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: pgdata
+          emptyDir: {}
+
+---
+# ── Executor RBAC (sandbox pod management) ──
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: executor
+  namespace: agentura-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sandbox-manager
+  namespace: agentura-system
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sandbox-manager-binding
+  namespace: agentura-system
+subjects:
+  - kind: ServiceAccount
+    name: executor
+    namespace: agentura-system
+roleRef:
+  kind: Role
+  name: sandbox-manager
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ── PodDisruptionBudgets — prevent Karpenter consolidation from evicting core pods ──
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: executor-pdb
+  namespace: agentura-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: executor
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-pdb
+  namespace: agentura-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gateway
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-pdb
+  namespace: agentura-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: web
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-pdb
+  namespace: agentura-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: postgres
+---
+# ── Executor ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor
+  namespace: agentura-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: executor
+  template:
+    metadata:
+      labels:
+        app: executor
+      annotations:
+        karpenter.sh/do-not-disrupt: "true"
+    spec:
+      serviceAccountName: executor
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: git-sync-skills
+          image: alpine/git:2.43.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              # Configure SSH for GitHub (if using deploy key)
+              if [ -f /git-secret/ssh-privatekey ]; then
+                mkdir -p ~/.ssh
+                cp /git-secret/ssh-privatekey ~/.ssh/id_ed25519
+                chmod 600 ~/.ssh/id_ed25519
+                ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+              fi
+
+              REPO="${SKILLS_REPO_URL}"
+              BRANCH="${SKILLS_REPO_BRANCH:-main}"
+              SKILLS_PATH="${SKILLS_REPO_SKILLS_PATH:-skills}"
+              PIPELINES_PATH="${SKILLS_REPO_PIPELINES_PATH:-pipelines}"
+              AGENCY_PATH="${SKILLS_REPO_AGENCY_PATH:-agency}"
+
+              echo "Cloning ${REPO} (branch: ${BRANCH})..."
+              git clone --depth 1 --branch "${BRANCH}" "${REPO}" /repo
+
+              # Copy each directory if it exists in the repo
+              if [ -d "/repo/${SKILLS_PATH}" ]; then
+                cp -a "/repo/${SKILLS_PATH}/." /skills/
+                echo "Synced skills from ${SKILLS_PATH}/"
+              fi
+              if [ -d "/repo/${PIPELINES_PATH}" ]; then
+                cp -a "/repo/${PIPELINES_PATH}/." /pipelines/
+                echo "Synced pipelines from ${PIPELINES_PATH}/"
+              fi
+              if [ -d "/repo/${AGENCY_PATH}" ]; then
+                cp -a "/repo/${AGENCY_PATH}/." /agency/
+                echo "Synced agency from ${AGENCY_PATH}/"
+              fi
+
+              # Fix ownership
+              chown -R 1000:1000 /skills /pipelines /agency
+              echo "Git sync complete."
+          env:
+            - name: SKILLS_REPO_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agentura-skills-repo
+                  key: url
+            - name: SKILLS_REPO_BRANCH
+              valueFrom:
+                secretKeyRef:
+                  name: agentura-skills-repo
+                  key: branch
+                  optional: true
+            - name: SKILLS_REPO_SKILLS_PATH
+              valueFrom:
+                secretKeyRef:
+                  name: agentura-skills-repo
+                  key: skills-path
+                  optional: true
+            - name: SKILLS_REPO_PIPELINES_PATH
+              valueFrom:
+                secretKeyRef:
+                  name: agentura-skills-repo
+                  key: pipelines-path
+                  optional: true
+            - name: SKILLS_REPO_AGENCY_PATH
+              valueFrom:
+                secretKeyRef:
+                  name: agentura-skills-repo
+                  key: agency-path
+                  optional: true
+          volumeMounts:
+            - name: skills
+              mountPath: /skills
+            - name: pipelines
+              mountPath: /pipelines
+            - name: agency
+              mountPath: /agency
+            - name: git-secret
+              mountPath: /git-secret
+              readOnly: true
+        - name: init-dirs
+          image: alpine:3.19
+          command: ["sh", "-c"]
+          args:
+            - |
+              mkdir -p /artifacts /data/.agentura
+              chown -R 1000:1000 /artifacts /data
+          volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
+            - name: knowledge
+              mountPath: /data
+      containers:
+        - name: executor
+          image: 441250065216.dkr.ecr.ap-south-1.amazonaws.com/agentura/executor:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SANDBOX_BACKEND
+              value: k8s
+            - name: SKILLS_DIR
+              value: /skills
+            - name: PIPELINES_DIR
+              value: /pipelines
+            - name: AGENCY_DIR
+              value: /agency
+            - name: AGENTURA_KNOWLEDGE_DIR
+              value: /data/.agentura
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agentura-db
+                  key: url
+            - name: UVICORN_WORKERS
+              value: "4"
+            - name: CLAUDE_CODE_WORKER_IMAGE
+              value: 441250065216.dkr.ecr.ap-south-1.amazonaws.com/agentura/claude-code-worker:latest
+          envFrom:
+            - secretRef:
+                name: agentura-api-keys
+            - secretRef:
+                name: agentura-mcp-config
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: skills
+              mountPath: /skills
+            - name: pipelines
+              mountPath: /pipelines
+            - name: agency
+              mountPath: /agency
+            - name: artifacts
+              mountPath: /artifacts
+            - name: knowledge
+              mountPath: /data
+      volumes:
+        - name: skills
+          emptyDir: {}
+        - name: pipelines
+          emptyDir: {}
+        - name: agency
+          emptyDir: {}
+        - name: artifacts
+          emptyDir: {}
+        - name: knowledge
+          emptyDir: {}
+        - name: git-secret
+          secret:
+            secretName: agentura-skills-repo-key
+            optional: true
+            defaultMode: 0400
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: executor
+  namespace: agentura-system
+spec:
+  type: ClusterIP
+  selector:
+    app: executor
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+---
+# ── Gateway ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: agentura-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+      annotations:
+        karpenter.sh/do-not-disrupt: "true"
+    spec:
+      containers:
+        - name: gateway
+          image: 441250065216.dkr.ecr.ap-south-1.amazonaws.com/agentura/gateway:latest
+          ports:
+            - containerPort: 3001
+          env:
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: agentura
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentura-db
+                  key: password
+            - name: DB_NAME
+              value: agentura
+            - name: EXECUTOR_URL
+              value: http://executor:8000
+            - name: EXECUTION_MODE
+              value: proxy
+          envFrom:
+            - secretRef:
+                name: agentura-api-keys
+            - secretRef:
+                name: agentura-slack-tokens
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: agentura-system
+spec:
+  type: ClusterIP
+  selector:
+    app: gateway
+  ports:
+    - port: 3001
+      targetPort: 3001
+
+---
+# ── Web UI ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: agentura-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+      annotations:
+        karpenter.sh/do-not-disrupt: "true"
+    spec:
+      containers:
+        - name: web
+          image: 441250065216.dkr.ecr.ap-south-1.amazonaws.com/agentura/web:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: production
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: agentura-system
+spec:
+  type: ClusterIP
+  selector:
+    app: web
+  ports:
+    - port: 3000
+      targetPort: 3000

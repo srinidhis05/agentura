@@ -4,10 +4,14 @@ export default function LandingPage() {
       <Nav />
       <Hero />
       <CompoundingIntelligence />
+      <AgencySystem />
+      <PRFleet />
+      <IncubatorPipeline />
       <HowItWorks />
-      <MemoryLearning />
       <ExecutorTypes />
       <Architecture />
+      <MemoryLearning />
+      <SkillsCatalog />
       <Triggers />
       <PortYourPlugins />
       <WhySelfHost />
@@ -33,12 +37,11 @@ function Nav() {
         </div>
 
         <div className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
-          <a href="#how-it-learns" className="transition-colors hover:text-foreground">How It Learns</a>
-          <a href="#how-it-works" className="transition-colors hover:text-foreground">How It Works</a>
-          <a href="#executors" className="transition-colors hover:text-foreground">Executors</a>
+          <a href="#how-it-learns" className="transition-colors hover:text-foreground">Features</a>
+          <a href="#agency" className="transition-colors hover:text-foreground">Agency</a>
+          <a href="#pipelines" className="transition-colors hover:text-foreground">Pipelines</a>
           <a href="#architecture" className="transition-colors hover:text-foreground">Architecture</a>
-          <a href="#triggers" className="transition-colors hover:text-foreground">Triggers</a>
-          <a href="#port-plugins" className="transition-colors hover:text-foreground">Port Plugins</a>
+          <a href="#get-started" className="transition-colors hover:text-foreground">Get Started</a>
         </div>
 
         <a
@@ -67,19 +70,19 @@ function Hero() {
       <div className="relative mx-auto max-w-4xl px-6 text-center">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/50 px-4 py-1.5 text-xs text-muted-foreground">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          Kubernetes-native &middot; Self-hosted &middot; Apache 2.0
+          28 Skills &middot; 14 Agents &middot; 6 Pipelines &middot; 5 Domains
         </div>
 
         <h1 className="text-4xl font-bold leading-tight tracking-tight md:text-6xl md:leading-[1.1]">
-          AI That Gets Smarter{" "}
+          Deploy Agent Fleets{" "}
           <br className="hidden md:block" />
-          &mdash; And Stays Yours
+          On Your Infrastructure
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground md:text-xl">
-          Cloud AI forgets you between sessions. Agentura remembers everything &mdash;
-          corrections become reflexion rules, reflexions become system prompts, and every
-          execution deepens a knowledge base that lives on your infrastructure, not someone else&apos;s.
+          Self-hosted AI agent orchestration for teams that ship.
+          PR reviews, feature pipelines, and enterprise workflows &mdash;
+          running as parallel fleets on your Kubernetes cluster, learning from every execution.
         </p>
 
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
@@ -194,6 +197,373 @@ function MoatStep({
       </div>
       <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
     </div>
+  );
+}
+
+/* ── Agency System ── */
+
+function AgencySystem() {
+  return (
+    <section id="agency" className="border-t border-border/50 py-20 md:py-28">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mb-12 text-center">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-violet-400">
+            Agency System
+          </p>
+          <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+            Agents With Personality and Purpose
+          </h2>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Each agent has a SOUL.md for personality, HEARTBEAT.md for scheduled protocols,
+            and agent.yaml for role, budget, and delegation rules
+          </p>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-3">
+          {/* SOUL.md */}
+          <div className="rounded-xl border border-violet-500/30 bg-card/50 p-6 shadow-lg">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/10 text-violet-400">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+              </svg>
+            </div>
+            <h3 className="text-base font-semibold">SOUL.md</h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Defines the agent&apos;s personality, communication style, and decision-making philosophy.
+              The soul persists across every execution.
+            </p>
+            <div className="mt-4 overflow-hidden rounded-lg border border-border bg-background/50">
+              <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
+                <span className="h-2 w-2 rounded-full bg-red-500/50" />
+                <span className="h-2 w-2 rounded-full bg-amber-500/50" />
+                <span className="h-2 w-2 rounded-full bg-emerald-500/50" />
+              </div>
+              <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-muted-foreground">
+                <code>{`# ECM Manager — Soul
+
+You are the ECM Manager, the
+operational brain behind enterprise
+content management workflows.
+
+You think in queues, SLAs, and
+resolution patterns. You never guess
+when you can measure.
+
+You take ownership of outcomes,
+not just assignments.`}</code>
+              </pre>
+            </div>
+          </div>
+
+          {/* HEARTBEAT.md */}
+          <div className="rounded-xl border border-violet-500/30 bg-card/50 p-6 shadow-lg">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/10 text-violet-400">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-base font-semibold">HEARTBEAT.md</h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Scheduled check-in protocols with cron triggers. Defines what the agent does
+              when idle &mdash; polling queues, generating reports, detecting patterns.
+            </p>
+            <div className="mt-4 overflow-hidden rounded-lg border border-border bg-background/50">
+              <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
+                <span className="h-2 w-2 rounded-full bg-red-500/50" />
+                <span className="h-2 w-2 rounded-full bg-amber-500/50" />
+                <span className="h-2 w-2 rounded-full bg-emerald-500/50" />
+              </div>
+              <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-muted-foreground">
+                <code>{`| Cadence   | Action                    |
+|-----------|---------------------------|
+| Every 15m | Poll queue for new items   |
+| Every 1h  | Review SLA breach risk     |
+| Daily 8AM | Triage summary + patterns  |
+| Weekly    | Resolution metrics report  |
+
+# On SLA warning → escalate
+# On pattern (3+ same root cause)
+#   → generate systemic fix alert`}</code>
+              </pre>
+            </div>
+          </div>
+
+          {/* agent.yaml */}
+          <div className="rounded-xl border border-violet-500/30 bg-card/50 p-6 shadow-lg">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/10 text-violet-400">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <h3 className="text-base font-semibold">agent.yaml</h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Role, executor type, skills, budget caps, delegation rules, and heartbeat cron schedules.
+              All config, zero code.
+            </p>
+            <div className="mt-4 overflow-hidden rounded-lg border border-border bg-background/50">
+              <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
+                <span className="h-2 w-2 rounded-full bg-red-500/50" />
+                <span className="h-2 w-2 rounded-full bg-amber-500/50" />
+                <span className="h-2 w-2 rounded-full bg-emerald-500/50" />
+              </div>
+              <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-muted-foreground">
+                <code>{`name: ecm-manager
+role: manager
+executor: claude-code
+skills:
+  - ecm/triage-and-assign
+  - ecm/ecm-daily-flow
+  - ecm/pattern-intelligence
+budget:
+  monthly_limit_usd: 50
+  per_execution_limit: 0.50
+delegation:
+  can_assign_to: [ecm-field]
+  max_concurrent_tickets: 10`}</code>
+              </pre>
+            </div>
+          </div>
+        </div>
+
+        {/* Agent count banner */}
+        <div className="mt-10 rounded-xl border border-violet-500/20 bg-violet-500/[0.03] p-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-semibold text-violet-400">14 agents</span> across 4 domains
+            &mdash; ECM, Incubator, Global Equities, Project Management &mdash;
+            each with personality, scheduled heartbeats, and budget controls
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── PR Fleet ── */
+
+function PRFleet() {
+  const agents = [
+    {
+      name: "Code Reviewer",
+      id: "reviewer",
+      desc: "Severity-tagged code review with file:line citations. Catches bugs, security issues, and style violations.",
+      output: "BLOCKER / WARNING / SUGGESTION",
+      color: "blue",
+    },
+    {
+      name: "Test Runner",
+      id: "testing",
+      desc: "Runs test suite, identifies coverage gaps, and reports untested code paths with evidence.",
+      output: "Coverage report + gaps",
+      color: "emerald",
+    },
+    {
+      name: "SLT Validator",
+      id: "slt",
+      desc: "API contract compatibility and breaking change detection. Validates service-level types.",
+      output: "Breaking changes list",
+      color: "amber",
+    },
+    {
+      name: "Doc Generator",
+      id: "docs",
+      desc: "Generates CHANGELOG entries, README patches, and inline docstrings for changed code.",
+      output: "CHANGELOG + README patch",
+      color: "purple",
+    },
+  ];
+
+  const colorMap = {
+    blue: { border: "border-blue-500/30", label: "text-blue-400", tag: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+    emerald: { border: "border-emerald-500/30", label: "text-emerald-400", tag: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+    amber: { border: "border-amber-500/30", label: "text-amber-400", tag: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+    purple: { border: "border-purple-500/30", label: "text-purple-400", tag: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
+  };
+
+  return (
+    <section id="pr-fleet" className="border-t border-border/50 py-20 md:py-28">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mb-12 text-center">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-blue-400">
+            Fleet Execution
+          </p>
+          <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+            4-Agent PR Review Fleet
+          </h2>
+          <p className="mt-3 text-sm text-muted-foreground">
+            GitHub PR triggers 4 agents in parallel. Results aggregate into a single PR comment.
+          </p>
+        </div>
+
+        {/* Pipeline diagram — styled components */}
+        <div className="mb-10 overflow-hidden rounded-xl border border-blue-500/30 bg-blue-500/[0.03] p-6 md:p-8 shadow-lg">
+          <div className="flex flex-col items-center gap-0">
+            {/* Trigger */}
+            <div className="rounded-lg border border-blue-500/30 bg-background/50 px-6 py-3 text-center">
+              <p className="text-sm font-semibold">GitHub PR</p>
+              <p className="text-[10px] text-muted-foreground">webhook trigger</p>
+            </div>
+
+            {/* Line down */}
+            <div className="h-6 w-px bg-gradient-to-b from-blue-500/40 to-blue-500/20" />
+
+            {/* Fan-out label */}
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-blue-400">parallel fan-out</p>
+
+            {/* 4 agents row */}
+            <div className="grid w-full gap-3 grid-cols-2 lg:grid-cols-4">
+              {[
+                { name: "Reviewer", tag: "required", color: "border-blue-500/30 text-blue-400" },
+                { name: "Test Runner", tag: "required", color: "border-emerald-500/30 text-emerald-400" },
+                { name: "SLT Validator", tag: "optional", color: "border-amber-500/30 text-amber-400" },
+                { name: "Doc Generator", tag: "optional", color: "border-purple-500/30 text-purple-400" },
+              ].map((a) => (
+                <div key={a.name} className={`rounded-lg border ${a.color.split(" ")[0]} bg-background/50 px-4 py-3 text-center`}>
+                  <p className={`text-xs font-semibold ${a.color.split(" ")[1]}`}>{a.name}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">{a.tag}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Lines converge */}
+            <div className="h-6 w-px bg-gradient-to-b from-blue-500/20 to-blue-500/40" />
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-blue-400">fan-in</p>
+
+            {/* Reporter */}
+            <div className="rounded-lg border border-blue-500/30 bg-background/50 px-6 py-3 text-center">
+              <p className="text-sm font-semibold">PR Reporter</p>
+              <p className="text-[10px] text-muted-foreground">aggregates all results</p>
+            </div>
+
+            {/* Line down */}
+            <div className="h-6 w-px bg-gradient-to-b from-blue-500/40 to-emerald-500/40" />
+
+            {/* Output */}
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.05] px-6 py-3 text-center">
+              <p className="text-sm font-semibold text-emerald-400">PR Comment + GitHub Checks</p>
+              <p className="text-[10px] text-muted-foreground">one comment, per-agent status checks</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Agent cards */}
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {agents.map((agent) => {
+            const c = colorMap[agent.color as keyof typeof colorMap];
+            return (
+              <div key={agent.id} className={`rounded-xl border ${c.border} bg-card/50 p-5 shadow-lg`}>
+                <h3 className={`text-sm font-semibold ${c.label}`}>{agent.name}</h3>
+                <code className={`mt-2 inline-block rounded-md border px-2 py-0.5 text-[10px] font-mono ${c.tag}`}>
+                  agent_id: {agent.id}
+                </code>
+                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                  {agent.desc}
+                </p>
+                <p className="mt-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  Output
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">{agent.output}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Incubator Pipeline ── */
+
+function IncubatorPipeline() {
+  const phases = [
+    { name: "Analyze", skill: "spec-analyzer", desc: "Decompose Lovable prototype into backend + mobile specs", color: "text-cyan-400", border: "border-cyan-500/30", bg: "bg-cyan-500/10" },
+    { name: "Build", skill: "pit + mobile", desc: "Backend and mobile code generation in parallel", color: "text-emerald-400", border: "border-emerald-500/30", bg: "bg-emerald-500/10" },
+    { name: "Refine", skill: "quality-gate", desc: "Clone repos, run builds, verify conventions", color: "text-blue-400", border: "border-blue-500/30", bg: "bg-blue-500/10" },
+    { name: "Ship", skill: "preview + merge", desc: "Phone-frame previews and staging merge", color: "text-violet-400", border: "border-violet-500/30", bg: "bg-violet-500/10" },
+  ];
+
+  return (
+    <section id="pipelines" className="border-t border-border/50 py-20 md:py-28">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mb-12 text-center">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-emerald-400">
+            Incubator
+          </p>
+          <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+            Prototype to Production Pipeline
+          </h2>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Takes a Lovable prototype and produces PRs in backend and mobile repos
+          </p>
+        </div>
+
+        {/* Phase flow */}
+        <div className="mb-10 grid gap-4 md:grid-cols-4">
+          {phases.map((phase, i) => (
+            <div key={phase.name} className="flex items-center gap-3">
+              <div className={`flex-1 rounded-xl border ${phase.border} bg-card/50 p-5 shadow-lg`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`flex h-7 w-7 items-center justify-center rounded-full ${phase.bg} text-xs font-bold ${phase.color}`}>
+                    {i + 1}
+                  </span>
+                  <h3 className={`text-sm font-semibold ${phase.color}`}>{phase.name}</h3>
+                </div>
+                <code className="block text-[10px] font-mono text-muted-foreground/60 mb-2">{phase.skill}</code>
+                <p className="text-xs leading-relaxed text-muted-foreground">{phase.desc}</p>
+              </div>
+              {i < phases.length - 1 && (
+                <span className="hidden text-muted-foreground/30 md:block">&rarr;</span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Pipeline YAML example */}
+        <div className="overflow-hidden rounded-xl border border-emerald-500/30 bg-card/50 shadow-lg">
+          <div className="flex items-center gap-1.5 border-b border-border px-4 py-2">
+            <span className="h-2 w-2 rounded-full bg-red-500/50" />
+            <span className="h-2 w-2 rounded-full bg-amber-500/50" />
+            <span className="h-2 w-2 rounded-full bg-emerald-500/50" />
+            <span className="ml-2 text-[10px] text-muted-foreground">incubator-build.yaml</span>
+          </div>
+          <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-muted-foreground">
+            <code>{`name: incubator-build
+description: "Build backend + mobile from spec"
+
+phases:
+  - name: codegen
+    type: parallel               # fan-out
+    steps:
+      - skill: incubator/pit-builder
+        agent_id: backend
+        required: true
+      - skill: incubator/mobile-builder
+        agent_id: frontend
+        required: true
+
+  - name: verify
+    type: sequential
+    fan_in_from: codegen          # fan-in
+    steps:
+      - skill: incubator/quality-gate
+        agent_id: reviewer
+
+  - name: report
+    type: sequential
+    steps:
+      - skill: incubator/reporter
+        agent_id: reporter`}</code>
+          </pre>
+        </div>
+
+        <div className="mt-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-semibold text-emerald-400">7 skills</span> across 4 pipeline phases,{" "}
+            <span className="font-semibold text-emerald-400">zero code changes</span> to add a new pipeline
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -686,6 +1056,126 @@ Apply to all UI builds."
 # Original SKILL.md follows...`}</pre>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Skills Catalog ── */
+
+function SkillsCatalog() {
+  const domains = [
+    {
+      name: "dev",
+      label: "Developer Productivity",
+      color: "blue",
+      skills: [
+        { name: "triage", role: "Manager", desc: "Routes dev queries to build/deploy pipeline" },
+        { name: "app-builder", role: "Agent", desc: "Builds full-stack web apps from natural language" },
+        { name: "deployer", role: "Agent", desc: "Deploys apps to K8s via kubectl MCP" },
+        { name: "pr-code-reviewer", role: "Agent", desc: "Severity-tagged code review with file:line citations" },
+        { name: "pr-test-runner", role: "Agent", desc: "Runs tests, reports coverage gaps with evidence" },
+        { name: "pr-slt-validator", role: "Agent", desc: "API contract compatibility and breaking changes" },
+        { name: "pr-doc-generator", role: "Agent", desc: "Generates CHANGELOG, README patches, docstrings" },
+        { name: "pr-reporter", role: "Specialist", desc: "Aggregates parallel PR review results" },
+      ],
+    },
+    {
+      name: "incubator",
+      label: "Feature Incubation",
+      color: "emerald",
+      skills: [
+        { name: "orchestrate", role: "Manager", desc: "Routes to analyze/build/refine/ship pipelines" },
+        { name: "spec-analyzer", role: "Specialist", desc: "Decomposes Lovable prototypes into specs" },
+        { name: "pit-builder", role: "Agent", desc: "Creates Spring Boot backend module, pushes PR" },
+        { name: "mobile-builder", role: "Agent", desc: "Creates Kotlin/Compose feature module, pushes PR" },
+        { name: "quality-gate", role: "Agent", desc: "Clones repos, runs builds, checks conventions" },
+        { name: "preview-generator", role: "Agent", desc: "Generates phone-frame previews of mobile feature" },
+        { name: "reporter", role: "Specialist", desc: "Aggregates pipeline results into PM-facing summary" },
+      ],
+    },
+    {
+      name: "ecm",
+      label: "Enterprise Content Mgmt",
+      color: "amber",
+      skills: [
+        { name: "triage", role: "Agent", desc: "Queries Redshift for stuck orders, classifies, assigns" },
+        { name: "ecm-daily-flow", role: "Agent", desc: "Generates ECM backlog dashboard with trends" },
+        { name: "pattern-intelligence", role: "Agent", desc: "Analyzes stuck order patterns, detects SLA breaches" },
+        { name: "process-stuck-order", role: "Agent", desc: "Diagnoses and resolves stuck orders via MCP tools" },
+      ],
+    },
+  ];
+
+  const colorMap = {
+    blue: { border: "border-blue-500/30", label: "text-blue-400", header: "bg-blue-500/10", roleBg: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+    emerald: { border: "border-emerald-500/30", label: "text-emerald-400", header: "bg-emerald-500/10", roleBg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+    amber: { border: "border-amber-500/30", label: "text-amber-400", header: "bg-amber-500/10", roleBg: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+  };
+
+  const roleColors: Record<string, string> = {
+    Manager: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+    Agent: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    Specialist: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  };
+
+  return (
+    <section id="skills-catalog" className="border-t border-border/50 py-20 md:py-28">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mb-12 text-center">
+          <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+            42 Skills Across 12 Domains
+          </h2>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Each skill is a SKILL.md + config YAML. New skill = new folder, zero code changes.
+          </p>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          {domains.map((domain) => {
+            const c = colorMap[domain.color as keyof typeof colorMap];
+            return (
+              <div key={domain.name} className={`rounded-xl border ${c.border} bg-card/50 p-5 shadow-lg`}>
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${c.label}`}>{domain.label}</h3>
+                  <code className="text-[10px] font-mono text-muted-foreground/60">{domain.name}/</code>
+                </div>
+                <div className="space-y-2">
+                  {domain.skills.map((skill) => (
+                    <div key={skill.name} className="flex items-start gap-2 rounded-lg border border-border/40 bg-background/30 px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium truncate">{skill.name}</span>
+                          <span className={`shrink-0 rounded-full border px-1.5 py-0 text-[9px] font-medium ${roleColors[skill.role]}`}>
+                            {skill.role}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{skill.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Additional domains */}
+        <div className="mt-6 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {[
+            { name: "ge", label: "Global Equities", count: 5 },
+            { name: "pm", label: "Project Mgmt", count: 4 },
+            { name: "hr", label: "Human Resources", count: 3 },
+            { name: "productivity", label: "Productivity", count: 3 },
+            { name: "qa", label: "Quality Assurance", count: 1 },
+            { name: "support", label: "Support", count: 2 },
+          ].map((d) => (
+            <div key={d.name} className="rounded-lg border border-border/60 bg-card/50 p-3 text-center">
+              <p className="text-xs font-semibold">{d.label}</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">{d.count} skills</p>
+            </div>
+          ))}
         </div>
       </div>
     </section>
