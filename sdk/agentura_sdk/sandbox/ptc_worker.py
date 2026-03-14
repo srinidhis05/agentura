@@ -85,7 +85,7 @@ def _build_worker_manifest(
         restart_policy="Never",
         automount_service_account_token=False,
         host_network=use_host_network,
-        dns_policy="Default" if use_host_network else "ClusterFirst",
+        dns_policy="ClusterFirstWithHostNet" if use_host_network else "ClusterFirst",
         affinity=affinity,
     )
 
