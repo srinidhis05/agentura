@@ -63,12 +63,30 @@ def _build_worker_manifest(
     )
 
     use_host_network = os.environ.get("PTC_HOST_NETWORK", "false").lower() in ("true", "1", "yes")
+
+    # When using host network, ensure only one PTC worker per node to avoid port conflicts
+    affinity = None
+    if use_host_network:
+        affinity = client.V1Affinity(
+            pod_anti_affinity=client.V1PodAntiAffinity(
+                required_during_scheduling_ignored_during_execution=[
+                    client.V1PodAffinityTerm(
+                        label_selector=client.V1LabelSelector(
+                            match_labels={"app": "ptc-worker"}
+                        ),
+                        topology_key="kubernetes.io/hostname",
+                    )
+                ],
+            )
+        )
+
     spec = client.V1PodSpec(
         containers=[container],
         restart_policy="Never",
         automount_service_account_token=False,
         host_network=use_host_network,
         dns_policy="Default" if use_host_network else "ClusterFirst",
+        affinity=affinity,
     )
 
     return client.V1Pod(
