@@ -55,8 +55,10 @@ def _build_worker_manifest(
         ),
         readiness_probe=client.V1Probe(
             http_get=client.V1HTTPGetAction(path="/health", port=8080),
-            initial_delay_seconds=2,
-            period_seconds=2,
+            initial_delay_seconds=5,
+            period_seconds=3,
+            timeout_seconds=5,
+            failure_threshold=10,
         ),
     )
 
