@@ -25,7 +25,7 @@ NAMESPACE = os.environ.get("SANDBOX_NAMESPACE", "agentura")
 IMAGE = os.environ.get("SANDBOX_IMAGE", "agentura/sandbox-runtime:latest")
 RUNTIME_CLASS = os.environ.get("SANDBOX_RUNTIME_CLASS", "")
 IMAGE_PULL_POLICY = os.environ.get("SANDBOX_IMAGE_PULL_POLICY", "Never")
-POD_READY_TIMEOUT = 120
+POD_READY_TIMEOUT = int(os.environ.get("POD_READY_TIMEOUT", "120"))
 
 
 @dataclass
