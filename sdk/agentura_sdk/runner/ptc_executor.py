@@ -145,7 +145,7 @@ async def execute_ptc(ctx: SkillContext) -> SkillResult:
     worker = await ptc_worker.create(sandbox_cfg, env_vars)
     try:
         request_body = _build_ptc_request(ctx)
-        worker_url = f"http://{worker.pod_ip}:8080/execute-stream"
+        worker_url = f"http://{worker.pod_ip}:8081/execute-stream"
 
         iterations: list[AgentIteration] = []
         result_data: dict = {}
@@ -238,7 +238,7 @@ async def execute_ptc_streaming(
     worker = await ptc_worker.create(sandbox_cfg, env_vars)
     try:
         request_body = _build_ptc_request(ctx)
-        worker_url = f"http://{worker.pod_ip}:8080/execute-stream"
+        worker_url = f"http://{worker.pod_ip}:8081/execute-stream"
 
         iterations: list[AgentIteration] = []
         result_data: dict = {}

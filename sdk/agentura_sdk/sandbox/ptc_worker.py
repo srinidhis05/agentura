@@ -47,14 +47,14 @@ def _build_worker_manifest(
         name="worker",
         image=WORKER_IMAGE,
         image_pull_policy=IMAGE_PULL_POLICY,
-        ports=[client.V1ContainerPort(container_port=8080)],
+        ports=[client.V1ContainerPort(container_port=8081)],
         env=env or None,
         resources=client.V1ResourceRequirements(
             requests={"cpu": WORKER_CPU, "memory": WORKER_MEMORY},
             limits={"cpu": WORKER_CPU, "memory": WORKER_MEMORY},
         ),
         readiness_probe=client.V1Probe(
-            http_get=client.V1HTTPGetAction(path="/health", port=8080),
+            http_get=client.V1HTTPGetAction(path="/health", port=8081),
             initial_delay_seconds=5,
             period_seconds=3,
             timeout_seconds=5,
