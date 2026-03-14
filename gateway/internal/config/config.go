@@ -39,20 +39,21 @@ type SlackConfig struct {
 }
 
 type SlackAppConfig struct {
-	Name             string            `yaml:"name"`
-	SigningSecret    string            `yaml:"signing_secret"`
-	BotToken         string            `yaml:"bot_token"`
-	AppToken         string            `yaml:"app_token"`         // xapp-... for Socket Mode
-	Mode             string            `yaml:"mode"`              // "http" (default) or "socket"
-	DomainScope      string            `yaml:"domain_scope"`
-	AllowedSkills    []string          `yaml:"allowed_skills"`
-	AllowedPipelines []string          `yaml:"allowed_pipelines"`
-	DM               SlackDMPolicy     `yaml:"dm"`
-	Channels         []SlackChannelACL `yaml:"channels"`
-	AckReaction      string              `yaml:"ack_reaction"`      // emoji shortcode (e.g. "eyes")
-	TypingReaction   string              `yaml:"typing_reaction"`   // shown during processing
-	Events           SlackEventConfig    `yaml:"events"`
-	Commands         []SlackCommandAlias `yaml:"commands"`
+	Name                string                     `yaml:"name"`
+	SigningSecret       string                     `yaml:"signing_secret"`
+	BotToken            string                     `yaml:"bot_token"`
+	AppToken            string                     `yaml:"app_token"`            // xapp-... for Socket Mode
+	Mode                string                     `yaml:"mode"`                 // "http" (default) or "socket"
+	DomainScope         string                     `yaml:"domain_scope"`
+	AllowedSkills       []string                   `yaml:"allowed_skills"`
+	AllowedPipelines    []string                   `yaml:"allowed_pipelines"`
+	DM                  SlackDMPolicy              `yaml:"dm"`
+	Channels            []SlackChannelACL          `yaml:"channels"`
+	AckReaction         string                     `yaml:"ack_reaction"`         // emoji shortcode (e.g. "eyes")
+	TypingReaction      string                     `yaml:"typing_reaction"`      // shown during processing
+	Events              SlackEventConfig           `yaml:"events"`
+	Commands            []SlackCommandAlias        `yaml:"commands"`
+	InteractionHandlers []SlackInteractionHandler  `yaml:"interaction_handlers"` // Maps interaction callbacks to skills/pipelines
 }
 
 // SlackCommandAlias maps a natural language pattern to a skill execution.
@@ -61,6 +62,15 @@ type SlackCommandAlias struct {
 	Skill       string            `yaml:"skill"`       // skill name (domain inferred from app)
 	Extract     map[string]string `yaml:"extract"`     // optional param extraction overrides
 	Description string            `yaml:"description"` // shown in help
+}
+
+// SlackInteractionHandler routes Slack interactions (modals, selects, shortcuts) to skills/pipelines.
+type SlackInteractionHandler struct {
+	CallbackID  string `yaml:"callback_id"`  // Matches callback_id or action_id from Slack
+	Type        string `yaml:"type"`         // "modal_submission" | "modal_closed" | "message_action" | "global_shortcut" | "select_action" | "block_action" | "overflow_action"
+	Skill       string `yaml:"skill"`        // Target skill name (domain inferred from app)
+	Pipeline    string `yaml:"pipeline"`     // Or target pipeline name
+	Description string `yaml:"description"`  // Human-readable description
 }
 
 // SlackDMPolicy controls how the bot handles direct messages.

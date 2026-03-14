@@ -1261,21 +1261,69 @@ func markdownToSlackMrkdwn(text string) string {
 
 // SlackInteractivePayload represents the JSON payload from Slack interactive actions.
 type SlackInteractivePayload struct {
-	Type    string `json:"type"`
+	Type    string `json:"type"` // block_actions, view_submission, view_closed, message_action, shortcut
 	User    struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
 	} `json:"user"`
-	Actions []struct {
-		ActionID string `json:"action_id"`
-		Value    string `json:"value"`
-	} `json:"actions"`
-	ResponseURL string `json:"response_url"`
-	Channel     struct {
+	Team struct {
 		ID string `json:"id"`
-	} `json:"channel"`
-	Message struct {
-		TS string `json:"ts"`
-	} `json:"message"`
+	} `json:"team"`
+	Actions []struct {
+		ActionID      string `json:"action_id"`
+		Value         string `json:"value"`
+		Type          string `json:"type"` // button, static_select, multi_static_select, users_select, channels_select, etc.
+		SelectedOption *struct {
+			Value string `json:"value"`
+			Text  struct {
+				Text string `json:"text"`
+			} `json:"text"`
+		} `json:"selected_option,omitempty"`
+		SelectedOptions []struct {
+			Value string `json:"value"`
+			Text  struct {
+				Text string `json:"text"`
+			} `json:"text"`
+		} `json:"selected_options,omitempty"`
+		SelectedUser    string `json:"selected_user,omitempty"`
+		SelectedUsers   []string `json:"selected_users,omitempty"`
+		SelectedChannel string `json:"selected_channel,omitempty"`
+	} `json:"actions,omitempty"`
+	View *struct {
+		ID     string `json:"id"`
+		TeamID string `json:"team_id"`
+		Type   string `json:"type"` // modal
+		State  struct {
+			Values map[string]map[string]struct {
+				Type          string `json:"type"`
+				Value         string `json:"value,omitempty"`
+				SelectedOption *struct {
+					Value string `json:"value"`
+				} `json:"selected_option,omitempty"`
+				SelectedUser    string `json:"selected_user,omitempty"`
+				SelectedChannel string `json:"selected_channel,omitempty"`
+			} `json:"values"`
+		} `json:"state"`
+		PrivateMetadata string `json:"private_metadata,omitempty"`
+		CallbackID      string `json:"callback_id,omitempty"`
+	} `json:"view,omitempty"`
+	Message *struct {
+		Type string `json:"type"`
+		Text string `json:"text,omitempty"`
+		TS   string `json:"ts"`
+	} `json:"message,omitempty"`
+	CallbackID  string `json:"callback_id,omitempty"` // for message_action, shortcut
+	TriggerID   string `json:"trigger_id,omitempty"`
+	ResponseURL string `json:"response_url,omitempty"`
+	Channel     *struct {
+		ID   string `json:"id"`
+		Name string `json:"name,omitempty"`
+	} `json:"channel,omitempty"`
+	Container *struct {
+		Type       string `json:"type"`
+		MessageTS  string `json:"message_ts,omitempty"`
+		ChannelID  string `json:"channel_id,omitempty"`
+	} `json:"container,omitempty"`
 }
 
 // HandleInteractive processes Slack interactive payloads (button clicks).
@@ -1328,31 +1376,115 @@ func (h *SlackWebhookHandler) HandleInteractive(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if payload.Type != "block_actions" || len(payload.Actions) == 0 {
+	// Route based on interaction type
+	switch payload.Type {
+	case "block_actions":
+		if len(payload.Actions) == 0 {
+			httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+			return
+		}
+		// Respond 200 immediately
+		httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "processing"})
+		go h.processBlockAction(matchedApp, payload)
+
+	case "view_submission":
+		// Modal form submission - respond with empty body to close modal, or errors to keep it open
+		resp := h.processModalSubmission(matchedApp, payload)
+		httputil.RespondJSON(w, http.StatusOK, resp)
+
+	case "view_closed":
+		// Modal closed without submission
+		httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		go h.processModalClosed(matchedApp, payload)
+
+	case "message_action":
+		// Message shortcut triggered from context menu
+		httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "processing"})
+		go h.processMessageAction(matchedApp, payload)
+
+	case "shortcut":
+		// Global shortcut triggered from Slack UI
+		httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "processing"})
+		go h.processGlobalShortcut(matchedApp, payload)
+
+	default:
+		slog.Warn("unknown slack interaction type", "type", payload.Type)
 		httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+	}
+}
+
+func (h *SlackWebhookHandler) processBlockAction(app *config.SlackAppConfig, payload SlackInteractivePayload) {
+	action := payload.Actions[0]
+	userID := payload.User.ID
+
+	// Handle built-in approval buttons
+	switch action.ActionID {
+	case "approve_execution", "reject_execution":
+		h.processApprovalAction(app, payload, action)
 		return
 	}
 
-	// Respond 200 immediately
-	httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "processing"})
+	// Handle select menus and other interactive elements
+	if isSelectAction(action.Type) {
+		h.processSelectAction(app, payload, action)
+		return
+	}
 
-	go h.processInteractiveAction(matchedApp, payload)
+	// Handle overflow menus
+	if action.Type == "overflow" {
+		h.processOverflowAction(app, payload, action)
+		return
+	}
+
+	// Generic block action dispatch
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result := h.dispatchInteraction(ctx, app, interactionContext{
+		Type:       "block_action",
+		CallbackID: action.ActionID,
+		UserID:     userID,
+		ChannelID:  getChannelID(payload),
+		FormValues: map[string]any{
+			"action_id": action.ActionID,
+			"value":     action.Value,
+		},
+	})
+
+	if result.Error != "" {
+		slog.Error("block action failed", "action_id", action.ActionID, "error", result.Error)
+	}
 }
 
-func (h *SlackWebhookHandler) processInteractiveAction(app *config.SlackAppConfig, payload SlackInteractivePayload) {
-	action := payload.Actions[0]
+// processApprovalAction handles approve/reject execution buttons.
+func (h *SlackWebhookHandler) processApprovalAction(app *config.SlackAppConfig, payload SlackInteractivePayload, action struct {
+	ActionID        string `json:"action_id"`
+	Value           string `json:"value"`
+	Type            string `json:"type"`
+	SelectedOption  *struct {
+		Value string `json:"value"`
+		Text  struct {
+			Text string `json:"text"`
+		} `json:"text"`
+	} `json:"selected_option,omitempty"`
+	SelectedOptions []struct {
+		Value string `json:"value"`
+		Text  struct {
+			Text string `json:"text"`
+		} `json:"text"`
+	} `json:"selected_options,omitempty"`
+	SelectedUser    string `json:"selected_user,omitempty"`
+	SelectedUsers   []string `json:"selected_users,omitempty"`
+	SelectedChannel string `json:"selected_channel,omitempty"`
+}) {
 	executionID := action.Value
 	userID := payload.User.ID
 
 	var approved bool
-	switch action.ActionID {
-	case "approve_execution":
+	if action.ActionID == "approve_execution" {
 		approved = true
-	case "reject_execution":
+	} else {
 		approved = false
-	default:
-		slog.Warn("unknown interactive action", "action_id", action.ActionID)
-		return
 	}
 
 	// Call executor approval API
@@ -1392,6 +1524,494 @@ func (h *SlackWebhookHandler) processInteractiveAction(app *config.SlackAppConfi
 	if err := slackAPIPost(app.BotToken, "/chat.update", updatePayload); err != nil {
 		slog.Error("failed to update slack message", "error", err)
 	}
+}
+
+// processSelectAction handles select menu interactions (static_select, multi_static_select, users_select, etc.).
+func (h *SlackWebhookHandler) processSelectAction(app *config.SlackAppConfig, payload SlackInteractivePayload, action struct {
+	ActionID        string `json:"action_id"`
+	Value           string `json:"value"`
+	Type            string `json:"type"`
+	SelectedOption  *struct {
+		Value string `json:"value"`
+		Text  struct {
+			Text string `json:"text"`
+		} `json:"text"`
+	} `json:"selected_option,omitempty"`
+	SelectedOptions []struct {
+		Value string `json:"value"`
+		Text  struct {
+			Text string `json:"text"`
+		} `json:"text"`
+	} `json:"selected_options,omitempty"`
+	SelectedUser    string `json:"selected_user,omitempty"`
+	SelectedUsers   []string `json:"selected_users,omitempty"`
+	SelectedChannel string `json:"selected_channel,omitempty"`
+}) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Extract selected values based on select type
+	formValues := map[string]any{
+		"action_id": action.ActionID,
+		"type":      action.Type,
+	}
+
+	switch action.Type {
+	case "static_select":
+		if action.SelectedOption != nil {
+			formValues["selected_value"] = action.SelectedOption.Value
+			formValues["selected_text"] = action.SelectedOption.Text.Text
+		}
+	case "multi_static_select":
+		values := make([]string, len(action.SelectedOptions))
+		texts := make([]string, len(action.SelectedOptions))
+		for i, opt := range action.SelectedOptions {
+			values[i] = opt.Value
+			texts[i] = opt.Text.Text
+		}
+		formValues["selected_values"] = values
+		formValues["selected_texts"] = texts
+	case "users_select":
+		formValues["selected_user"] = action.SelectedUser
+	case "multi_users_select":
+		formValues["selected_users"] = action.SelectedUsers
+	case "channels_select", "conversations_select":
+		formValues["selected_channel"] = action.SelectedChannel
+	}
+
+	result := h.dispatchInteraction(ctx, app, interactionContext{
+		Type:       "select_action",
+		CallbackID: action.ActionID,
+		UserID:     payload.User.ID,
+		ChannelID:  getChannelID(payload),
+		FormValues: formValues,
+	})
+
+	if result.Error != "" {
+		slog.Error("select action failed", "action_id", action.ActionID, "error", result.Error)
+	} else if result.Output != "" {
+		// Post result as ephemeral or update message
+		postEphemeralMessage(app.BotToken, getChannelID(payload), payload.User.ID, result.Output)
+	}
+}
+
+// processOverflowAction handles overflow menu selections.
+func (h *SlackWebhookHandler) processOverflowAction(app *config.SlackAppConfig, payload SlackInteractivePayload, action struct {
+	ActionID        string `json:"action_id"`
+	Value           string `json:"value"`
+	Type            string `json:"type"`
+	SelectedOption  *struct {
+		Value string `json:"value"`
+		Text  struct {
+			Text string `json:"text"`
+		} `json:"text"`
+	} `json:"selected_option,omitempty"`
+	SelectedOptions []struct {
+		Value string `json:"value"`
+		Text  struct {
+			Text string `json:"text"`
+		} `json:"text"`
+	} `json:"selected_options,omitempty"`
+	SelectedUser    string `json:"selected_user,omitempty"`
+	SelectedUsers   []string `json:"selected_users,omitempty"`
+	SelectedChannel string `json:"selected_channel,omitempty"`
+}) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	formValues := map[string]any{
+		"action_id": action.ActionID,
+	}
+
+	if action.SelectedOption != nil {
+		formValues["selected_value"] = action.SelectedOption.Value
+		formValues["selected_text"] = action.SelectedOption.Text.Text
+	}
+
+	result := h.dispatchInteraction(ctx, app, interactionContext{
+		Type:       "overflow_action",
+		CallbackID: action.ActionID,
+		UserID:     payload.User.ID,
+		ChannelID:  getChannelID(payload),
+		FormValues: formValues,
+	})
+
+	if result.Error != "" {
+		slog.Error("overflow action failed", "action_id", action.ActionID, "error", result.Error)
+	} else if result.Output != "" {
+		postEphemeralMessage(app.BotToken, getChannelID(payload), payload.User.ID, result.Output)
+	}
+}
+
+// isSelectAction returns true if the action type is a select menu.
+func isSelectAction(actionType string) bool {
+	switch actionType {
+	case "static_select", "multi_static_select",
+		"users_select", "multi_users_select",
+		"channels_select", "conversations_select",
+		"external_select", "multi_external_select":
+		return true
+	}
+	return false
+}
+
+// processModalSubmission handles view_submission events (modal form submissions).
+func (h *SlackWebhookHandler) processModalSubmission(app *config.SlackAppConfig, payload SlackInteractivePayload) map[string]any {
+	if payload.View == nil {
+		return map[string]any{"response_action": "clear"}
+	}
+
+	callbackID := payload.View.CallbackID
+	if callbackID == "" {
+		slog.Warn("modal submission missing callback_id")
+		return map[string]any{"response_action": "clear"}
+	}
+
+	// Extract form values from view state
+	formValues := extractFormValues(payload.View.State.Values)
+
+	// Dispatch to skill based on callback_id
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result := h.dispatchInteraction(ctx, app, interactionContext{
+		Type:       "modal_submission",
+		CallbackID: callbackID,
+		UserID:     payload.User.ID,
+		TriggerID:  payload.TriggerID,
+		ChannelID:  getChannelID(payload),
+		FormValues: formValues,
+		Metadata:   payload.View.PrivateMetadata,
+	})
+
+	if result.Error != "" {
+		// Return validation errors to keep modal open
+		return map[string]any{
+			"response_action": "errors",
+			"errors":          result.Errors,
+		}
+	}
+
+	// Success - close modal
+	return map[string]any{"response_action": "clear"}
+}
+
+// processModalClosed handles view_closed events (modal dismissed without submission).
+func (h *SlackWebhookHandler) processModalClosed(app *config.SlackAppConfig, payload SlackInteractivePayload) {
+	if payload.View == nil {
+		return
+	}
+
+	callbackID := payload.View.CallbackID
+	if callbackID == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	h.dispatchInteraction(ctx, app, interactionContext{
+		Type:       "modal_closed",
+		CallbackID: callbackID,
+		UserID:     payload.User.ID,
+		ChannelID:  getChannelID(payload),
+		Metadata:   payload.View.PrivateMetadata,
+	})
+}
+
+// processMessageAction handles message_action events (message shortcuts).
+func (h *SlackWebhookHandler) processMessageAction(app *config.SlackAppConfig, payload SlackInteractivePayload) {
+	if payload.CallbackID == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	var messageText string
+	var messageTS string
+	if payload.Message != nil {
+		messageText = payload.Message.Text
+		messageTS = payload.Message.TS
+	}
+
+	result := h.dispatchInteraction(ctx, app, interactionContext{
+		Type:        "message_action",
+		CallbackID:  payload.CallbackID,
+		UserID:      payload.User.ID,
+		TriggerID:   payload.TriggerID,
+		ChannelID:   getChannelID(payload),
+		MessageText: messageText,
+		MessageTS:   messageTS,
+	})
+
+	if result.Error != "" {
+		slog.Error("message action failed", "callback_id", payload.CallbackID, "error", result.Error)
+		postEphemeralMessage(app.BotToken, getChannelID(payload), payload.User.ID, fmt.Sprintf("Error: %s", result.Error))
+	} else if result.Output != "" {
+		// Post result to channel or thread
+		if messageTS != "" {
+			postSlackThreadReply(app.BotToken, getChannelID(payload), messageTS, result.Output)
+		} else {
+			postSlackMessage(app.BotToken, getChannelID(payload), result.Output)
+		}
+	}
+}
+
+// processGlobalShortcut handles shortcut events (global shortcuts).
+func (h *SlackWebhookHandler) processGlobalShortcut(app *config.SlackAppConfig, payload SlackInteractivePayload) {
+	if payload.CallbackID == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result := h.dispatchInteraction(ctx, app, interactionContext{
+		Type:       "global_shortcut",
+		CallbackID: payload.CallbackID,
+		UserID:     payload.User.ID,
+		TriggerID:  payload.TriggerID,
+		ChannelID:  getChannelID(payload),
+	})
+
+	if result.Error != "" {
+		slog.Error("global shortcut failed", "callback_id", payload.CallbackID, "error", result.Error)
+	} else if result.ModalView != nil {
+		// Open modal in response to shortcut
+		openModal(app.BotToken, payload.TriggerID, result.ModalView)
+	} else if result.Output != "" && result.ChannelID != "" {
+		// Post message to channel
+		postSlackMessage(app.BotToken, result.ChannelID, result.Output)
+	}
+}
+
+// interactionContext holds the context for dispatching interactions to skills.
+type interactionContext struct {
+	Type        string         // modal_submission, modal_closed, message_action, global_shortcut, select_action
+	CallbackID  string         // identifies which interaction
+	UserID      string         // user who triggered
+	TriggerID   string         // for opening modals
+	ChannelID   string         // channel context
+	MessageText string         // for message_action
+	MessageTS   string         // for message_action
+	FormValues  map[string]any // from modal state
+	Metadata    string         // private_metadata from modals
+}
+
+// interactionResult holds the result of dispatching an interaction.
+type interactionResult struct {
+	Output    string         // text output to post
+	Error     string         // error message
+	Errors    map[string]string // field-level validation errors for modals
+	ChannelID string         // where to post output
+	ModalView map[string]any // modal view to open
+}
+
+// dispatchInteraction routes an interaction to the appropriate skill based on callback_id.
+func (h *SlackWebhookHandler) dispatchInteraction(ctx context.Context, app *config.SlackAppConfig, ic interactionContext) interactionResult {
+	// Find matching handler in config
+	var handler *config.SlackInteractionHandler
+	for i := range app.InteractionHandlers {
+		h := &app.InteractionHandlers[i]
+		if h.CallbackID == ic.CallbackID && (h.Type == "" || h.Type == ic.Type) {
+			handler = h
+			break
+		}
+	}
+
+	if handler == nil {
+		slog.Info("slack interaction: no handler configured", "type", ic.Type, "callback_id", ic.CallbackID, "user", ic.UserID)
+		return interactionResult{
+			Error: fmt.Sprintf("No handler configured for interaction: %s", ic.CallbackID),
+		}
+	}
+
+	// Execute skill or pipeline based on handler config
+	if handler.Skill != "" {
+		return h.executeSkillForInteraction(ctx, app, handler.Skill, ic)
+	} else if handler.Pipeline != "" {
+		return h.executePipelineForInteraction(ctx, app, handler.Pipeline, ic)
+	}
+
+	return interactionResult{
+		Error: "Handler configured but no skill or pipeline specified",
+	}
+}
+
+// executeSkillForInteraction executes a skill in response to an interaction.
+func (h *SlackWebhookHandler) executeSkillForInteraction(ctx context.Context, app *config.SlackAppConfig, skillName string, ic interactionContext) interactionResult {
+	// Build input_data from interaction context
+	inputData := map[string]any{
+		"user_id":     ic.UserID,
+		"channel_id":  ic.ChannelID,
+		"type":        ic.Type,
+		"callback_id": ic.CallbackID,
+	}
+
+	// Add context-specific fields
+	if ic.FormValues != nil {
+		inputData["form_values"] = ic.FormValues
+	}
+	if ic.MessageText != "" {
+		inputData["message_text"] = ic.MessageText
+		inputData["message_ts"] = ic.MessageTS
+	}
+	if ic.Metadata != "" {
+		inputData["metadata"] = ic.Metadata
+	}
+
+	// Call executor to run the skill
+	domain := app.DomainScope
+	if domain == "" {
+		domain = "platform" // default
+	}
+
+	executeReq := map[string]any{
+		"input_data": inputData,
+	}
+	reqBody, _ := json.Marshal(executeReq)
+
+	// Make HTTP request to executor
+	resp, err := http.Post(
+		fmt.Sprintf("http://executor:8000/api/v1/skills/%s/%s/execute", domain, skillName),
+		"application/json",
+		bytes.NewReader(reqBody),
+	)
+	if err != nil {
+		slog.Error("interaction skill execution failed", "skill", skillName, "error", err)
+		return interactionResult{Error: fmt.Sprintf("Failed to execute skill: %s", err)}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		slog.Error("interaction skill execution failed", "skill", skillName, "status", resp.StatusCode, "body", string(body))
+		return interactionResult{Error: fmt.Sprintf("Skill execution failed with status %d", resp.StatusCode)}
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return interactionResult{Error: fmt.Sprintf("Failed to decode response: %s", err)}
+	}
+
+	// Extract output from result
+	var output string
+	if resultOutput, ok := result["output"].(map[string]any); ok {
+		if text, ok := resultOutput["text"].(string); ok {
+			output = text
+		} else if content, ok := resultOutput["content"].(string); ok {
+			output = content
+		}
+	}
+
+	return interactionResult{
+		Output:    output,
+		ChannelID: ic.ChannelID,
+	}
+}
+
+// executePipelineForInteraction executes a pipeline in response to an interaction.
+func (h *SlackWebhookHandler) executePipelineForInteraction(ctx context.Context, app *config.SlackAppConfig, pipelineName string, ic interactionContext) interactionResult {
+	// Similar to executeSkillForInteraction but calls pipeline endpoint
+	inputData := map[string]any{
+		"user_id":     ic.UserID,
+		"channel_id":  ic.ChannelID,
+		"type":        ic.Type,
+		"callback_id": ic.CallbackID,
+	}
+
+	if ic.FormValues != nil {
+		inputData["form_values"] = ic.FormValues
+	}
+
+	executeReq := map[string]any{
+		"input_data": inputData,
+	}
+	reqBody, _ := json.Marshal(executeReq)
+
+	resp, err := http.Post(
+		fmt.Sprintf("http://executor:8000/api/v1/pipelines/%s/execute", pipelineName),
+		"application/json",
+		bytes.NewReader(reqBody),
+	)
+	if err != nil {
+		return interactionResult{Error: fmt.Sprintf("Failed to execute pipeline: %s", err)}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return interactionResult{Error: fmt.Sprintf("Pipeline execution failed with status %d", resp.StatusCode)}
+	}
+
+	// For pipelines, we might want to return a modal or just success
+	return interactionResult{
+		Output:    "Pipeline started successfully",
+		ChannelID: ic.ChannelID,
+	}
+}
+
+// extractFormValues converts modal state values to a flat map.
+func extractFormValues(stateValues map[string]map[string]struct {
+	Type            string `json:"type"`
+	Value           string `json:"value,omitempty"`
+	SelectedOption  *struct {
+		Value string `json:"value"`
+	} `json:"selected_option,omitempty"`
+	SelectedUser    string `json:"selected_user,omitempty"`
+	SelectedChannel string `json:"selected_channel,omitempty"`
+}) map[string]any {
+	result := make(map[string]any)
+	for blockID, actions := range stateValues {
+		for actionID, field := range actions {
+			key := blockID + "." + actionID
+			switch field.Type {
+			case "plain_text_input":
+				result[key] = field.Value
+			case "static_select":
+				if field.SelectedOption != nil {
+					result[key] = field.SelectedOption.Value
+				}
+			case "users_select":
+				result[key] = field.SelectedUser
+			case "channels_select":
+				result[key] = field.SelectedChannel
+			default:
+				result[key] = field.Value
+			}
+		}
+	}
+	return result
+}
+
+// getChannelID safely extracts channel ID from payload.
+func getChannelID(payload SlackInteractivePayload) string {
+	if payload.Channel != nil {
+		return payload.Channel.ID
+	}
+	if payload.Container != nil {
+		return payload.Container.ChannelID
+	}
+	return ""
+}
+
+// openModal opens a Slack modal using views.open API.
+func openModal(botToken, triggerID string, view map[string]any) error {
+	payload, _ := json.Marshal(map[string]any{
+		"trigger_id": triggerID,
+		"view":       view,
+	})
+	return slackAPIPost(botToken, "/views.open", payload)
+}
+
+// postEphemeralMessage posts an ephemeral message visible only to the user.
+func postEphemeralMessage(botToken, channel, user, text string) error {
+	payload, _ := json.Marshal(map[string]any{
+		"channel": channel,
+		"user":    user,
+		"text":    text,
+	})
+	return slackAPIPost(botToken, "/chat.postEphemeral", payload)
 }
 
 // maybePostApprovalButtons parses skill result for pending_approvals and posts Block Kit buttons.

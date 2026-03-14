@@ -106,6 +106,49 @@ def test_discover_from_obot(httpserver):
     assert reg.get("google-drive").url == "http://localhost:8080/mcp-connect/gdrive"
 
 
+def test_discover_from_obot_with_auth(httpserver):
+    """Obot discovery sends Bearer token when api_key provided."""
+    httpserver.expect_request(
+        "/api/mcp-servers",
+        headers={"Authorization": "Bearer test-key-123"},
+    ).respond_with_json({"items": [
+        {
+            "manifest": {"name": "Gmail", "toolPreview": [{"name": "send_email"}]},
+            "configured": True,
+            "connectURL": "/mcp-connect/ms1mvw8d",
+        },
+    ]})
+
+    reg = MCPRegistry()
+    base_url = httpserver.url_for("")
+    reg.discover_from_obot(base_url, api_key="test-key-123")
+
+    gmail = reg.get("gmail")
+    assert gmail is not None
+    # Relative connectURL should be made absolute
+    from urllib.parse import urljoin
+    assert gmail.url == urljoin(base_url, "/mcp-connect/ms1mvw8d")
+
+
+def test_discover_from_obot_relative_connect_url(httpserver):
+    """Relative connectURLs (starting with /) are resolved to absolute."""
+    httpserver.expect_request("/api/mcp-servers").respond_with_json({"items": [
+        {
+            "manifest": {"name": "Granola", "toolPreview": []},
+            "configured": True,
+            "connectURL": "/mcp-connect/ms1grwzk",
+        },
+    ]})
+
+    reg = MCPRegistry()
+    base_url = httpserver.url_for("")
+    reg.discover_from_obot(base_url)
+
+    assert reg.get("granola") is not None
+    from urllib.parse import urljoin
+    assert reg.get("granola").url == urljoin(base_url, "/mcp-connect/ms1grwzk")
+
+
 def test_discover_from_obot_unreachable():
     """Obot discovery should silently fail if unreachable."""
     reg = MCPRegistry()

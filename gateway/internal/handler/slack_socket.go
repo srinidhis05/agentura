@@ -491,13 +491,185 @@ func (m *SlackSocketManager) handleSocketInteractive(app *config.SlackAppConfig,
 		return
 	}
 
-	if len(cb.ActionCallback.BlockActions) == 0 {
+	// Convert to our unified SlackInteractivePayload format
+	payload := convertInteractionCallback(cb)
+
+	// Route based on interaction type (matches webhook handler logic)
+	switch payload.Type {
+	case "block_actions":
+		if len(payload.Actions) == 0 {
+			return
+		}
+		go m.processSocketBlockAction(app, payload, cb.ResponseURL)
+
+	case "view_submission":
+		// Modal submissions need synchronous response
+		resp := m.processSocketModalSubmission(app, payload)
+		// Socket mode doesn't use HTTP response for modals - handled via callback
+		_ = resp
+
+	case "view_closed":
+		go m.processSocketModalClosed(app, payload)
+
+	case "message_action":
+		go m.processSocketMessageAction(app, payload, cb.TriggerID)
+
+	case "shortcut":
+		go m.processSocketGlobalShortcut(app, payload, cb.TriggerID)
+
+	default:
+		slog.Debug("slack socket: unknown interaction type", "type", payload.Type)
+	}
+}
+
+// convertInteractionCallback converts slack SDK InteractionCallback to our SlackInteractivePayload.
+func convertInteractionCallback(cb slack.InteractionCallback) SlackInteractivePayload {
+	payload := SlackInteractivePayload{
+		Type:        string(cb.Type),
+		CallbackID:  cb.CallbackID,
+		TriggerID:   cb.TriggerID,
+		ResponseURL: cb.ResponseURL,
+	}
+
+	payload.User.ID = cb.User.ID
+	payload.User.Name = cb.User.Name
+	payload.Team.ID = cb.Team.ID
+
+	if cb.Channel.ID != "" {
+		payload.Channel = &struct {
+			ID   string `json:"id"`
+			Name string `json:"name,omitempty"`
+		}{ID: cb.Channel.ID, Name: cb.Channel.Name}
+	}
+
+	// Convert block actions
+	if len(cb.ActionCallback.BlockActions) > 0 {
+		payload.Actions = make([]struct {
+			ActionID        string `json:"action_id"`
+			Value           string `json:"value"`
+			Type            string `json:"type"`
+			SelectedOption  *struct {
+				Value string `json:"value"`
+				Text  struct {
+					Text string `json:"text"`
+				} `json:"text"`
+			} `json:"selected_option,omitempty"`
+			SelectedOptions []struct {
+				Value string `json:"value"`
+				Text  struct {
+					Text string `json:"text"`
+				} `json:"text"`
+			} `json:"selected_options,omitempty"`
+			SelectedUser    string   `json:"selected_user,omitempty"`
+			SelectedUsers   []string `json:"selected_users,omitempty"`
+			SelectedChannel string   `json:"selected_channel,omitempty"`
+		}, len(cb.ActionCallback.BlockActions))
+
+		for i, ba := range cb.ActionCallback.BlockActions {
+			payload.Actions[i].ActionID = ba.ActionID
+			payload.Actions[i].Value = ba.Value
+			payload.Actions[i].Type = string(ba.Type)
+			// Convert selected options for select menus
+			if ba.SelectedOption.Value != "" {
+				payload.Actions[i].SelectedOption = &struct {
+					Value string `json:"value"`
+					Text  struct {
+						Text string `json:"text"`
+					} `json:"text"`
+				}{
+					Value: ba.SelectedOption.Value,
+				}
+				payload.Actions[i].SelectedOption.Text.Text = ba.SelectedOption.Text.Text
+			}
+			payload.Actions[i].SelectedUser = ba.SelectedUser
+			payload.Actions[i].SelectedChannel = ba.SelectedChannel
+		}
+	}
+
+	// Convert view for modal submissions
+	if cb.View.ID != "" {
+		payload.View = &struct {
+			ID     string `json:"id"`
+			TeamID string `json:"team_id"`
+			Type   string `json:"type"`
+			State  struct {
+				Values map[string]map[string]struct {
+					Type            string `json:"type"`
+					Value           string `json:"value,omitempty"`
+					SelectedOption  *struct {
+						Value string `json:"value"`
+					} `json:"selected_option,omitempty"`
+					SelectedUser    string `json:"selected_user,omitempty"`
+					SelectedChannel string `json:"selected_channel,omitempty"`
+				} `json:"values"`
+			} `json:"state"`
+			PrivateMetadata string `json:"private_metadata,omitempty"`
+			CallbackID      string `json:"callback_id,omitempty"`
+		}{
+			ID:              cb.View.ID,
+			TeamID:          cb.View.TeamID,
+			Type:            string(cb.View.Type),
+			PrivateMetadata: cb.View.PrivateMetadata,
+			CallbackID:      cb.View.CallbackID,
+		}
+		// Note: View state conversion would go here if needed
+	}
+
+	// Convert message for message actions
+	if cb.Message.Text != "" {
+		payload.Message = &struct {
+			Type string `json:"type"`
+			Text string `json:"text,omitempty"`
+			TS   string `json:"ts"`
+		}{
+			Text: cb.Message.Text,
+			TS:   cb.Message.Timestamp,
+		}
+	}
+
+	return payload
+}
+
+// Socket mode equivalents of webhook handlers (reuse webhook handler logic)
+
+func (m *SlackSocketManager) processSocketBlockAction(app *config.SlackAppConfig, payload SlackInteractivePayload, responseURL string) {
+	action := payload.Actions[0]
+	userID := payload.User.ID
+
+	// Handle built-in approval buttons
+	switch action.ActionID {
+	case "approve_execution", "reject_execution":
+		m.processSocketApprovalAction(app, payload, action, responseURL)
 		return
 	}
 
-	action := cb.ActionCallback.BlockActions[0]
+	// For other actions, dispatch to interaction handler
+	// TODO: Implement generic dispatch when config routing is added
+	slog.Info("slack socket: block action", "action_id", action.ActionID, "user", userID)
+}
+
+func (m *SlackSocketManager) processSocketApprovalAction(app *config.SlackAppConfig, payload SlackInteractivePayload, action struct {
+	ActionID        string `json:"action_id"`
+	Value           string `json:"value"`
+	Type            string `json:"type"`
+	SelectedOption  *struct {
+		Value string `json:"value"`
+		Text  struct {
+			Text string `json:"text"`
+		} `json:"text"`
+	} `json:"selected_option,omitempty"`
+	SelectedOptions []struct {
+		Value string `json:"value"`
+		Text  struct {
+			Text string `json:"text"`
+		} `json:"text"`
+	} `json:"selected_options,omitempty"`
+	SelectedUser    string   `json:"selected_user,omitempty"`
+	SelectedUsers   []string `json:"selected_users,omitempty"`
+	SelectedChannel string   `json:"selected_channel,omitempty"`
+}, responseURL string) {
 	executionID := action.Value
-	userID := cb.User.ID
+	userID := payload.User.ID
 
 	var approved bool
 	switch action.ActionID {
@@ -534,13 +706,42 @@ func (m *SlackSocketManager) handleSocketInteractive(app *config.SlackAppConfig,
 		updateText = fmt.Sprintf("%s %s by <@%s>", statusEmoji, statusText, userID)
 	}
 
+	var channelID, messageTS string
+	if payload.Channel != nil {
+		channelID = payload.Channel.ID
+	}
+	if payload.Message != nil {
+		messageTS = payload.Message.TS
+	}
+
 	updatePayload, _ := json.Marshal(map[string]any{
-		"channel": cb.Channel.ID,
-		"ts":      cb.Message.Timestamp,
+		"channel": channelID,
+		"ts":      messageTS,
 		"text":    updateText,
 		"blocks":  []map[string]any{},
 	})
 	if err := slackAPIPost(app.BotToken, "/chat.update", updatePayload); err != nil {
 		slog.Error("failed to update slack message via socket", "error", err)
 	}
+}
+
+func (m *SlackSocketManager) processSocketModalSubmission(app *config.SlackAppConfig, payload SlackInteractivePayload) map[string]any {
+	// Reuse webhook handler logic
+	handler := &SlackWebhookHandler{executor: m.executor, apps: []config.SlackAppConfig{*app}}
+	return handler.processModalSubmission(app, payload)
+}
+
+func (m *SlackSocketManager) processSocketModalClosed(app *config.SlackAppConfig, payload SlackInteractivePayload) {
+	handler := &SlackWebhookHandler{executor: m.executor, apps: []config.SlackAppConfig{*app}}
+	handler.processModalClosed(app, payload)
+}
+
+func (m *SlackSocketManager) processSocketMessageAction(app *config.SlackAppConfig, payload SlackInteractivePayload, triggerID string) {
+	handler := &SlackWebhookHandler{executor: m.executor, apps: []config.SlackAppConfig{*app}}
+	handler.processMessageAction(app, payload)
+}
+
+func (m *SlackSocketManager) processSocketGlobalShortcut(app *config.SlackAppConfig, payload SlackInteractivePayload, triggerID string) {
+	handler := &SlackWebhookHandler{executor: m.executor, apps: []config.SlackAppConfig{*app}}
+	handler.processGlobalShortcut(app, payload)
 }

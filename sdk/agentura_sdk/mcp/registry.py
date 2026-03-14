@@ -150,18 +150,34 @@ class MCPRegistry:
                     if tool not in server.tools:
                         server.tools.append(tool)
 
-    def discover_from_obot(self, obot_url: str) -> None:
-        """Discover MCP servers from a running obot registry."""
+    def discover_from_obot(self, obot_url: str, api_key: str = "") -> None:
+        """Discover MCP servers from a running Obot/Vigil registry.
+
+        Args:
+            obot_url: Base URL (e.g. https://vigil.internal.genorim.xyz)
+            api_key: Bearer token for authenticated access
+        """
+        import logging
+        from urllib.parse import urljoin
+        logger = logging.getLogger(__name__)
         try:
             import httpx
-            resp = httpx.get(f"{obot_url}/api/mcp-servers", timeout=5)
+            headers: dict[str, str] = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            resp = httpx.get(f"{obot_url}/api/mcp-servers", headers=headers, timeout=10)
             if resp.status_code != 200:
+                logger.warning("Obot discovery failed: %s returned %d", obot_url, resp.status_code)
                 return
             data = resp.json()
-        except Exception:
+        except Exception as exc:
+            logger.warning("Obot discovery failed for %s: %s", obot_url, exc)
             return
 
-        for item in data.get("items", []):
+        items = data.get("items", [])
+        logger.info("Obot discovery: %d MCP servers found at %s", len(items), obot_url)
+
+        for item in items:
             manifest = item.get("manifest", {})
             name = manifest.get("name", "").lower().replace(" ", "-")
             if not name:
@@ -170,6 +186,10 @@ class MCPRegistry:
             remote_cfg = manifest.get("remoteConfig", {}) or {}
             url = remote_cfg.get("url", "")
             connect_url = item.get("connectURL", "")
+            # Make relative connectURLs absolute using proper URL joining
+            if connect_url and connect_url.startswith("/"):
+                connect_url = urljoin(obot_url, connect_url)
+            resolved_url = connect_url or url
             description = manifest.get("shortDescription", "") or manifest.get("description", "")[:120]
             tool_previews = manifest.get("toolPreview", []) or []
             tools = [t.get("name", "") for t in tool_previews if t.get("name")]
@@ -177,8 +197,8 @@ class MCPRegistry:
             if name not in self._servers:
                 self._servers[name] = MCPServerConfig(
                     name=name,
-                    url=connect_url or url,
-                    transport="streamable-http" if url.startswith("http") else "stdio",
+                    url=resolved_url,
+                    transport="streamable-http" if resolved_url.startswith("http") else "stdio",
                     tools=tools,
                     description=description,
                     health="configured" if item.get("configured") else "unknown",
@@ -186,12 +206,14 @@ class MCPRegistry:
             else:
                 server = self._servers[name]
                 if not server.url:
-                    server.url = connect_url or url
+                    server.url = resolved_url
                 for tool in tools:
                     if tool not in server.tools:
                         server.tools.append(tool)
                 if not server.description:
                     server.description = description
+
+            logger.debug("Obot server: %s → %s (%d tools)", name, resolved_url, len(tools))
 
     def to_dict(self) -> list[dict[str, Any]]:
         """Serialize registry for API responses."""
@@ -213,16 +235,24 @@ _registry: MCPRegistry | None = None
 
 
 def get_registry() -> MCPRegistry:
-    """Return the MCP registry singleton. Auto-discovers servers on first call."""
+    """Return the MCP registry singleton. Auto-discovers servers on first call.
+
+    Env vars:
+        OBOT_URL: Base URL for Obot/Vigil MCP gateway (e.g. https://vigil.internal.genorim.xyz)
+        MCP_GATEWAY_API_KEY: Bearer token for Obot/Vigil API access
+        MCP_{SERVER}_URL: Override URL for a specific server (takes priority over Obot)
+    """
     global _registry
     if _registry is not None:
         return _registry
 
     _registry = MCPRegistry()
 
-    # 1. Auto-discover from obot MCP registry (primary source)
-    obot_url = os.environ.get("OBOT_URL", "http://localhost:8080")
-    _registry.discover_from_obot(obot_url)
+    # 1. Auto-discover from Obot/Vigil MCP registry (primary source)
+    obot_url = os.environ.get("OBOT_URL", "")
+    gateway_api_key = os.environ.get("MCP_GATEWAY_API_KEY", "")
+    if obot_url:
+        _registry.discover_from_obot(obot_url, api_key=gateway_api_key)
 
     # 2. Supplement with skill config references (adds domain_using bindings)
     skills_dir = os.environ.get("SKILLS_DIR", "skills")

@@ -235,3 +235,51 @@
 **Over**: Cluster networking with CoreDNS, VPN sidecar, in-cluster proxy
 **Why**: MCP servers (Obot) are on a remote K8s cluster reachable via VPN on the host. Cluster DNS resolves to wrong IP (internal cluster IP, not VPN-routable). Host DNS + host network = VPN routes work.
 **Constraint**: Only one PTC worker per node at a time (port 8080 conflict with hostNetwork); future fix: random port assignment
+
+## DEC-083: Client-side Granola meeting privacy filtering via SKILL.md prompt (2026-03-10)
+**Chose**: Prompt-level privacy filter in SKILL.md (attendee count check + title keyword exclusion) executed by PTC worker at runtime
+**Over**: Server-side Granola MCP filtering, code-level filter in executor, custom MCP proxy
+**Why**: Granola MCP exposes only 4 tools (query_granola_meetings, list_meetings, get_meetings, get_meeting_transcript) with natural language queries — no server-side filtering by attendee count or meeting type exists. PTC workers are prompt-driven, so SKILL.md instructions are the enforcement mechanism.
+**Constraint**: Filter MUST run BEFORE presenting meetings to user or counting totals; filtered meeting titles MUST NOT appear in any output; config overrides via `exclude_meeting_keywords` and `min_attendees` in project config
+
+## DEC-084: RBAC via triggered_by column + _triggered_by in input_data (2026-03-10)
+**Chose**: `triggered_by VARCHAR(200)` column on executions table; user ID passed via `_triggered_by` key in input_data dict; admin bypass via `ADMIN_USER_IDS` env var
+**Over**: SkillContext schema change, JWT-based auth middleware, separate auth service
+**Why**: Lightweight — no schema changes to SkillContext, no new auth infrastructure. `_triggered_by` underscore prefix avoids collision with skill inputs. Gateway already has `UserID` in `ExecuteRequest`. Admin bypass is a simple env var check.
+**Constraint**: Non-admin users ALWAYS see only their own executions; `X-User-ID` header forwarded by gateway; admin IDs comma-separated in env var
+
+## DEC-085: Slack interactive approvals as Block Kit buttons after skill result (2026-03-10)
+**Chose**: Parse skill result JSON for `pending_approvals` array, post separate Block Kit message with Approve/Reject buttons; handle clicks via both HTTP webhook and Socket Mode paths
+**Over**: Inline approval in skill result message, dashboard-only approval, separate approval service
+**Why**: Users (Neha, Ashutosh) explicitly requested "approve in Slack only". Block Kit buttons are native Slack UX. Separate message avoids reformatting the skill result. Both HTTP and Socket Mode paths ensure it works regardless of Slack app configuration.
+**Constraint**: Interactive payload handler registered outside auth middleware (same as other webhooks); `response_url` used for message updates; signature verification reuses existing `verifySlackSignature()`
+
+## DEC-086: Thread continuity via gateway-only in-memory registry (2026-03-11)
+**Chose**: sync.Map thread registry in gateway keyed by `{app}:{channel}:{threadTS}`, with 30-min TTL and 5-min sweep; thread replies skip triage and route directly to previously matched skill with previous output as context
+**Over**: Executor/Python-side thread tracking, Redis/DB-backed thread state, full conversation history replay
+**Why**: Zero executor changes — PTC worker receives thread context naturally via `input_data.thread_context`; in-memory is sufficient for demo (no persistence needed across restarts); gateway already owns the Slack dispatch path
+**Constraint**: Thread entries expire after 30 min idle; only `auto` (triage-routed) commands register threads; explicit `run`/`pipeline`/`help` bypass thread lookup; `postSlackMessage`/`postSlackThreadReply` now return posted `ts` for registration
+
+## DEC-087: Internal ALB for VPN-accessible web UI + API (2026-03-11)
+**Chose**: Internal ALB ingress (`scheme: internal`) routing `/api` → gateway:3001, `/` → web:3000; HTTP:80 only
+**Over**: kubectl port-forward, public ALB with auth, CloudFront + WAF
+**Why**: VPN-only access is sufficient for internal team use; no TLS overhead needed for private network; single ALB serves both web UI and gateway API
+**Constraint**: Requires VPN connectivity to VPC; ALB controller IRSA must be configured (role: `vance-core-infra-mumbai-01-aws-loadbalancer-controller`); private subnets tagged `kubernetes.io/role/internal-elb=1`
+
+## DEC-088: Git-sync init container for org skills from private GitHub repo (2026-03-11)
+**Chose**: Init container (`alpine/git`) clones `Vance-Club/agentura-skills` private repo on every pod start; SSH deploy key stored as K8s secret
+**Over**: kubectl cp (manual), S3 sync, baking skills into executor image, PVC
+**Why**: Org skills stay in org's private repo — never leak into platform repo; auto-syncs on restart; deploy key is read-only; new skills = git push + rollout restart; makes agentura extensible per-org without forking
+**Constraint**: `agentura-skills-repo` secret has repo URL + branch; `agentura-skills-repo-key` secret has SSH deploy key; repo must have `skills/`, `pipelines/`, `agency/` at root (paths configurable)
+
+## DEC-089: PDBs + do-not-disrupt annotations to prevent Karpenter consolidation eviction (2026-03-11)
+**Chose**: PodDisruptionBudget (`minAvailable: 1`) + `karpenter.sh/do-not-disrupt: "true"` annotation on all core pods (executor, gateway, web, postgres)
+**Over**: No disruption protection (default), higher replica counts
+**Why**: Karpenter consolidates "underutilized" nodes after PTC/CC worker pods complete, evicting all core pods and wiping emptyDir data. PDBs block voluntary eviction; annotation tells Karpenter to never consider these pods for consolidation.
+**Constraint**: With replicas=1 and minAvailable=1, Karpenter cannot voluntarily evict these pods at all; scaling to 2+ replicas would allow rolling disruption
+
+## DEC-090: Comprehensive Slack interaction primitives via config-driven routing (2026-03-14)
+**Chose**: Config-driven `interaction_handlers` in SlackAppConfig mapping callback_id → skill/pipeline; unified handler for modals, selects, shortcuts, block actions, overflow menus; works in both HTTP webhook and Socket Mode
+**Over**: Hardcoded interaction routing in gateway code, per-interaction handler functions, MCP-based interaction handling
+**Why**: Slack interactions (modals, selects, shortcuts) are essential for rich UX but were completely missing — only approval buttons existed. Config-driven routing matches existing pattern (commands, events). Single dispatch mechanism handles all 7 interaction types. Skills receive structured input (form_values, message_text, etc.) and can return outputs, modals, or validation errors.
+**Constraint**: InteractionHandler requires callback_id (matches Slack callback_id or action_id); type field is optional (allows wildcard matching); exactly one of skill or pipeline must be specified; form value extraction uses "block_id.action_id" format; executor integration uses direct HTTP calls (not via executor adapter)

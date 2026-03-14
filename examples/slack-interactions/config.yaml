@@ -1,0 +1,118 @@
+# Example configuration showing Slack interaction handlers
+
+triggers:
+  slack:
+    enabled: true
+    apps:
+      - name: "Agentura Platform Bot"
+        signing_secret: "${SLACK_SIGNING_SECRET}"
+        bot_token: "${SLACK_BOT_TOKEN}"
+        app_token: "${SLACK_APP_TOKEN}"  # For Socket Mode
+        mode: "socket"  # or "http" for webhooks
+        domain_scope: "platform"
+
+        # Traditional command routing
+        commands:
+          - pattern: "help"
+            skill: "help"
+            description: "Show available commands"
+
+        # NEW: Interaction routing
+        interaction_handlers:
+          # ==== Modals ====
+
+          # User submits the "Create Ticket" modal
+          - callback_id: "create_ticket_modal"
+            type: "modal_submission"
+            skill: "ticket-creator"
+            description: "Process ticket creation form"
+
+          # User closes modal without submitting (tracking/cleanup)
+          - callback_id: "create_ticket_modal"
+            type: "modal_closed"
+            skill: "modal-tracker"
+            description: "Track modal abandonment"
+
+          # ==== Message Shortcuts ====
+
+          # "Forward to Team" message action
+          - callback_id: "forward_message"
+            type: "message_action"
+            skill: "message-forwarder"
+            description: "Forward message to another channel"
+
+          # "Create Bug Report" from message
+          - callback_id: "bug_from_message"
+            type: "message_action"
+            skill: "bug-reporter"
+            description: "Create bug report from message content"
+
+          # ==== Global Shortcuts ====
+
+          # "Start Deployment" shortcut
+          - callback_id: "start_deploy"
+            type: "global_shortcut"
+            skill: "deployment-wizard"
+            description: "Open deployment configuration modal"
+
+          # "Create Incident" shortcut
+          - callback_id: "create_incident"
+            type: "global_shortcut"
+            pipeline: "incident-response"
+            description: "Start incident response workflow"
+
+          # ==== Select Menus ====
+
+          # User picks assignee from dropdown
+          - callback_id: "assign_ticket_select"
+            type: "select_action"
+            skill: "ticket-assigner"
+            description: "Assign ticket to selected user"
+
+          # User picks priority from dropdown
+          - callback_id: "set_priority"
+            type: "select_action"
+            skill: "priority-setter"
+            description: "Update ticket priority"
+
+          # ==== Block Actions ====
+
+          # Approval/rejection buttons
+          - callback_id: "approve_deploy"
+            type: "block_action"
+            skill: "deployment-approver"
+            description: "Handle deployment approval"
+
+          # "Mark Complete" button
+          - callback_id: "mark_complete"
+            type: "block_action"
+            skill: "task-completer"
+            description: "Mark task as complete"
+
+          # ==== Overflow Menus ====
+
+          # Overflow actions on ticket
+          - callback_id: "ticket_actions"
+            type: "overflow_action"
+            skill: "ticket-actions"
+            description: "Handle ticket overflow menu actions"
+
+      # Example: Domain-scoped bot for dev team
+      - name: "Dev Team Bot"
+        signing_secret: "${DEV_SLACK_SIGNING_SECRET}"
+        bot_token: "${DEV_SLACK_BOT_TOKEN}"
+        mode: "http"
+        domain_scope: "dev"
+
+        interaction_handlers:
+          # PR review shortcuts
+          - callback_id: "request_review"
+            type: "message_action"
+            skill: "pr-reviewer"
+            description: "Request code review"
+
+          # Deploy to staging button
+          - callback_id: "deploy_staging"
+            type: "block_action"
+            skill: "deployer"
+            description: "Deploy to staging environment"

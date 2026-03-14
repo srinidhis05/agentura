@@ -20,6 +20,7 @@ class LoadedSkill:
     system_prompt: str
     workspace_context: str
     domain_context: str
+    project_configs: str
     reflexion_context: str
     raw_content: str
     injected_reflexion_ids: list[str] = field(default_factory=list)
@@ -63,6 +64,44 @@ def load_domain_md(skill_path: Path) -> str:
         current = current.parent
         levels_walked += 1
     return ""
+
+
+def load_project_configs(skill_path: Path) -> str:
+    """Load project configuration files from domain's project-configs directory.
+
+    For PM domain skills, loads workspace config + all project-specific configs
+    (gold.md, remittance.md, etc.) to provide ClickUp IDs, assignee mappings,
+    Slack channels, and Granola search terms.
+
+    Returns formatted markdown string with all project configurations.
+    """
+    # Find domain directory (parent of skill dir)
+    domain_dir = skill_path.parent.parent  # skills/pm
+    project_configs_dir = domain_dir / "project-configs"
+
+    if not project_configs_dir.exists():
+        return ""
+
+    config_parts = []
+
+    # Load workspace config first (if exists)
+    workspace_file = project_configs_dir / "_workspace.md"
+    if workspace_file.exists():
+        config_parts.append(workspace_file.read_text().strip())
+
+    # Load all project-specific config files
+    project_files = sorted([
+        f for f in project_configs_dir.glob("*.md")
+        if not f.name.startswith("_")
+    ])
+
+    for project_file in project_files:
+        config_parts.append(project_file.read_text().strip())
+
+    if not config_parts:
+        return ""
+
+    return "\n\n---\n\n".join(config_parts)
 
 
 def load_reflexion_entries(skill_path: Path) -> tuple[str, list[str]]:
@@ -188,6 +227,7 @@ def load_skill_md(skill_path: Path, include_reflexions: bool = True) -> LoadedSk
     raw = skill_path.read_text()
     workspace_context = load_workspace_md(skill_path)
     domain_context = load_domain_md(skill_path)
+    project_configs = load_project_configs(skill_path)
     if include_reflexions:
         reflexion_context, injected_ids = load_reflexion_entries(skill_path)
     else:
@@ -202,6 +242,7 @@ def load_skill_md(skill_path: Path, include_reflexions: bool = True) -> LoadedSk
             system_prompt=post.content.strip(),
             workspace_context=workspace_context,
             domain_context=domain_context,
+            project_configs=project_configs,
             reflexion_context=reflexion_context,
             raw_content=raw,
             injected_reflexion_ids=injected_ids,
@@ -220,6 +261,7 @@ def load_skill_md(skill_path: Path, include_reflexions: bool = True) -> LoadedSk
             system_prompt=prompt,
             workspace_context=workspace_context,
             domain_context=domain_context,
+            project_configs=project_configs,
             reflexion_context=reflexion_context,
             raw_content=raw,
             injected_reflexion_ids=injected_ids,

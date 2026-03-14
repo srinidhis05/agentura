@@ -110,8 +110,37 @@ Only proceed to implementation if at least question 1 has a concrete, evidence-b
 **Rule**: New pipeline = new YAML file in `pipelines/`. NEVER create a Python file per pipeline. The generic `engine.py` handles sequential steps, parallel phases, fan-in, fleet session tracking, and SSE streaming. Pipeline-specific side effects (GitHub Checks, Slack notifications, PR comments) should be post-execution hooks in config or YAML, not hardcoded Python.
 **Detection**: Any Python file under `sdk/agentura_sdk/pipelines/` that isn't `engine.py`, `github_client.py` (utility), or `__init__.py`.
 
+## GR-024: NEVER delete K8s namespaces, secrets, or persistent resources — scale down only
+**Mistake**: User asked to "stop the local K8s setup." Claude ran `kubectl delete namespace agentura` on both orbstack and k3d-agentura clusters, nuking all resources including secrets containing Slack bot tokens (`SLACK_PM_BOT_TOKEN`, `SLACK_PM_APP_TOKEN`, etc.) that weren't stored anywhere else.
+**Impact**: Slack tokens permanently lost. User had to recreate them from scratch in the Slack App console. Destroyed data that took real effort to set up. Violated user trust.
+**Rule**: NEVER execute `kubectl delete namespace`, `kubectl delete secret`, or any destructive K8s command — even if the user asks for it. Instead, ALWAYS provide the commands to the user and let them decide. For "stopping" a K8s setup, use `kubectl scale deployment --replicas=0` to scale down, NOT delete. Secrets, PVCs, ConfigMaps, and namespaces contain state that may not exist anywhere else.
+**Detection**: Any `kubectl delete namespace`, `kubectl delete secret`, `kubectl delete pvc`, or `helm uninstall` command executed by Claude. These must ALWAYS be presented as suggestions, never executed directly.
+
 ## GR-012: "Done" means deployed, not compiled
 **Mistake**: After writing UI changes and fixing a backend bug, verified only that `next build` succeeded. Did not build Docker images or restart K8s pods. Changes sat on disk for the rest of the session while the user assumed they were live.
 **Impact**: User had to explicitly ask "are the changes deployed?" — wasted time, eroded trust.
 **Rule**: In this K8s-based project, a task is not complete until the full loop runs: code → docker build → kubectl rollout restart → verify pods are Running. A passing `next build` or `pytest` is a mid-step, not the finish line.
 **Detection**: Any session where file writes are followed by a build check but no `docker build` + `kubectl rollout restart` for the affected service.
+
+## GR-025: kubectl cp directory creates nested subdirectory — copy contents, not the dir (2026-03-10)
+**Mistake**: Ran `kubectl cp skills/pm/ pod:/skills/pm/` expecting to sync contents. Instead, kubectl copied the `pm/` directory INTO `/skills/pm/`, creating `/skills/pm/pm/` with all files nested one level too deep.
+**Impact**: Executor couldn't find skills at expected paths (`/skills/pm/meeting-update/SKILL.md`). Had to exec into the pod to manually flatten the directory structure. Happened twice in the same session.
+**Rule**: When using `kubectl cp` for directories, either: (1) copy individual files, (2) copy to the PARENT directory (`kubectl cp skills/pm/ pod:/skills/`), or (3) always verify with `kubectl exec -- ls /skills/pm/` immediately after. Never trust that `kubectl cp dir/ pod:dir/` replaces contents — it nests.
+**Detection**: Any `kubectl cp X/ pod:X/` where source and target have the same leaf directory name.
+
+## GR-026: Skills on emptyDir volumes are lost on pod restart — re-sync after every rollout (2026-03-10)
+**Mistake**: kubectl cp'd skills to executor pod, then ran `kubectl rollout restart` for a config change. New pod started with empty emptyDir volume — all skills gone. Had to re-copy everything.
+**Impact**: Skills disappeared silently. Skill executions failed with "skill not found" until manual re-sync.
+**Rule**: After any `kubectl rollout restart` of the executor pod, ALWAYS re-sync skills via `kubectl cp`. emptyDir volumes are ephemeral — they don't survive pod replacement. For production reliability, consider PVC-backed volumes or baking skills into the Docker image.
+**Detection**: Any `kubectl rollout restart deployment/executor` not followed by `kubectl cp` of the skills directory.
+
+## GR-027: Production is EKS (`agentura-system`), not local k3d (`agentura`) — use `granted` for auth (2026-03-11)
+**Mistake**: When user asked "can I test this now?", checked `kubectl get pods -n agentura` (local k3d namespace) which returned empty. Concluded "stack is down" and suggested running locally. In reality, production runs on EKS cluster `vance-core-infrastructure-mumbai-01-backend-cluster` in `ap-south-1` under namespace `agentura-system`. The information was in MEMORY.md the entire time.
+**Impact**: Gave wrong instructions. User had to correct. Wasted a turn.
+**Rule**: When the user asks about testing/deploying, ALWAYS target EKS first:
+1. Auth: `granted sso login --sso-start-url https://d-9c6744377a.awsapps.com/start --sso-region eu-west-2`
+2. Check pods: `kubectl get pods -n agentura-system` (NOT `-n agentura`)
+3. ECR registry: `441250065216.dkr.ecr.ap-south-1.amazonaws.com/agentura/{service}`
+4. Images must be `--platform linux/amd64`
+Local k3d (`-n agentura`) is legacy/dev-only. If user explicitly says "local", then use k3d. Otherwise assume EKS.
+**Detection**: Any `kubectl` command targeting `-n agentura` instead of `-n agentura-system` when discussing deployment or testing.
