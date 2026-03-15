@@ -1,0 +1,31 @@
+domain:
+  name: dev
+  description: "Developer productivity and code quality tools"
+  owner: "engineering-team"
+
+skills:
+  - name: pr-test-recommender
+    path: pr-test-recommender
+    role: specialist
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.10"
+    triggers:
+      - type: pipeline
+        pattern: "github-pr-parallel step testing"
+
+guardrails:
+  budget:
+    max_per_execution: "$0.10"
+    alert_at: "$0.08"
+
+feedback:
+  capture_corrections: true
+  auto_generate_tests: false
+  capture_failure_cases: true
+
+display:
+  title: "Test Recommender"
+  subtitle: "AI Test Case Recommendations"
+  avatar: "TR"
+  color: "#10b981"
+  tags: ["Specialist", "Testing", "PR Review"]

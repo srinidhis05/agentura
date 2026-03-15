@@ -38,9 +38,9 @@ Produce a single markdown string suitable for posting as a GitHub PR comment:
 - Top blocker: (if any — one-line summary of most critical finding)
 
 ### Testing
-- 5 tests passed, 0 failed
-- Evidence: executed (npm test)
-- 2 coverage gaps identified
+- 12 test cases recommended (3 high, 6 medium, 3 low priority)
+- 6 of 8 changed functions need tests
+- Top priority: payment validation (ProcessPayment, ValidateAmount)
 
 ### SLT Validation
 - No breaking changes detected
@@ -63,13 +63,12 @@ Total cost: $0.42 | Duration: 45s | Fleet session: `fleet-abc123`
 - If any BLOCKERs exist, summarize the top one in a single line
 - If verdict is `request-changes`, set overall status to "Some checks failed"
 
-### `testing` (Test Runner)
-- Show pass/fail counts and evidence type
-- Include test command if available
-- List coverage gaps count
-- If `tests_written` is present, show count of new test files and methods written
-- If `tests_pushed` is true, note that tests were committed to the PR branch
-- If `commit_sha` is present, link to the commit
+### `testing` (Test Recommender)
+- Show total test cases recommended and priority breakdown (high/medium/low)
+- List functions needing tests vs functions with existing coverage
+- Highlight high-priority recommendations (critical path: payments, auth, compliance)
+- Show test convention detected (language, framework, assertion library)
+- If recommendations list is empty, note "No test changes needed"
 
 ### `slt` (SLT Validator)
 - Show breaking change detection result

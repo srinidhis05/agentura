@@ -11,7 +11,7 @@ phases:
       - skill: dev/pr-code-reviewer
         agent_id: reviewer
         required: true
-      - skill: dev/pr-test-runner
+      - skill: dev/pr-test-recommender
         agent_id: testing
         required: true
       - skill: dev/pr-doc-generator
