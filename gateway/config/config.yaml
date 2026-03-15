@@ -179,6 +179,40 @@ triggers:
             type: "view_submission"
             skill: "pm/triage"
             description: "Create task from modal form"
+      - name: growth
+        signing_secret: "${SLACK_GROWTH_SIGNING_SECRET}"
+        bot_token: "${SLACK_GROWTH_BOT_TOKEN}"
+        app_token: "${SLACK_GROWTH_APP_TOKEN}"
+        mode: "socket"
+        domain_scope: "growth"
+        allowed_skills: ["*"]
+        ack_reaction: "eyes"
+        typing_reaction: "hourglass_flowing_sand"
+        dm:
+          policy: "open"
+        events:
+          message: true
+          app_mention: true
+          reaction: true
+        commands:
+          - pattern: "pulse"
+            skill: "daily-pulse"
+            description: "Run daily pulse now"
+          - pattern: "weekly"
+            skill: "weekly-review"
+            description: "Run weekly review now"
+          - pattern: "anomalies"
+            skill: "anomaly-alert"
+            description: "Check for anomalies now"
+          - pattern: "funnel"
+            skill: "funnel-health"
+            description: "Run funnel health check"
+          - pattern: "cohort {question}"
+            skill: "cohort-analysis"
+            description: "Run cohort analysis"
+          - pattern: "canvas"
+            skill: "growth-canvas"
+            description: "Refresh growth canvas dashboard"
       - name: ge
         signing_secret: "${SLACK_GE_SIGNING_SECRET}"
         bot_token: "${SLACK_GE_BOT_TOKEN}"
