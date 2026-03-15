@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: databricks-mcp
+  namespace: agentura
+  labels:
+    app: databricks-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: databricks-mcp
+  template:
+    metadata:
+      labels:
+        app: databricks-mcp
+    spec:
+      containers:
+        - name: databricks-mcp
+          image: agentura/databricks-mcp:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8092
+          envFrom:
+            - secretRef:
+                name: agentura-api-keys
+            - secretRef:
+                name: agentura-mcp-config
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8092
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: databricks-mcp
+  namespace: agentura
+spec:
+  selector:
+    app: databricks-mcp
+  ports:
+    - port: 8092
+      targetPort: 8092

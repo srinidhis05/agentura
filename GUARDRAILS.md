@@ -144,3 +144,9 @@ Only proceed to implementation if at least question 1 has a concrete, evidence-b
 4. Images must be `--platform linux/amd64`
 Local k3d (`-n agentura`) is legacy/dev-only. If user explicitly says "local", then use k3d. Otherwise assume EKS.
 **Detection**: Any `kubectl` command targeting `-n agentura` instead of `-n agentura-system` when discussing deployment or testing.
+
+## GR-028: Never hardcode tenant-specific values in the agentura repo (2026-03-15)
+**Mistake**: Committed `databricks-mcp.yaml` with Aspora's Databricks workspace URL (`https://dbc-02d72862-314d.cloud.databricks.com`) and default catalog/schema (`prod`/`silver_schema`) hardcoded in the K8s manifest. The agentura repo is a generic platform — tenant-specific details leak business context.
+**Impact**: Business-specific infrastructure details exposed in a platform repo. Any contributor or fork sees Aspora's workspace URL.
+**Rule**: The agentura repo MUST contain zero hardcoded tenant-specific values: no workspace URLs, no database names, no API endpoints, no org IDs, no default catalog/schema names. All such values MUST come from K8s secrets (`agentura-api-keys`, `agentura-mcp-config`) or environment variable injection at deploy time. Tenant-specific config belongs in the private deployment config or the agentura-skills repo.
+**Detection**: Any committed file in the agentura repo containing a URL with a specific domain (not `localhost` or K8s service DNS), a hardcoded catalog/schema name, or any value that identifies a specific tenant's infrastructure.

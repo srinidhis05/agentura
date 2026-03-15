@@ -268,6 +268,7 @@ def get_registry() -> MCPRegistry:
         "jira": os.environ.get("MCP_JIRA_URL", ""),
         "slack": os.environ.get("MCP_SLACK_URL", ""),
         "postgres": os.environ.get("MCP_POSTGRES_URL", ""),
+        "databricks": os.environ.get("MCP_DATABRICKS_URL", ""),
     }
     for name, url in _well_known.items():
         if url:
