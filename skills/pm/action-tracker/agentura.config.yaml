@@ -1,0 +1,60 @@
+domain:
+  name: pm
+  description: "Project Management — deadline tracking, orphan detection, reminders"
+  owner: "pm-team"
+
+skills:
+  - name: action-tracker
+    path: action-tracker
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.30"
+    triggers:
+      - type: cron
+        schedule: "0 10 * * 1-5"
+      - type: api
+      - type: slack
+        pattern: "what's overdue|track actions|action items|orphaned items|deadline check"
+
+agent:
+  executor: ptc
+  max_iterations: 15
+
+guardrails:
+  budget:
+    max_per_execution: "$0.30"
+    alert_at: "$0.25"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "Open items collected from all configured systems"
+    - "Orphan detection cross-referenced with run-history"
+    - "Incomplete metadata flagged"
+    - "Report posted to Slack or written to TASK_RESULT.json"
+
+mcp_tools:
+  - server: clickup
+    tools: ["*"]
+  - server: notion
+    tools: ["*"]
+  - server: granola
+    tools: ["*"]
+  - server: slack
+    tools: ["*"]
+
+display:
+  title: "Action Tracker"
+  subtitle: "Deadlines, overdue, orphans, reminders"
+  avatar: "AT"
+  color: "#ef4444"
+  tags: ["PM", "Tracking", "Deadlines"]
+  conversation_starters:
+    - "What's overdue?"
+    - "Check action items"
+    - "Any orphaned meeting items?"

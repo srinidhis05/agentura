@@ -1,0 +1,53 @@
+domain:
+  name: pm
+  description: "Project Management — Slack channel history summarizer"
+  owner: "pm-team"
+
+skills:
+  - name: channel-digest
+    path: channel-digest
+    role: agent
+    model: anthropic/claude-haiku-4-5-20251001
+    cost_budget: "$0.05"
+    triggers:
+      - type: cron
+        schedule: "0 17 * * 1-5"
+        description: "5pm weekdays — end-of-day channel digest"
+      - type: api
+      - type: slack
+        pattern: "digest .+|summarize .+ channel|channel summary"
+
+agent:
+  executor: ptc
+  max_iterations: 15
+
+guardrails:
+  budget:
+    max_per_execution: "$0.05"
+    alert_at: "$0.04"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "Channel history fetched successfully"
+    - "Digest includes message count and categorized items"
+    - "No messages posted to source channel"
+
+mcp_tools:
+  - server: slack
+    tools: ["*"]
+
+display:
+  title: "Channel Digest"
+  subtitle: "Slack channel history summarizer"
+  avatar: "CD"
+  color: "#22c55e"
+  tags: ["PM", "Slack", "Digest"]
+  conversation_starters:
+    - "Digest #general from the last 24 hours"
+    - "Summarize today's activity in #engineering"

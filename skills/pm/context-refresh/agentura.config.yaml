@@ -1,0 +1,52 @@
+domain:
+  name: pm
+  description: "Project Management — rebuild project context file and Notion page index"
+  owner: "pm-team"
+
+skills:
+  - name: context-refresh
+    path: context-refresh
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: api
+      - type: slack
+        pattern: "refresh context|rebuild context|re-index pages|sync context"
+
+agent:
+  executor: ptc
+  max_iterations: 20
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.40"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "All child pages scanned recursively"
+    - "Archive and bot-state pages excluded"
+    - "Context file stored on Notion (if enabled)"
+    - "Page index generated with IDs"
+
+mcp_tools:
+  - server: notion
+    tools: ["*"]
+
+display:
+  title: "Context Refresh"
+  subtitle: "Rebuild project context + page index from Notion"
+  avatar: "CR"
+  color: "#6366f1"
+  tags: ["PM", "Context", "Notion"]
+  conversation_starters:
+    - "Refresh the project context"
+    - "Re-index Notion pages"
+    - "Rebuild context file"

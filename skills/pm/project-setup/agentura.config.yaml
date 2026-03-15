@@ -1,0 +1,58 @@
+domain:
+  name: pm
+  description: "Project Management — guided project configuration wizard"
+  owner: "pm-team"
+
+skills:
+  - name: project-setup
+    path: project-setup
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: api
+      - type: command
+        pattern: "setup {project}"
+      - type: slack
+        pattern: "set up .+ project|new project|create project config"
+
+agent:
+  executor: ptc
+  max_iterations: 30
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.40"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "All 7 phases completed in order"
+    - "Config file follows _template.md format"
+    - "No hardcoded IDs in generated files"
+    - "User confirmed via AskUserQuestion before file generation"
+
+mcp_tools:
+  - server: notion
+    tools: ["*"]
+  - server: slack
+    tools: ["*"]
+  - server: clickup
+    tools: ["*"]
+
+display:
+  title: "Project Setup"
+  subtitle: "Guided 7-phase configuration wizard"
+  avatar: "PS"
+  color: "#14b8a6"
+  tags: ["PM", "Setup", "Config"]
+  conversation_starters:
+    - "Set up a new project"
+    - "Configure my project"
+    - "Create project config"

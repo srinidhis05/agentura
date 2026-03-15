@@ -1,0 +1,58 @@
+domain:
+  name: pm
+  description: "Project Management — discover unprocessed meetings and pending partner emails"
+  owner: "pm-team"
+
+skills:
+  - name: meeting-scan
+    path: meeting-scan
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$1.00"
+    triggers:
+      - type: api
+      - type: slack
+        pattern: "catch up on meetings|what did I miss|unprocessed meetings|pending emails"
+
+agent:
+  executor: ptc
+  max_iterations: 20
+
+guardrails:
+  budget:
+    max_per_execution: "$1.00"
+    alert_at: "$0.80"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "Run-history queried before presenting unprocessed list"
+    - "Privacy filter applied to all meeting results"
+    - "Skipped meetings logged to run-history"
+    - "Every write/send gated by AskUserQuestion"
+
+mcp_tools:
+  - server: granola
+    tools: ["*"]
+  - server: gmail
+    tools: ["*"]
+    approval_required:
+      - send_email
+      - send_draft
+      - create_draft
+
+display:
+  title: "Meeting Scan"
+  subtitle: "Find unprocessed meetings + pending emails"
+  avatar: "MS"
+  color: "#8b5cf6"
+  tags: ["PM", "Meetings", "Email"]
+  conversation_starters:
+    - "What meetings did I miss this week?"
+    - "Any unprocessed meetings?"
+    - "Catch up on missed meetings"

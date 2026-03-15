@@ -1,0 +1,59 @@
+domain:
+  name: pm
+  description: "Project Management — multi-source extraction to Notion with change classification"
+  owner: "pm-team"
+
+skills:
+  - name: notion-sync
+    path: notion-sync
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$1.00"
+    triggers:
+      - type: api
+      - type: slack
+        pattern: "sync to notion|update notion|mark .+ as|change status of"
+
+agent:
+  executor: ptc
+  max_iterations: 25
+
+guardrails:
+  budget:
+    max_per_execution: "$1.00"
+    alert_at: "$0.80"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "Change classification applied to all updates"
+    - "Provenance included in all Notion writes"
+    - "Conflict detection performed before overwrites"
+    - "Interpretive changes gated by AskUserQuestion"
+    - "Duplicates checked before creating"
+
+mcp_tools:
+  - server: granola
+    tools: ["*"]
+  - server: notion
+    tools: ["*"]
+  - server: slack
+    tools: ["*"]
+  - server: gmail
+    tools: ["*"]
+
+display:
+  title: "Notion Sync"
+  subtitle: "Multi-source → Notion with change classification"
+  avatar: "NS"
+  color: "#8b5cf6"
+  tags: ["PM", "Notion", "Sync"]
+  conversation_starters:
+    - "Sync project from Slack and Granola"
+    - "Mark E-005 as done"
+    - "Update Notion from today's emails"
