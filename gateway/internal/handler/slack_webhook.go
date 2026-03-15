@@ -412,9 +412,15 @@ func (h *SlackWebhookHandler) handleMessage(w http.ResponseWriter, app *config.S
 			removeSlackReaction(app.BotToken, event.Channel, event.TS, typingReaction)
 		}
 
-		// Post result as thread reply if in a thread, otherwise as a new message
+		// Post result — use Block Kit if skill returned rich_output
 		var postedTS string
-		if threadTS != "" && threadTS != event.TS {
+		if blocks, fallback, ok := tryParseRichOutput(result); ok {
+			replyTS := ""
+			if threadTS != "" && threadTS != event.TS {
+				replyTS = threadTS
+			}
+			postedTS, _ = postSlackBlocksWithTS(app.BotToken, event.Channel, replyTS, fallback, blocks)
+		} else if threadTS != "" && threadTS != event.TS {
 			postedTS, _ = postSlackThreadReply(app.BotToken, event.Channel, threadTS, result)
 		} else {
 			postedTS, _ = postSlackMessage(app.BotToken, event.Channel, result)
@@ -725,9 +731,9 @@ func (h *SlackWebhookHandler) dispatchAndFormat(app *config.SlackAppConfig, chan
 		}
 	}
 
-	// For auto commands: if the app has a domain triage skill, let triage route.
-	// Only use command aliases for non-domain-scoped apps (no triage available).
-	if cmd.Action == "auto" && app.DomainScope == "" {
+	// For auto commands: try command aliases first (highest priority),
+	// then fall back to domain triage if no alias matches.
+	if cmd.Action == "auto" {
 		if aliasCmd := matchCommandAlias(cmd.Text, app); aliasCmd != nil {
 			savedUserID := cmd.UserID
 			cmd = *aliasCmd
@@ -1255,6 +1261,132 @@ func markdownToSlackMrkdwn(text string) string {
 	text = mdTableSep.ReplaceAllString(text, "")
 	// Table data rows: keep as-is (Slack renders pipes fine in monospace)
 	return text
+}
+
+// ---------- Rich Output → Block Kit Renderer ----------
+
+// tryParseRichOutput attempts to parse a result string as JSON containing a rich_output field.
+// Returns Block Kit blocks, fallback text, and whether rich output was found.
+func tryParseRichOutput(text string) ([]map[string]any, string, bool) {
+	text = strings.TrimSpace(text)
+	if len(text) == 0 || text[0] != '{' {
+		return nil, "", false
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+		return nil, "", false
+	}
+	richOutput, ok := parsed["rich_output"].(map[string]any)
+	if !ok {
+		return nil, "", false
+	}
+	blocks := renderRichOutputToBlocks(richOutput)
+	if len(blocks) == 0 {
+		return nil, "", false
+	}
+	fallback, _ := parsed["fallback"].(string)
+	if fallback == "" {
+		if title, ok := richOutput["title"].(string); ok {
+			fallback = title
+		} else {
+			fallback = "Skill result"
+		}
+	}
+	return blocks, fallback, true
+}
+
+// renderRichOutputToBlocks converts a rich_output JSON structure to Slack Block Kit blocks.
+// Contract: { title, status?, summary?, sections: [{heading?, body}], footer? }
+func renderRichOutputToBlocks(rich map[string]any) []map[string]any {
+	var blocks []map[string]any
+
+	// Header with optional status indicator
+	if title, ok := rich["title"].(string); ok && title != "" {
+		statusEmoji := ""
+		if status, ok := rich["status"].(string); ok {
+			switch status {
+			case "healthy":
+				statusEmoji = "🟢 "
+			case "warning":
+				statusEmoji = "🟡 "
+			case "critical":
+				statusEmoji = "🔴 "
+			}
+		}
+		blocks = append(blocks, map[string]any{
+			"type": "header",
+			"text": map[string]any{
+				"type":  "plain_text",
+				"text":  statusEmoji + title,
+				"emoji": true,
+			},
+		})
+	}
+
+	// Summary line
+	if summary, ok := rich["summary"].(string); ok && summary != "" {
+		blocks = append(blocks, map[string]any{
+			"type": "section",
+			"text": map[string]any{
+				"type": "mrkdwn",
+				"text": summary,
+			},
+		})
+	}
+
+	// Sections
+	hasSummary := rich["summary"] != nil && rich["summary"] != ""
+	if sections, ok := rich["sections"].([]any); ok {
+		for i, s := range sections {
+			section, ok := s.(map[string]any)
+			if !ok {
+				continue
+			}
+			// Divider before each section (after summary or between sections)
+			if i > 0 || hasSummary {
+				blocks = append(blocks, map[string]any{"type": "divider"})
+			}
+
+			heading, _ := section["heading"].(string)
+			body, _ := section["body"].(string)
+
+			text := body
+			if heading != "" {
+				text = "*" + heading + "*\n" + body
+			}
+			if text == "" {
+				continue
+			}
+
+			// Slack section text limit is 3000 chars
+			if len(text) > 3000 {
+				text = text[:2990] + "\n…(truncated)"
+			}
+
+			blocks = append(blocks, map[string]any{
+				"type": "section",
+				"text": map[string]any{
+					"type": "mrkdwn",
+					"text": text,
+				},
+			})
+		}
+	}
+
+	// Footer
+	if footer, ok := rich["footer"].(string); ok && footer != "" {
+		blocks = append(blocks, map[string]any{
+			"type": "context",
+			"elements": []map[string]any{
+				{
+					"type": "mrkdwn",
+					"text": footer,
+				},
+			},
+		})
+	}
+
+	return blocks
 }
 
 // ---------- Slack Interactive Approvals (Block Kit) ----------
@@ -2114,6 +2246,39 @@ func postSlackBlocks(botToken, channel, threadTS, fallbackText string, blocks []
 	}
 
 	return slackAPIPost(botToken, "/chat.postMessage", payload)
+}
+
+// postSlackBlocksWithTS posts a Block Kit message and returns the message timestamp.
+func postSlackBlocksWithTS(botToken, channel, threadTS, fallbackText string, blocks []map[string]any) (string, error) {
+	if botToken == "" || isSlackSecretPlaceholder(botToken) {
+		return "", fmt.Errorf("bot token not configured")
+	}
+
+	msg := map[string]any{
+		"channel": channel,
+		"text":    fallbackText,
+		"blocks":  blocks,
+	}
+	if threadTS != "" {
+		msg["thread_ts"] = threadTS
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return "", fmt.Errorf("marshaling slack blocks: %w", err)
+	}
+
+	respBody, err := slackAPIPostWithBody(botToken, "/chat.postMessage", payload)
+	if err != nil {
+		return "", err
+	}
+
+	var slackResp struct {
+		OK bool   `json:"ok"`
+		TS string `json:"ts"`
+	}
+	json.Unmarshal(respBody, &slackResp)
+	return slackResp.TS, nil
 }
 
 func formatPipelineResult(raw json.RawMessage) string {
