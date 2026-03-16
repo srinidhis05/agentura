@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -107,7 +108,10 @@ func (m *SlackSocketManager) handleEventsAPI(app *config.SlackAppConfig, evtAPI 
 	switch ev := inner.Data.(type) {
 	case *slackevents.MessageEvent:
 		if ev.BotID != "" {
-			return // ignore bot messages
+			if wb := matchWatchBot(app, ev.BotID, ev.Channel); wb != nil {
+				go m.handleWatchBotMessage(app, wb, ev)
+			}
+			return
 		}
 		if !m.isEventEnabled(app, "message") {
 			return
@@ -129,10 +133,53 @@ func (m *SlackSocketManager) handleEventsAPI(app *config.SlackAppConfig, evtAPI 
 		if !app.Events.Reaction {
 			return
 		}
-		slog.Info("slack socket: reaction", "app", app.Name, "reaction", ev.Reaction, "user", ev.User)
+		m.handleReactionFeedback(app, ev)
 
 	default:
 		// member_joined, channel_rename, pin — handled if needed
+	}
+}
+
+// handleReactionFeedback processes emoji reactions on bot messages as feedback signals.
+// Looks up the thread registry to find which skill produced the message,
+// then logs the feedback with a Prometheus counter for accuracy tracking.
+func (m *SlackSocketManager) handleReactionFeedback(app *config.SlackAppConfig, ev *slackevents.ReactionAddedEvent) {
+	sentiment := classifyReaction(ev.Reaction)
+	if sentiment == "" {
+		return // not a feedback reaction
+	}
+
+	channel := ev.Item.Channel
+	messageTS := ev.Item.Timestamp
+
+	// Look up which skill produced this message via thread registry
+	skill := "unknown"
+	if entry := lookupThread(app.Name, channel, messageTS); entry != nil {
+		skill = entry.skill
+	}
+
+	slog.Info("slack socket: reaction feedback",
+		"app", app.Name,
+		"reaction", ev.Reaction,
+		"sentiment", sentiment,
+		"skill", skill,
+		"user", ev.User,
+		"channel", channel,
+		"message_ts", messageTS,
+	)
+
+	slackReactionFeedbackTotal.WithLabelValues(app.Name, skill, sentiment).Inc()
+}
+
+// classifyReaction maps emoji names to feedback sentiment.
+func classifyReaction(reaction string) string {
+	switch reaction {
+	case "white_check_mark", "+1", "thumbsup", "heavy_check_mark", "check":
+		return "positive"
+	case "x", "-1", "thumbsdown", "no_entry", "no_entry_sign":
+		return "negative"
+	default:
+		return ""
 	}
 }
 
@@ -186,8 +233,21 @@ func (m *SlackSocketManager) handleSocketMessage(app *config.SlackAppConfig, cha
 			removeSlackReaction(app.BotToken, channel, ts, typingReaction)
 		}
 
+		// Post result — use Block Kit if skill returned rich_output
 		var postedTS string
-		if replyTS != "" && replyTS != ts {
+		if blocks, fallback, ok := tryParseRichOutput(result); ok {
+			slog.Info("rich_output detected, posting Block Kit",
+				"app", app.Name,
+				"channel", channel,
+				"blocks_count", len(blocks),
+			)
+			// Always reply in a thread (like Pearl) — use original message as parent
+			threadParent := replyTS
+			if threadParent == "" || threadParent == ts {
+				threadParent = ts
+			}
+			postedTS, _ = postSlackBlocksWithTS(app.BotToken, channel, threadParent, fallback, blocks)
+		} else if replyTS != "" && replyTS != ts {
 			postedTS, _ = postSlackThreadReply(app.BotToken, channel, replyTS, result)
 		} else {
 			postedTS, _ = postSlackMessage(app.BotToken, channel, result)
@@ -239,9 +299,9 @@ func (m *SlackSocketManager) dispatchAndFormat(app *config.SlackAppConfig, chann
 		}
 	}
 
-	// For auto commands: if the app has a domain triage skill, let triage route.
-	// Only use command aliases for non-domain-scoped apps (no triage available).
-	if cmd.Action == "auto" && app.DomainScope == "" {
+	// For auto commands: try command aliases first (highest priority),
+	// then fall back to domain triage if no alias matches.
+	if cmd.Action == "auto" {
 		if aliasCmd := matchCommandAlias(cmd.Text, app); aliasCmd != nil {
 			cmd = *aliasCmd
 		}
@@ -744,4 +804,73 @@ func (m *SlackSocketManager) processSocketMessageAction(app *config.SlackAppConf
 func (m *SlackSocketManager) processSocketGlobalShortcut(app *config.SlackAppConfig, payload SlackInteractivePayload, triggerID string) {
 	handler := &SlackWebhookHandler{executor: m.executor, apps: []config.SlackAppConfig{*app}}
 	handler.processGlobalShortcut(app, payload)
+}
+
+// matchWatchBot checks if a bot message matches a configured watch_bot entry.
+func matchWatchBot(app *config.SlackAppConfig, botID, channel string) *config.WatchBotConfig {
+	for i := range app.WatchBots {
+		wb := &app.WatchBots[i]
+		if wb.BotID == botID {
+			if wb.Channel == "" || wb.Channel == channel {
+				return wb
+			}
+		}
+	}
+	return nil
+}
+
+// handleWatchBotMessage extracts order IDs from a watched bot's message and dispatches the configured skill.
+func (m *SlackSocketManager) handleWatchBotMessage(app *config.SlackAppConfig, wb *config.WatchBotConfig, ev *slackevents.MessageEvent) {
+	orderIDs := extractOrderIDs(ev.Text)
+	if len(orderIDs) == 0 {
+		slog.Debug("watch_bot: no order IDs found in message",
+			"app", app.Name, "bot_id", wb.BotID, "channel", ev.Channel)
+		return
+	}
+
+	slog.Info("watch_bot: dispatching",
+		"app", app.Name,
+		"bot_id", wb.BotID,
+		"skill", wb.Skill,
+		"order_count", len(orderIDs),
+		"channel", ev.Channel,
+		"thread_ts", ev.TimeStamp,
+	)
+
+	cmd := slackCommand{
+		Action: "run",
+		Target: wb.Skill,
+		Input: map[string]any{
+			"order_ids": orderIDs,
+			"thread_ts": ev.TimeStamp,
+			"channel":   ev.Channel,
+			"trigger":   "watch_bot",
+		},
+		Text: ev.Text,
+	}
+
+	result, _ := m.dispatchAndFormat(app, ev.Channel, "", cmd, "", ev.TimeStamp)
+
+	// Reply in thread under the bot's original message
+	if blocks, fallback, ok := tryParseRichOutput(result); ok {
+		postSlackBlocksWithTS(app.BotToken, ev.Channel, ev.TimeStamp, fallback, blocks)
+	} else {
+		postSlackThreadReply(app.BotToken, ev.Channel, ev.TimeStamp, result)
+	}
+}
+
+// extractOrderIDs finds order ID patterns in text (e.g. AE1525IWPB00, GB2201XKQR00).
+func extractOrderIDs(text string) []string {
+	re := regexp.MustCompile(`[A-Z]{2}\d{4}[A-Z0-9]{4,8}\d{2}`)
+	matches := re.FindAllString(text, -1)
+	// Deduplicate
+	seen := make(map[string]bool, len(matches))
+	var unique []string
+	for _, m := range matches {
+		if !seen[m] {
+			seen[m] = true
+			unique = append(unique, m)
+		}
+	}
+	return unique
 }

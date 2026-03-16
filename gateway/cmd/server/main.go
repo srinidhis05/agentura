@@ -72,6 +72,13 @@ func main() {
 	// Cron scheduler
 	scheduler := service.NewScheduler(executorClient, cfg.Triggers)
 
+	// Heartbeat runner — LLM-as-coordinator pattern
+	var heartbeatRunner *service.HeartbeatRunner
+	if cfg.Triggers.Enabled && cfg.Triggers.Heartbeat.Enabled && len(cfg.Agents) > 0 {
+		heartbeatRunner = service.NewHeartbeatRunner(executorClient, cfg.Agents, cfg.Triggers.Slack.Apps)
+		slog.Info("heartbeat runner configured", "agents", len(cfg.Agents))
+	}
+
 	// Slack webhook handler (conditional — only if enabled with apps configured)
 	var slackHandler *handler.SlackWebhookHandler
 	if cfg.Triggers.Slack.Enabled && len(cfg.Triggers.Slack.Apps) > 0 {
@@ -113,8 +120,11 @@ func main() {
 
 	router := handler.NewRouter(handlers, mwCfg)
 
-	// Start cron scheduler before HTTP server
+	// Start cron scheduler and heartbeat runner before HTTP server
 	scheduler.Start(context.Background())
+	if heartbeatRunner != nil {
+		heartbeatRunner.Start(context.Background())
+	}
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),
@@ -132,6 +142,9 @@ func main() {
 		slog.Info("shutting down server")
 
 		scheduler.Stop()
+		if heartbeatRunner != nil {
+			heartbeatRunner.Stop()
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

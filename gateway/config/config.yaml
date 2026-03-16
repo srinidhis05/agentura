@@ -57,6 +57,9 @@ execution:
 triggers:
   enabled: true
   timezone: UTC
+  heartbeat:
+    enabled: true
+    poll_interval: 300
   cron:
     enabled: true
     poll_interval: 300
@@ -125,9 +128,47 @@ triggers:
           - pattern: "dashboard"
             skill: "ecm-daily-flow"
             description: "Daily ECM backlog dashboard"
+          - pattern: "canvas"
+            skill: "ecm-canvas"
+            description: "Refresh ECM operations dashboard"
+          - pattern: "ecm-canvas"
+            skill: "ecm-canvas"
+            description: "Refresh ECM operations dashboard"
+          - pattern: "signals"
+            skill: "ecm-canvas"
+            description: "ECM operations signal dashboard"
           - pattern: "patterns"
             skill: "pattern-intelligence"
             description: "Analyze recurring stuck patterns"
+          - pattern: "my tickets"
+            skill: "my-tickets"
+            description: "Show your team's priority queue"
+          - pattern: "queue"
+            skill: "my-tickets"
+            description: "Show priority queue"
+          - pattern: "resolve {order_id}"
+            skill: "resolve-ticket"
+            description: "Record order resolution with notes"
+          - pattern: "done {order_id}"
+            skill: "resolve-ticket"
+            description: "Record order resolution"
+          - pattern: "escalate {order_id}"
+            skill: "escalate-ticket"
+            description: "Escalate order with reason"
+          - pattern: "stuck {order_id}"
+            skill: "escalate-ticket"
+            description: "Escalate stuck order"
+          - pattern: "enrich {order_ids}"
+            skill: "forseti-enrichment"
+            description: "Diagnose orders with knowledge graph"
+          - pattern: "forseti"
+            skill: "forseti-enrichment"
+            description: "Run Forseti enrichment"
+        watch_bots:
+          - bot_id: "${FORSETI_BOT_ID}"
+            skill: "forseti-enrichment"
+            channel: "${OPS_TECH_CHANNEL_ID}"
+            description: "Auto-enrich Forseti SLA breach alerts"
       - name: pm
         signing_secret: "${SLACK_PM_SIGNING_SECRET}"
         bot_token: "${SLACK_PM_BOT_TOKEN}"
@@ -226,3 +267,18 @@ triggers:
           message: true
           app_mention: true
           reaction: true
+
+agents:
+  - domain: growth
+    coordinator: growth-coordinator
+    heartbeat:
+      every: "30m"
+      target: "${GROWTH_HEARTBEAT_CHANNEL}"
+      model: "anthropic/claude-sonnet-4-5-20250929"
+      light_context: true
+      isolated_session: true
+      active_hours:
+        start: "03:00"
+        end: "17:00"
+        timezone: "UTC"
+      ack_max_chars: 300

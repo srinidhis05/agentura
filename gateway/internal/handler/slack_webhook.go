@@ -32,6 +32,11 @@ var slackWebhookRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Total Slack webhook requests by app and status",
 }, []string{"app", "status"})
 
+var slackReactionFeedbackTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "agentura_slack_reaction_feedback_total",
+	Help: "Emoji reaction feedback on bot messages by app, skill, and sentiment",
+}, []string{"app", "skill", "sentiment"})
+
 const (
 	slackTimestampMaxDrift = 5 * time.Minute
 	slackAPIBaseURL        = "https://slack.com/api"
@@ -407,6 +412,15 @@ func (h *SlackWebhookHandler) handleMessage(w http.ResponseWriter, app *config.S
 	go func() {
 		result, finalCmd := h.dispatchAndFormat(app, event.Channel, event.User, cmd, event.ThreadTS, threadTS)
 
+		slog.Info("dispatch result",
+			"app", app.Name,
+			"action", finalCmd.Action,
+			"target", finalCmd.Target,
+			"result_len", len(result),
+			"has_fallback", strings.Contains(result, "fallback"),
+			"has_rich_output", strings.Contains(result, "rich_output"),
+		)
+
 		// Remove typing indicator
 		if typingReaction != "" {
 			removeSlackReaction(app.BotToken, event.Channel, event.TS, typingReaction)
@@ -415,15 +429,30 @@ func (h *SlackWebhookHandler) handleMessage(w http.ResponseWriter, app *config.S
 		// Post result — use Block Kit if skill returned rich_output
 		var postedTS string
 		if blocks, fallback, ok := tryParseRichOutput(result); ok {
-			replyTS := ""
-			if threadTS != "" && threadTS != event.TS {
-				replyTS = threadTS
+			slog.Info("rich_output detected, posting Block Kit",
+				"app", app.Name,
+				"channel", event.Channel,
+				"blocks_count", len(blocks),
+				"fallback_len", len(fallback),
+			)
+			// Always reply in a thread: use the original message as parent
+			replyTS := threadTS
+			if replyTS == event.TS {
+				// Message is not already in a thread — use event.TS to start a new thread
+				replyTS = event.TS
 			}
 			postedTS, _ = postSlackBlocksWithTS(app.BotToken, event.Channel, replyTS, fallback, blocks)
-		} else if threadTS != "" && threadTS != event.TS {
-			postedTS, _ = postSlackThreadReply(app.BotToken, event.Channel, threadTS, result)
 		} else {
-			postedTS, _ = postSlackMessage(app.BotToken, event.Channel, result)
+			slog.Debug("no rich_output found, posting plain text",
+				"app", app.Name,
+				"result_len", len(result),
+				"result_prefix", result[:min(200, len(result))],
+			)
+			if threadTS != "" && threadTS != event.TS {
+				postedTS, _ = postSlackThreadReply(app.BotToken, event.Channel, threadTS, result)
+			} else {
+				postedTS, _ = postSlackMessage(app.BotToken, event.Channel, result)
+			}
 		}
 
 		// Thread registration: remember skill for thread continuity
@@ -1266,18 +1295,45 @@ func markdownToSlackMrkdwn(text string) string {
 // ---------- Rich Output → Block Kit Renderer ----------
 
 // tryParseRichOutput attempts to parse a result string as JSON containing a rich_output field.
+// Handles cases where the skill prefixes reasoning text before the JSON object.
 // Returns Block Kit blocks, fallback text, and whether rich output was found.
 func tryParseRichOutput(text string) ([]map[string]any, string, bool) {
 	text = strings.TrimSpace(text)
-	if len(text) == 0 || text[0] != '{' {
+	if len(text) == 0 {
 		return nil, "", false
 	}
+
+	// Find the JSON object — skill may have prefixed reasoning text
+	jsonStr := text
+	if text[0] != '{' {
+		idx := strings.Index(text, "{\"fallback\"")
+		if idx < 0 {
+			idx = strings.Index(text, "{\"rich_output\"")
+		}
+		if idx < 0 {
+			// Try finding any { that starts a JSON object with rich_output
+			idx = strings.Index(text, "{\n")
+			if idx < 0 {
+				slog.Debug("tryParseRichOutput: no JSON object found", "text_len", len(text), "prefix", text[:min(100, len(text))])
+				return nil, "", false
+			}
+		}
+		slog.Debug("tryParseRichOutput: found JSON at offset", "idx", idx)
+		jsonStr = text[idx:]
+		// Trim trailing non-JSON (e.g. markdown code fences)
+		if end := strings.LastIndex(jsonStr, "}"); end >= 0 {
+			jsonStr = jsonStr[:end+1]
+		}
+	}
+
 	var parsed map[string]any
-	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
+		slog.Warn("tryParseRichOutput: JSON parse failed", "error", err, "json_prefix", jsonStr[:min(200, len(jsonStr))])
 		return nil, "", false
 	}
 	richOutput, ok := parsed["rich_output"].(map[string]any)
 	if !ok {
+		slog.Debug("tryParseRichOutput: no rich_output field in parsed JSON")
 		return nil, "", false
 	}
 	blocks := renderRichOutputToBlocks(richOutput)

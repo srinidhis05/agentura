@@ -9,28 +9,61 @@ import (
 )
 
 type Config struct {
-	Server     ServerConfig     `yaml:"server"`
-	Database   DatabaseConfig   `yaml:"database"`
-	Agent      AgentConfig      `yaml:"agent"`
-	MarketData MarketDataConfig `yaml:"market_data"`
-	Broker     BrokerConfig     `yaml:"broker"`
-	Auth       AuthConfig       `yaml:"auth"`
-	CORS       CORSConfig       `yaml:"cors"`
-	RateLimit  RateLimitConfig  `yaml:"rate_limit"`
-	Logging    LoggingConfig    `yaml:"logging"`
-	Metrics    MetricsConfig    `yaml:"metrics"`
-	Executor   ExecutorConfig   `yaml:"executor"`
-	Execution  ExecutionConfig  `yaml:"execution"`
-	Triggers   TriggersConfig   `yaml:"triggers"`
+	Server     ServerConfig          `yaml:"server"`
+	Database   DatabaseConfig        `yaml:"database"`
+	Agent      AgentConfig           `yaml:"agent"`
+	MarketData MarketDataConfig      `yaml:"market_data"`
+	Broker     BrokerConfig          `yaml:"broker"`
+	Auth       AuthConfig            `yaml:"auth"`
+	CORS       CORSConfig            `yaml:"cors"`
+	RateLimit  RateLimitConfig       `yaml:"rate_limit"`
+	Logging    LoggingConfig         `yaml:"logging"`
+	Metrics    MetricsConfig         `yaml:"metrics"`
+	Executor   ExecutorConfig        `yaml:"executor"`
+	Execution  ExecutionConfig       `yaml:"execution"`
+	Triggers   TriggersConfig        `yaml:"triggers"`
+	Agents     []AgentHeartbeatEntry `yaml:"agents"`
 }
 
 type TriggersConfig struct {
-	Enabled  bool                `yaml:"enabled"`
-	Timezone string              `yaml:"timezone"`
-	Cron     CronConfig          `yaml:"cron"`
-	Webhook  WebhookConfig       `yaml:"webhook"`
-	GitHub   GitHubWebhookConfig `yaml:"github"`
-	Slack    SlackConfig         `yaml:"slack"`
+	Enabled   bool                `yaml:"enabled"`
+	Timezone  string              `yaml:"timezone"`
+	Heartbeat HeartbeatToggle     `yaml:"heartbeat"`
+	Cron      CronConfig          `yaml:"cron"`
+	Webhook   WebhookConfig       `yaml:"webhook"`
+	GitHub    GitHubWebhookConfig `yaml:"github"`
+	Slack     SlackConfig         `yaml:"slack"`
+}
+
+// HeartbeatToggle enables/disables the heartbeat runner globally.
+type HeartbeatToggle struct {
+	Enabled      bool `yaml:"enabled"`
+	PollInterval int  `yaml:"poll_interval"` // seconds, for config discovery
+}
+
+// AgentHeartbeatEntry maps a domain coordinator to its heartbeat config.
+type AgentHeartbeatEntry struct {
+	Domain      string               `yaml:"domain"`
+	Coordinator string               `yaml:"coordinator"`
+	Heartbeat   AgentHeartbeatConfig `yaml:"heartbeat"`
+}
+
+// AgentHeartbeatConfig defines the heartbeat schedule and delivery for one agent.
+type AgentHeartbeatConfig struct {
+	Every           string             `yaml:"every"`            // e.g. "30m", "1h"
+	Target          string             `yaml:"target"`           // Slack channel or "none"
+	Model           string             `yaml:"model"`            // model override
+	LightContext    bool               `yaml:"light_context"`    // send only HEARTBEAT.md
+	IsolatedSession bool               `yaml:"isolated_session"` // fresh session per beat
+	ActiveHours     ActiveHoursConfig  `yaml:"active_hours"`
+	AckMaxChars     int                `yaml:"ack_max_chars"`    // max chars for HEARTBEAT_OK ack
+}
+
+// ActiveHoursConfig gates heartbeat execution to a time window.
+type ActiveHoursConfig struct {
+	Start    string `yaml:"start"`    // e.g. "03:00" (HH:MM)
+	End      string `yaml:"end"`      // e.g. "17:00"
+	Timezone string `yaml:"timezone"` // e.g. "UTC"
 }
 
 type SlackConfig struct {
@@ -54,6 +87,15 @@ type SlackAppConfig struct {
 	Events              SlackEventConfig           `yaml:"events"`
 	Commands            []SlackCommandAlias        `yaml:"commands"`
 	InteractionHandlers []SlackInteractionHandler  `yaml:"interaction_handlers"` // Maps interaction callbacks to skills/pipelines
+	WatchBots           []WatchBotConfig           `yaml:"watch_bots"`           // Bot messages that trigger skills
+}
+
+// WatchBotConfig routes messages from a specific bot to a skill.
+type WatchBotConfig struct {
+	BotID       string `yaml:"bot_id"`       // Slack bot ID (B...)
+	Skill       string `yaml:"skill"`        // skill to invoke
+	Channel     string `yaml:"channel"`      // only trigger in this channel (optional)
+	Description string `yaml:"description"`
 }
 
 // SlackCommandAlias maps a natural language pattern to a skill execution.
@@ -317,6 +359,22 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Triggers.Cron.PollInterval == 0 {
 		cfg.Triggers.Cron.PollInterval = 300
+	}
+	if cfg.Triggers.Heartbeat.PollInterval == 0 {
+		cfg.Triggers.Heartbeat.PollInterval = 300
+	}
+
+	// Agent heartbeat defaults
+	for i := range cfg.Agents {
+		if cfg.Agents[i].Heartbeat.AckMaxChars == 0 {
+			cfg.Agents[i].Heartbeat.AckMaxChars = 300
+		}
+		if cfg.Agents[i].Heartbeat.Every == "" {
+			cfg.Agents[i].Heartbeat.Every = "30m"
+		}
+		if cfg.Agents[i].Heartbeat.ActiveHours.Timezone == "" {
+			cfg.Agents[i].Heartbeat.ActiveHours.Timezone = cfg.Triggers.Timezone
+		}
 	}
 }
 
