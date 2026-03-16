@@ -16,6 +16,21 @@ export const domainColors: Record<string, { bg: string; border: string; text: st
     border: "border-emerald-300 dark:border-emerald-500/30",
     text: "text-emerald-700 dark:text-emerald-400",
   },
+  growth: {
+    bg: "bg-teal-50 dark:bg-teal-500/10",
+    border: "border-teal-300 dark:border-teal-500/30",
+    text: "text-teal-700 dark:text-teal-400",
+  },
+  pm: {
+    bg: "bg-blue-50 dark:bg-blue-500/10",
+    border: "border-blue-300 dark:border-blue-500/30",
+    text: "text-blue-700 dark:text-blue-400",
+  },
+  dev: {
+    bg: "bg-rose-50 dark:bg-rose-500/10",
+    border: "border-rose-300 dark:border-rose-500/30",
+    text: "text-rose-700 dark:text-rose-400",
+  },
 };
 
 export const domainFallback = {
@@ -28,12 +43,18 @@ export const domainLabels: Record<string, string> = {
   ecm: "ECM",
   incubator: "Incubator",
   ge: "Global Equities",
+  growth: "Growth Analytics",
+  pm: "Product Management",
+  dev: "Engineering",
 };
 
 export const domainLabelsLong: Record<string, string> = {
   ecm: "ECM (Remittance Ops)",
   incubator: "Incubator (Build Pipeline)",
   ge: "Global Equities",
+  growth: "Growth Analytics (Sentinel)",
+  pm: "Product Management",
+  dev: "Engineering",
 };
 
 /** Agent card gradient backgrounds (used in agents list - light gets white card + left border) */
@@ -41,6 +62,9 @@ export const domainCardAccent: Record<string, string> = {
   ecm: "border-l-amber-400",
   incubator: "border-l-violet-400",
   ge: "border-l-emerald-400",
+  growth: "border-l-teal-400",
+  pm: "border-l-blue-400",
+  dev: "border-l-rose-400",
 };
 
 export const roleColors: Record<string, string> = {
@@ -152,6 +176,9 @@ export const orgChartDomainColors: Record<string, string> = {
   ecm: "border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10",
   incubator: "border-violet-300 bg-violet-50 dark:border-violet-500/40 dark:bg-violet-500/10",
   ge: "border-emerald-300 bg-emerald-50 dark:border-emerald-500/40 dark:bg-emerald-500/10",
+  growth: "border-teal-300 bg-teal-50 dark:border-teal-500/40 dark:bg-teal-500/10",
+  pm: "border-blue-300 bg-blue-50 dark:border-blue-500/40 dark:bg-blue-500/10",
+  dev: "border-rose-300 bg-rose-50 dark:border-rose-500/40 dark:bg-rose-500/10",
 };
 
 export const traceBorderColors: Record<string, string> = {

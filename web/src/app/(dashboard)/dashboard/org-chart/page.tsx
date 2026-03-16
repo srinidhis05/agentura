@@ -68,9 +68,28 @@ function TreeNode({ node }: { node: OrgChartNode }) {
                 <span>{node.executor}</span>
               </>
             )}
+            {node.skills && node.skills.length > 0 && (
+              <>
+                <span className="text-border">|</span>
+                <span>{node.skills.length} skills</span>
+              </>
+            )}
           </div>
         </div>
       </Link>
+
+      {node.skills && node.skills.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1 px-1">
+          {node.skills.map((skill) => (
+            <span
+              key={skill}
+              className="inline-flex items-center rounded-md border border-border bg-muted/50 dark:bg-card/50 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            >
+              {skill.split("/").pop()}
+            </span>
+          ))}
+        </div>
+      )}
 
       {node.children && node.children.length > 0 && (
         <div className="ml-6 mt-2 space-y-2 border-l border-border pl-4">
