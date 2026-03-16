@@ -461,6 +461,25 @@ async def execute_stream(request: PTCRequest):
             })
             return
 
+        # Safety net: if loop exhausted max_turns without task_complete or
+        # text end_turn, extract last assistant text as summary (GR-029)
+        if not final_output or (not final_output.get("summary") and not task_completed):
+            last_texts = []
+            for msg in reversed(messages):
+                if msg.get("role") == "assistant":
+                    content = msg.get("content", [])
+                    if isinstance(content, list):
+                        for block in content:
+                            if hasattr(block, "text") and block.text:
+                                last_texts.append(block.text)
+                    elif isinstance(content, str) and content:
+                        last_texts.append(content)
+                    if last_texts:
+                        break
+            if last_texts:
+                final_output = {"summary": "\n".join(last_texts)}
+                logger.warning("max_turns exhausted — extracted last assistant text as summary (%d chars)", len(final_output["summary"]))
+
         # Self-critique verification (DEC-069)
         verified = None
         verify_issues: list[str] = []

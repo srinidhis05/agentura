@@ -289,3 +289,27 @@
 **Over**: Hardcoded 120s timeout, reducing worker resource requests, aggressive auto-scaling
 **Why**: EKS cluster resource pressure during peak hours causes PTC/CC worker pods to exceed 120s startup (image pull + init container + readiness probe). "Peer closed connection" errors blocked all skill executions. Configurable timeout allows cluster-specific tuning without code changes. 300s handles Karpenter node spin-up + image pull on fresh nodes.
 **Constraint**: Timeout applies to all K8s sandbox pods and PTC/CC worker pods; set via POD_READY_TIMEOUT env var in executor deployment; must be ≥120s (lower values cause false timeouts on cold starts)
+
+## DEC-092: Rule-based churn scoring over ML model for initial deployment (2026-03-16)
+**Chose**: Multi-signal scoring formula (recency 30 + frequency decline 25 + velocity change 20 + KYC 10 + payment failures 10 + single beneficiary 5 = 100pt) with P90/P70/P50/P10 tiers
+**Over**: Trained ML model (LightGBM), single-metric heuristic
+**Why**: No labeled churn data in Databricks yet. Formula matches Metis CPS tier structure for seamless future integration when ML models are ready.
+**Constraint**: Upgrade to LightGBM when churn labels available; disposition tags must map 1:1 to CPS tiers
+
+## DEC-093: NRI frequency segments with disposition tags over continuous scoring (2026-03-16)
+**Chose**: 4 frequency buckets (high 5+/qtr=retain, mid 3-4=at_risk, low 1-2=re_engage, lapsed 0 in 90d=win_back)
+**Over**: Continuous scoring, RFM clustering, ML-based segmentation
+**Why**: Directly consumable by Plotline/MoEngage as segment lists. Disposition tags drive downstream action without additional processing.
+**Constraint**: Disposition must be from objective criteria only (frequency thresholds, not LLM judgment)
+
+## DEC-094: max_iterations=25 for SQL agent growth skills (2026-03-16)
+**Chose**: 20-25 max_iterations for all growth domain skills
+**Over**: 8-15 (original defaults)
+**Why**: SQL-heavy skills with Databricks MCP require multiple queries (schema discovery → query → retry → format). 8-15 caused empty responses with just iterations_count.
+**Constraint**: Budget caps still enforce cost control; monitor for runaway iterations
+
+## DEC-095: Parallel pipeline fan-out for multi-skill analysis (2026-03-16)
+**Chose**: Parallel phases in pipeline YAML (corridor-deep-dive: 3 parallel detect → sequential RCA; nri-analysis: 3 parallel analyzers)
+**Over**: Sequential chaining, single monolithic skill
+**Why**: Independent analyses (volume + margin + lapse) have no data dependencies — parallel execution cuts wall-clock time by ~3x
+**Constraint**: Fan-in aggregation not yet implemented (no reporter step); each skill posts independently
