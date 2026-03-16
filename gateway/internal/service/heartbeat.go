@@ -207,23 +207,11 @@ func extractHeartbeatOutput(resp json.RawMessage) string {
 }
 
 // isHeartbeatOK returns true if the response indicates nothing needs attention.
+// Suppresses if HEARTBEAT_OK appears anywhere and there's no "due" payload.
 func isHeartbeatOK(response string, ackMaxChars int) bool {
-	trimmed := strings.TrimSpace(response)
-
-	if trimmed == "HEARTBEAT_OK" {
+	if strings.Contains(response, "HEARTBEAT_OK") && !strings.Contains(response, "\"due\"") {
 		return true
 	}
-
-	// Check if response starts or ends with HEARTBEAT_OK with minimal content
-	cleaned := trimmed
-	cleaned = strings.TrimPrefix(cleaned, "HEARTBEAT_OK")
-	cleaned = strings.TrimSuffix(cleaned, "HEARTBEAT_OK")
-	cleaned = strings.TrimSpace(cleaned)
-
-	if strings.Contains(trimmed, "HEARTBEAT_OK") && len(cleaned) <= ackMaxChars {
-		return true
-	}
-
 	return false
 }
 
