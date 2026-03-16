@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -107,7 +108,10 @@ func (m *SlackSocketManager) handleEventsAPI(app *config.SlackAppConfig, evtAPI 
 	switch ev := inner.Data.(type) {
 	case *slackevents.MessageEvent:
 		if ev.BotID != "" {
-			return // ignore bot messages
+			if wb := matchWatchBot(app, ev.BotID, ev.Channel); wb != nil {
+				go m.handleWatchBotMessage(app, wb, ev)
+			}
+			return
 		}
 		if !m.isEventEnabled(app, "message") {
 			return
@@ -800,4 +804,73 @@ func (m *SlackSocketManager) processSocketMessageAction(app *config.SlackAppConf
 func (m *SlackSocketManager) processSocketGlobalShortcut(app *config.SlackAppConfig, payload SlackInteractivePayload, triggerID string) {
 	handler := &SlackWebhookHandler{executor: m.executor, apps: []config.SlackAppConfig{*app}}
 	handler.processGlobalShortcut(app, payload)
+}
+
+// matchWatchBot checks if a bot message matches a configured watch_bot entry.
+func matchWatchBot(app *config.SlackAppConfig, botID, channel string) *config.WatchBotConfig {
+	for i := range app.WatchBots {
+		wb := &app.WatchBots[i]
+		if wb.BotID == botID {
+			if wb.Channel == "" || wb.Channel == channel {
+				return wb
+			}
+		}
+	}
+	return nil
+}
+
+// handleWatchBotMessage extracts order IDs from a watched bot's message and dispatches the configured skill.
+func (m *SlackSocketManager) handleWatchBotMessage(app *config.SlackAppConfig, wb *config.WatchBotConfig, ev *slackevents.MessageEvent) {
+	orderIDs := extractOrderIDs(ev.Text)
+	if len(orderIDs) == 0 {
+		slog.Debug("watch_bot: no order IDs found in message",
+			"app", app.Name, "bot_id", wb.BotID, "channel", ev.Channel)
+		return
+	}
+
+	slog.Info("watch_bot: dispatching",
+		"app", app.Name,
+		"bot_id", wb.BotID,
+		"skill", wb.Skill,
+		"order_count", len(orderIDs),
+		"channel", ev.Channel,
+		"thread_ts", ev.TimeStamp,
+	)
+
+	cmd := slackCommand{
+		Action: "run",
+		Target: wb.Skill,
+		Input: map[string]any{
+			"order_ids": orderIDs,
+			"thread_ts": ev.TimeStamp,
+			"channel":   ev.Channel,
+			"trigger":   "watch_bot",
+		},
+		Text: ev.Text,
+	}
+
+	result, _ := m.dispatchAndFormat(app, ev.Channel, "", cmd, "", ev.TimeStamp)
+
+	// Reply in thread under the bot's original message
+	if blocks, fallback, ok := tryParseRichOutput(result); ok {
+		postSlackBlocksWithTS(app.BotToken, ev.Channel, ev.TimeStamp, fallback, blocks)
+	} else {
+		postSlackThreadReply(app.BotToken, ev.Channel, ev.TimeStamp, result)
+	}
+}
+
+// extractOrderIDs finds order ID patterns in text (e.g. AE1525IWPB00, GB2201XKQR00).
+func extractOrderIDs(text string) []string {
+	re := regexp.MustCompile(`[A-Z]{2}\d{4}[A-Z0-9]{4,8}\d{2}`)
+	matches := re.FindAllString(text, -1)
+	// Deduplicate
+	seen := make(map[string]bool, len(matches))
+	var unique []string
+	for _, m := range matches {
+		if !seen[m] {
+			seen[m] = true
+			unique = append(unique, m)
+		}
+	}
+	return unique
 }

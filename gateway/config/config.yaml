@@ -57,6 +57,9 @@ execution:
 triggers:
   enabled: true
   timezone: UTC
+  heartbeat:
+    enabled: true
+    poll_interval: 300
   cron:
     enabled: true
     poll_interval: 300
@@ -161,6 +164,11 @@ triggers:
           - pattern: "forseti"
             skill: "forseti-enrichment"
             description: "Run Forseti enrichment"
+        watch_bots:
+          - bot_id: "${FORSETI_BOT_ID}"
+            skill: "forseti-enrichment"
+            channel: "${OPS_TECH_CHANNEL_ID}"
+            description: "Auto-enrich Forseti SLA breach alerts"
       - name: pm
         signing_secret: "${SLACK_PM_SIGNING_SECRET}"
         bot_token: "${SLACK_PM_BOT_TOKEN}"
@@ -259,3 +267,18 @@ triggers:
           message: true
           app_mention: true
           reaction: true
+
+agents:
+  - domain: growth
+    coordinator: growth-coordinator
+    heartbeat:
+      every: "30m"
+      target: "${GROWTH_HEARTBEAT_CHANNEL}"
+      model: "anthropic/claude-sonnet-4-5-20250929"
+      light_context: true
+      isolated_session: true
+      active_hours:
+        start: "03:00"
+        end: "17:00"
+        timezone: "UTC"
+      ack_max_chars: 300
