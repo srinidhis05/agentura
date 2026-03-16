@@ -215,33 +215,82 @@ func isHeartbeatOK(response string, ackMaxChars int) bool {
 	return false
 }
 
-// deliverAlert posts the heartbeat output to the configured Slack channel.
+// heartbeatDuePayload is the JSON structure returned by the heartbeat skill.
+type heartbeatDuePayload struct {
+	Due     []string `json:"due"`
+	Message string   `json:"message"`
+}
+
+// deliverAlert parses the heartbeat output, posts a formatted Slack message,
+// and triggers each due skill.
 func (h *HeartbeatRunner) deliverAlert(agent config.AgentHeartbeatEntry, output string) {
 	target := agent.Heartbeat.Target
 	if target == "" || target == "none" {
-		slog.Debug("heartbeat: no delivery target configured",
-			"domain", agent.Domain)
 		return
 	}
 
 	botToken := h.findBotToken(agent.Domain)
 	if botToken == "" {
-		slog.Error("heartbeat: no bot token found for domain",
-			"domain", agent.Domain)
+		slog.Error("heartbeat: no bot token found", "domain", agent.Domain)
 		return
 	}
 
-	_, err := postSlackMessageFromService(botToken, target, output)
+	// Try to parse the due payload
+	var payload heartbeatDuePayload
+	cleaned := strings.TrimSpace(output)
+	cleaned = strings.TrimPrefix(cleaned, "```json")
+	cleaned = strings.TrimPrefix(cleaned, "```")
+	cleaned = strings.TrimSuffix(cleaned, "```")
+	cleaned = strings.TrimSpace(cleaned)
+
+	if err := json.Unmarshal([]byte(cleaned), &payload); err != nil || len(payload.Due) == 0 {
+		// Couldn't parse — post raw output as fallback
+		postSlackMessageFromService(botToken, target, output)
+		slog.Info("heartbeat: alert delivered (raw)", "domain", agent.Domain)
+		return
+	}
+
+	// Post formatted notification
+	skillList := strings.Join(payload.Due, ", ")
+	msg := fmt.Sprintf(":heartbeat: *Heartbeat — %d skill(s) due:* %s", len(payload.Due), skillList)
+	if payload.Message != "" {
+		msg += "\n> " + payload.Message
+	}
+	msg += "\n_Triggering now..._"
+	postSlackMessageFromService(botToken, target, msg)
+
+	// Trigger each due skill
+	for _, skill := range payload.Due {
+		go h.triggerDueSkill(agent.Domain, skill, target, botToken)
+	}
+
+	slog.Info("heartbeat: dispatched due skills",
+		"domain", agent.Domain, "skills", payload.Due)
+}
+
+// triggerDueSkill executes a single due skill and logs the result.
+func (h *HeartbeatRunner) triggerDueSkill(domain, skill, channel, botToken string) {
+	slog.Info("heartbeat: triggering skill", "domain", domain, "skill", skill)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	req := executor.ExecuteRequest{
+		InputData: map[string]any{
+			"trigger": "heartbeat",
+		},
+	}
+
+	_, err := h.executor.Execute(ctx, domain, skill, req)
 	if err != nil {
-		slog.Error("heartbeat: failed to deliver alert",
-			"domain", agent.Domain,
-			"target", target,
-			"error", err)
+		slog.Error("heartbeat: skill execution failed",
+			"domain", domain, "skill", skill, "error", err)
+		postSlackMessageFromService(botToken, channel,
+			fmt.Sprintf(":x: *%s* failed: %s", skill, err.Error()))
 		return
 	}
 
-	slog.Info("heartbeat: alert delivered",
-		"domain", agent.Domain, "target", target)
+	slog.Info("heartbeat: skill completed", "domain", domain, "skill", skill)
 }
 
 // findBotToken looks up the Slack bot token for a domain from configured apps.
