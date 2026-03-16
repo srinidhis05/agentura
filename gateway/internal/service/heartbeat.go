@@ -235,13 +235,13 @@ func (h *HeartbeatRunner) deliverAlert(agent config.AgentHeartbeatEntry, output 
 		return
 	}
 
-	// Try to parse the due payload
+	// Try to parse the due payload — strip markdown fences and backticks
 	var payload heartbeatDuePayload
 	cleaned := strings.TrimSpace(output)
 	cleaned = strings.TrimPrefix(cleaned, "```json")
 	cleaned = strings.TrimPrefix(cleaned, "```")
 	cleaned = strings.TrimSuffix(cleaned, "```")
-	cleaned = strings.TrimSpace(cleaned)
+	cleaned = strings.Trim(cleaned, "` \n\r\t")
 
 	if err := json.Unmarshal([]byte(cleaned), &payload); err != nil || len(payload.Due) == 0 {
 		// Couldn't parse — post raw output as fallback
