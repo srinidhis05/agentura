@@ -97,6 +97,9 @@ def _build_worker_manifest(
                 "app": "ptc-worker",
                 "managed-by": "agentura-executor",
             },
+            annotations={
+                "karpenter.sh/do-not-disrupt": "true",
+            },
         ),
         spec=spec,
     )

@@ -9,6 +9,7 @@ Tools are dispatched to MCP servers over HTTP.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -380,7 +381,10 @@ async def execute_stream(request: PTCRequest):
 
         try:
             for _turn in range(request.max_turns):
-                resp = anthropic.messages.create(
+                # Run synchronous Anthropic call in a thread so the event loop
+                # stays responsive for health checks (prevents K8s pod kills)
+                resp = await asyncio.to_thread(
+                    anthropic.messages.create,
                     **base_kwargs,
                     messages=messages,
                 )
@@ -421,7 +425,8 @@ async def execute_stream(request: PTCRequest):
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
 
-                    tool_output = _call_mcp_tool(
+                    tool_output = await asyncio.to_thread(
+                        _call_mcp_tool,
                         block.name, block.input, tool_server_map,
                         tools_called=tools_called,
                         approval_tools=request.approval_tools,
@@ -496,7 +501,8 @@ async def execute_stream(request: PTCRequest):
                     f"If ANY criteria are NOT satisfied, respond with:\nISSUES: <numbered list>"
                 )
                 messages.append({"role": "user", "content": verify_prompt})
-                verify_response = anthropic.messages.create(
+                verify_response = await asyncio.to_thread(
+                    anthropic.messages.create,
                     model=request.model,
                     max_tokens=1024,
                     system=request.system_prompt,
