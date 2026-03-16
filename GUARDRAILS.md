@@ -150,3 +150,15 @@ Local k3d (`-n agentura`) is legacy/dev-only. If user explicitly says "local", t
 **Impact**: Business-specific infrastructure details exposed in a platform repo. Any contributor or fork sees Aspora's workspace URL.
 **Rule**: The agentura repo MUST contain zero hardcoded tenant-specific values: no workspace URLs, no database names, no API endpoints, no org IDs, no default catalog/schema names. All such values MUST come from K8s secrets (`agentura-api-keys`, `agentura-mcp-config`) or environment variable injection at deploy time. Tenant-specific config belongs in the private deployment config or the agentura-skills repo.
 **Detection**: Any committed file in the agentura repo containing a URL with a specific domain (not `localhost` or K8s service DNS), a hardcoded catalog/schema name, or any value that identifies a specific tenant's infrastructure.
+
+## GR-029: Agent skills with Databricks MCP must have max_iterations >= 20 (2026-03-16)
+**Mistake**: Growth skills had max_iterations set to 8-15. SQL-heavy skills with Databricks MCP need multiple iterations: schema discovery, query construction, error handling/retry, result formatting.
+**Impact**: Skills returned `{"iterations_count": 12, "summary": ""}` — hit the cap before completing, producing empty responses silently.
+**Rule**: Any agent skill that uses Databricks MCP (or any SQL-based MCP) MUST have `max_iterations >= 20` in agentura.config.yaml. Prefer 25 for skills with multi-query workflows (RCA, segmentation).
+**Detection**: Response JSON has `iterations_count` near max_iterations but empty `summary` field.
+
+## GR-030: Register new domains in ALL web dashboard color maps (2026-03-16)
+**Mistake**: Added growth domain skills and agent but didn't register `growth` in `orgChartDomainColors`, `domainColors`, `domainLabels`, `domainCardAccent` in `web/src/lib/colors.ts`.
+**Impact**: Org-chart rendered growth domain with gray fallback — appeared invisible/broken to the user despite agents being correctly loaded.
+**Rule**: When adding a new domain, ALWAYS add it to ALL 5 color maps in `web/src/lib/colors.ts`: `domainColors`, `domainLabels`, `domainLabelsLong`, `domainCardAccent`, `orgChartDomainColors`. Also verify `domainFallback` renders acceptably as a safety net.
+**Detection**: `grep -c 'growth\|pm\|dev' web/src/lib/colors.ts` — count should be consistent across all color map objects.
