@@ -23,6 +23,7 @@ MODEL_ALIASES: dict[str, str] = {
     "claude-sonnet-4.5": "anthropic/claude-sonnet-4.5",
     "claude-haiku-4.5": "anthropic/claude-haiku-4.5",
     "claude-opus-4": "anthropic/claude-opus-4",
+    "claude-opus-4.6": "anthropic/claude-opus-4",
     "gpt-4o": "openai/gpt-4o",
     "gpt-4o-mini": "openai/gpt-4o-mini",
     "gemini-2.0-flash": "google/gemini-2.0-flash-001",
@@ -32,6 +33,8 @@ MODEL_ALIASES: dict[str, str] = {
     "anthropic/claude-sonnet-4-5-20250929": "anthropic/claude-sonnet-4.5",
     "anthropic/claude-haiku-4-5-20251001": "anthropic/claude-haiku-4.5",
     "anthropic/claude-opus-4-20250514": "anthropic/claude-opus-4",
+    "anthropic/claude-opus-4-6-20250430": "anthropic/claude-opus-4",
+    "anthropic/claude-opus-4-6": "anthropic/claude-opus-4",
 }
 
 FALLBACK_CHAINS: dict[str, list[str]] = {
@@ -235,21 +238,23 @@ def tool_chat_completion(
     tools: list[dict],
     temperature: float = 0.0,
     max_tokens: int = 4096,
+    budget_tokens: int = 0,
 ) -> ToolChatResponse:
     """Chat completion with tool calling via OpenRouter."""
     resolved = resolve_model(model)
     client = _get_client()
     try:
-        resp = client.post(
-            "/chat/completions",
-            json={
-                "model": resolved,
-                "messages": messages,
-                "tools": tools,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
-        )
+        payload: dict = {
+            "model": resolved,
+            "messages": messages,
+            "tools": tools,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if budget_tokens > 0:
+            payload["reasoning"] = {"effort": "high"}
+            logger.info("Extended thinking enabled (budget_tokens=%d)", budget_tokens)
+        resp = client.post("/chat/completions", json=payload)
         resp.raise_for_status()
         body = resp.text.strip()
         if not body:

@@ -35,6 +35,7 @@ class PTCRequest(BaseModel):
     model: str = "claude-sonnet-4-5-20250929"
     max_turns: int = 15
     max_tokens: int = 16384
+    budget_tokens: int = 0  # Extended thinking budget (0 = disabled)
     mcp_servers: dict[str, dict] = Field(default_factory=dict)
     allowed_mcp_tools: list[str] = Field(default_factory=list)
     approval_tools: list[str] = Field(default_factory=list)
@@ -363,13 +364,24 @@ async def execute_stream(request: PTCRequest):
         task_completed = False
         tools_called: set[str] = set()
 
+        # Build base kwargs for API calls
+        base_kwargs: dict = {
+            "model": request.model,
+            "max_tokens": request.max_tokens,
+            "system": request.system_prompt,
+            "tools": tools,
+        }
+        if request.budget_tokens > 0:
+            base_kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": request.budget_tokens,
+            }
+            logger.info("Extended thinking enabled (budget_tokens=%d)", request.budget_tokens)
+
         try:
             for _turn in range(request.max_turns):
                 resp = anthropic.messages.create(
-                    model=request.model,
-                    max_tokens=request.max_tokens,
-                    system=request.system_prompt,
-                    tools=tools,
+                    **base_kwargs,
                     messages=messages,
                 )
 

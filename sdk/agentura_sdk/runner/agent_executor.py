@@ -187,18 +187,22 @@ _CallResult = tuple[bool, list[tuple[str, str, dict]], str, int, int]
 class _OpenRouterProvider:
     """OpenAI-compatible tool calling via OpenRouter."""
 
-    def __init__(self, model_id: str, system_prompt: str, tools: list[dict]):
+    def __init__(self, model_id: str, system_prompt: str, tools: list[dict],
+                 max_tokens: int = 16384, budget_tokens: int = 0):
         from agentura_sdk.runner.openrouter import resolve_model
         self._model = resolve_model(model_id)
         self._messages: list[dict] = [{"role": "system", "content": system_prompt}]
         self._tools = _to_openai_tools(tools)
+        self._max_tokens = max_tokens
+        self._budget_tokens = budget_tokens
 
     def add_user_message(self, content: str) -> None:
         self._messages.append({"role": "user", "content": content})
 
     def call(self) -> _CallResult:
         from agentura_sdk.runner.openrouter import tool_chat_completion
-        resp = tool_chat_completion(self._model, self._messages, self._tools)
+        resp = tool_chat_completion(self._model, self._messages, self._tools,
+                                    max_tokens=self._max_tokens, budget_tokens=self._budget_tokens)
 
         # Build assistant message for history
         assistant_msg: dict = {"role": "assistant"}
@@ -231,32 +235,43 @@ class _OpenRouterProvider:
 class _AnthropicProvider:
     """Anthropic Messages API tool calling."""
 
-    def __init__(self, model_id: str, system_prompt: str, api_key: str, tools: list[dict]):
+    def __init__(self, model_id: str, system_prompt: str, api_key: str, tools: list[dict],
+                 max_tokens: int = 16384, budget_tokens: int = 0):
         from anthropic import Anthropic
         self._client = Anthropic(api_key=api_key)
         self._model = model_id
         self._system = system_prompt
         self._messages: list[dict] = []
         self._tools = tools
+        self._max_tokens = max_tokens
+        self._budget_tokens = budget_tokens
 
     def add_user_message(self, content: str) -> None:
         self._messages.append({"role": "user", "content": content})
 
     def call(self) -> _CallResult:
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=4096,
-            system=self._system,
-            tools=self._tools,
-            messages=self._messages,
-        )
+        kwargs: dict = {
+            "model": self._model,
+            "max_tokens": self._max_tokens,
+            "system": self._system,
+            "tools": self._tools,
+            "messages": self._messages,
+        }
+        if self._budget_tokens > 0:
+            kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": self._budget_tokens,
+            }
+            logger.info("Extended thinking enabled (budget_tokens=%d)", self._budget_tokens)
+
+        response = self._client.messages.create(**kwargs)
 
         assistant_content = response.content
         self._messages.append({"role": "assistant", "content": assistant_content})
 
         wants_tools = response.stop_reason == "tool_use"
-        text_parts = [b.text for b in assistant_content if b.type == "text"]
-        calls = [(b.id, b.name, b.input) for b in assistant_content if b.type == "tool_use"]
+        text_parts = [b.text for b in assistant_content if getattr(b, "type", "") == "text"]
+        calls = [(b.id, b.name, b.input) for b in assistant_content if getattr(b, "type", "") == "tool_use"]
 
         tokens_in = getattr(response.usage, "input_tokens", 0)
         tokens_out = getattr(response.usage, "output_tokens", 0)
@@ -277,6 +292,8 @@ def _resolve_anthropic_model(model: str) -> str:
     aliases = {
         "claude-sonnet-4.5": "claude-sonnet-4-5-latest",
         "claude-haiku-4.5": "claude-haiku-4-5-latest",
+        "claude-opus-4.6": "claude-opus-4-6-20250430",
+        "claude-opus-4-6": "claude-opus-4-6-20250430",
     }
     return aliases.get(name, name)
 
@@ -285,17 +302,22 @@ def _get_provider(
     model: str,
     system_prompt: str,
     tools: list[dict],
+    max_tokens: int = 16384,
+    budget_tokens: int = 0,
 ) -> _OpenRouterProvider | _AnthropicProvider:
     """Select provider: OpenRouter primary, Anthropic fallback."""
     if os.environ.get("OPENROUTER_API_KEY"):
-        logger.info("Using OpenRouter provider for agent execution")
-        return _OpenRouterProvider(model, system_prompt, tools)
+        logger.info("Using OpenRouter provider for agent execution (max_tokens=%d, budget_tokens=%d)",
+                     max_tokens, budget_tokens)
+        return _OpenRouterProvider(model, system_prompt, tools, max_tokens=max_tokens, budget_tokens=budget_tokens)
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if api_key:
-        logger.info("Using Anthropic provider for agent execution")
+        logger.info("Using Anthropic provider for agent execution (max_tokens=%d, budget_tokens=%d)",
+                     max_tokens, budget_tokens)
         model_id = _resolve_anthropic_model(model)
-        return _AnthropicProvider(model_id, system_prompt, api_key, tools)
+        return _AnthropicProvider(model_id, system_prompt, api_key, tools,
+                                  max_tokens=max_tokens, budget_tokens=budget_tokens)
 
     raise RuntimeError(
         "No LLM provider configured. Set OPENROUTER_API_KEY (preferred) or ANTHROPIC_API_KEY."
@@ -476,7 +498,8 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
     system_prompt = _build_prompt_with_memory(ctx)
 
     try:
-        provider = _get_provider(ctx.model, system_prompt, all_tools)
+        provider = _get_provider(ctx.model, system_prompt, all_tools,
+                                 max_tokens=config.max_tokens, budget_tokens=config.budget_tokens)
     except RuntimeError as e:
         return SkillResult(
             skill_name=ctx.skill_name,
@@ -674,7 +697,8 @@ async def execute_agent_streaming(
     system_prompt = _build_prompt_with_memory(ctx)
 
     try:
-        provider = _get_provider(ctx.model, system_prompt, all_tools)
+        provider = _get_provider(ctx.model, system_prompt, all_tools,
+                                 max_tokens=config.max_tokens, budget_tokens=config.budget_tokens)
     except RuntimeError as e:
         yield SkillResult(
             skill_name=ctx.skill_name,

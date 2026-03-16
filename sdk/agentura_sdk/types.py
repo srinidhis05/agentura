@@ -61,6 +61,7 @@ class SandboxConfig(BaseModel):
     timeout: int = 300
     max_iterations: int = 50
     max_tokens: int = 16384
+    budget_tokens: int = 0  # Extended thinking budget (0 = disabled)
     cpu: int = 2
     memory: int = 512
     backend: str = ""

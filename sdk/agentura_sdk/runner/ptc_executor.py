@@ -86,8 +86,12 @@ def _build_ptc_request(ctx: SkillContext) -> dict:
     system_prompt = _build_prompt_with_memory(ctx)
 
     max_tokens = 16384
-    if ctx.sandbox_config and ctx.sandbox_config.max_tokens:
-        max_tokens = ctx.sandbox_config.max_tokens
+    budget_tokens = 0
+    if ctx.sandbox_config:
+        if ctx.sandbox_config.max_tokens:
+            max_tokens = ctx.sandbox_config.max_tokens
+        if ctx.sandbox_config.budget_tokens:
+            budget_tokens = ctx.sandbox_config.budget_tokens
 
     req = {
         "prompt": json.dumps(ctx.input_data, indent=2),
@@ -95,6 +99,7 @@ def _build_ptc_request(ctx: SkillContext) -> dict:
         "model": _resolve_model(ctx.model),
         "max_turns": max_turns,
         "max_tokens": max_tokens,
+        "budget_tokens": budget_tokens,
         "mcp_servers": mcp_servers,
         "allowed_mcp_tools": allowed_mcp_tools,
         "approval_tools": approval_tools,
