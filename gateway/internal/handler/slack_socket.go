@@ -842,8 +842,6 @@ func (m *SlackSocketManager) handleWatchBotMessage(app *config.SlackAppConfig, w
 		Target: app.DomainScope + "/" + wb.Skill,
 		Input: map[string]any{
 			"order_ids": orderIDs,
-			"thread_ts": ev.TimeStamp,
-			"channel":   ev.Channel,
 			"trigger":   "watch_bot",
 		},
 		Text: ev.Text,
