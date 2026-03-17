@@ -244,20 +244,24 @@ func (h *HeartbeatRunner) deliverAlert(agent config.AgentHeartbeatEntry, output 
 	cleaned = strings.Trim(cleaned, "` \n\r\t")
 
 	if err := json.Unmarshal([]byte(cleaned), &payload); err != nil || len(payload.Due) == 0 {
-		// Couldn't parse — post raw output as fallback
-		postSlackMessageFromService(botToken, target, output)
-		slog.Info("heartbeat: alert delivered (raw)", "domain", agent.Domain)
+		// Couldn't parse — post raw output as fallback (unless silent)
+		if !agent.Heartbeat.Silent {
+			postSlackMessageFromService(botToken, target, output)
+		}
+		slog.Info("heartbeat: alert delivered (raw)", "domain", agent.Domain, "silent", agent.Heartbeat.Silent)
 		return
 	}
 
-	// Post formatted notification
-	skillList := strings.Join(payload.Due, ", ")
-	msg := fmt.Sprintf(":heartbeat: *Heartbeat — %d skill(s) due:* %s", len(payload.Due), skillList)
-	if payload.Message != "" {
-		msg += "\n> " + payload.Message
+	// Post formatted notification (unless silent mode)
+	if !agent.Heartbeat.Silent {
+		skillList := strings.Join(payload.Due, ", ")
+		msg := fmt.Sprintf(":heartbeat: *Heartbeat — %d skill(s) due:* %s", len(payload.Due), skillList)
+		if payload.Message != "" {
+			msg += "\n> " + payload.Message
+		}
+		msg += "\n_Triggering now..._"
+		postSlackMessageFromService(botToken, target, msg)
 	}
-	msg += "\n_Triggering now..._"
-	postSlackMessageFromService(botToken, target, msg)
 
 	// Trigger each due skill
 	for _, skill := range payload.Due {

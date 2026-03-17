@@ -305,6 +305,7 @@ agents:
       model: "anthropic/claude-sonnet-4-5-20250929"
       light_context: true
       isolated_session: true
+      silent: true
       active_hours:
         start: "03:00"
         end: "17:00"
@@ -318,6 +319,7 @@ agents:
       model: "anthropic/claude-sonnet-4-5-20250929"
       light_context: true
       isolated_session: true
+      silent: true
       active_hours:
         start: "02:30"
         end: "17:30"
