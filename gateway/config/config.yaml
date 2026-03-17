@@ -314,7 +314,7 @@ agents:
     coordinator: ecm-coordinator
     heartbeat:
       every: "30m"
-      target: "${OPS_TECH_CHANNEL_ID}"
+      target: "${ECM_HEARTBEAT_CHANNEL}"
       model: "anthropic/claude-sonnet-4-5-20250929"
       light_context: true
       isolated_session: true
