@@ -310,3 +310,16 @@ agents:
         end: "17:00"
         timezone: "UTC"
       ack_max_chars: 300
+  - domain: ecm
+    coordinator: ecm-coordinator
+    heartbeat:
+      every: "30m"
+      target: "${OPS_TECH_CHANNEL_ID}"
+      model: "anthropic/claude-sonnet-4-5-20250929"
+      light_context: true
+      isolated_session: true
+      active_hours:
+        start: "02:30"
+        end: "17:30"
+        timezone: "UTC"
+      ack_max_chars: 300
