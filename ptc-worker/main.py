@@ -210,16 +210,40 @@ def _fetch_mcp_tools(
     # Always include task_complete
     all_tools.append({
         "name": "task_complete",
-        "description": "Signal that the task is finished. Provide a summary and any output URLs.",
+        "description": (
+            "Signal that the task is finished. For Slack-visible output, provide rich_output "
+            "with title, status, summary, sections, and footer. The gateway renders this as "
+            "Block Kit with proper headers, dividers, and formatting."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "summary": {"type": "string", "description": "Summary of what was accomplished"},
-                "url": {"type": "string", "description": "Access URL if applicable"},
-                "port": {"type": "integer", "description": "Port number if applicable"},
-                "deployed": {"type": "boolean", "description": "Whether deployment succeeded"},
+                "fallback": {"type": "string", "description": "One-line summary for notifications (required)"},
+                "rich_output": {
+                    "type": "object",
+                    "description": "Structured output rendered as Slack Block Kit",
+                    "properties": {
+                        "title": {"type": "string", "description": "Report title (rendered as header block)"},
+                        "status": {"type": "string", "enum": ["healthy", "warning", "critical", "info"], "description": "Status indicator emoji"},
+                        "summary": {"type": "string", "description": "One-paragraph summary (Slack mrkdwn)"},
+                        "sections": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "heading": {"type": "string"},
+                                    "body": {"type": "string", "description": "Section content (Slack mrkdwn, max 3000 chars)"},
+                                },
+                                "required": ["body"],
+                            },
+                        },
+                        "footer": {"type": "string", "description": "Context line (date, source, parameters)"},
+                    },
+                    "required": ["title", "sections"],
+                },
+                "summary": {"type": "string", "description": "Plain text summary (legacy fallback, prefer rich_output)"},
             },
-            "required": ["summary"],
+            "required": ["fallback"],
         },
     })
 

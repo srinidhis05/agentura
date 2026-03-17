@@ -1253,6 +1253,14 @@ func formatOutputForSlack(output any) string {
 		return fmt.Sprintf(":warning: %v", errMsg)
 	}
 
+	// Check for rich_output — return full JSON so Block Kit renderer picks it up
+	if _, ok := m["rich_output"]; ok {
+		b, err := json.Marshal(m)
+		if err == nil {
+			return string(b)
+		}
+	}
+
 	// Check for summary (PTC worker output)
 	if summary, ok := m["summary"]; ok {
 		s := fmt.Sprintf("%v", summary)
@@ -2338,18 +2346,129 @@ func postSlackBlocksWithTS(botToken, channel, threadTS, fallbackText string, blo
 }
 
 func formatPipelineResult(raw json.RawMessage) string {
-	var result map[string]any
+	var result struct {
+		Pipeline  string `json:"pipeline"`
+		SessionID string `json:"session_id"`
+		Steps     []struct {
+			AgentID string         `json:"agent_id"`
+			Skill   string         `json:"skill"`
+			Success bool           `json:"success"`
+			Output  map[string]any `json:"output"`
+		} `json:"steps"`
+	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return string(raw)
 	}
 
-	if status, ok := result["status"]; ok {
-		return fmt.Sprintf("Pipeline completed with status: %v", status)
-	}
-
-	pretty, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
+	if len(result.Steps) == 0 {
+		// Fallback for non-step responses
+		var generic map[string]any
+		if err := json.Unmarshal(raw, &generic); err == nil {
+			if status, ok := generic["status"]; ok {
+				return fmt.Sprintf("Pipeline completed with status: %v", status)
+			}
+		}
 		return string(raw)
 	}
-	return string(pretty)
+
+	// Collect rich_output sections from all steps into a combined Block Kit message
+	var allSections []map[string]any
+	var fallbackParts []string
+	hasRichOutput := false
+
+	for _, step := range result.Steps {
+		if !step.Success {
+			errMsg, _ := step.Output["error"].(string)
+			if errMsg == "" {
+				errMsg = "unknown error"
+			}
+			allSections = append(allSections, map[string]any{
+				"heading": step.AgentID, "body": ":x: " + errMsg,
+			})
+			fallbackParts = append(fallbackParts, step.AgentID+": failed")
+			continue
+		}
+
+		// Check for rich_output in the step output
+		if richRaw, ok := step.Output["rich_output"]; ok {
+			if rich, ok := richRaw.(map[string]any); ok {
+				hasRichOutput = true
+				if sections, ok := rich["sections"].([]any); ok {
+					// Add step title as a heading section
+					title, _ := rich["title"].(string)
+					summary, _ := rich["summary"].(string)
+					if title != "" {
+						headerBody := ""
+						if summary != "" {
+							headerBody = summary
+						}
+						allSections = append(allSections, map[string]any{
+							"heading": title, "body": headerBody,
+						})
+					}
+					for _, s := range sections {
+						if section, ok := s.(map[string]any); ok {
+							allSections = append(allSections, section)
+						}
+					}
+				}
+				fb, _ := step.Output["fallback"].(string)
+				if fb == "" {
+					fb, _ = rich["title"].(string)
+				}
+				fallbackParts = append(fallbackParts, fb)
+				continue
+			}
+		}
+
+		// Fallback to plain summary
+		summary, _ := step.Output["summary"].(string)
+		if summary != "" {
+			allSections = append(allSections, map[string]any{
+				"heading": step.AgentID, "body": summary,
+			})
+			fallbackParts = append(fallbackParts, step.AgentID+": done")
+		} else {
+			fallbackParts = append(fallbackParts, step.AgentID+": completed")
+		}
+	}
+
+	if hasRichOutput {
+		combined := map[string]any{
+			"fallback": strings.Join(fallbackParts, " | "),
+			"rich_output": map[string]any{
+				"title":    "Pipeline: " + result.Pipeline,
+				"status":   "info",
+				"sections": allSections,
+				"footer":   "Pipeline " + result.Pipeline + " | Session " + result.SessionID,
+			},
+		}
+		b, err := json.Marshal(combined)
+		if err == nil {
+			return string(b)
+		}
+	}
+
+	// Plain text fallback
+	var sb strings.Builder
+	for i, step := range result.Steps {
+		if !step.Success {
+			errMsg, _ := step.Output["error"].(string)
+			if errMsg == "" {
+				errMsg = "unknown error"
+			}
+			sb.WriteString(fmt.Sprintf("*%s* — :x: %s\n", step.AgentID, errMsg))
+			continue
+		}
+		summary, _ := step.Output["summary"].(string)
+		if summary == "" {
+			sb.WriteString(fmt.Sprintf("*%s* — completed (no output)\n", step.AgentID))
+			continue
+		}
+		sb.WriteString(summary)
+		if i < len(result.Steps)-1 {
+			sb.WriteString("\n\n---\n\n")
+		}
+	}
+	return sb.String()
 }
