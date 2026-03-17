@@ -823,8 +823,8 @@ func matchWatchBot(app *config.SlackAppConfig, botID, channel string) *config.Wa
 func (m *SlackSocketManager) handleWatchBotMessage(app *config.SlackAppConfig, wb *config.WatchBotConfig, ev *slackevents.MessageEvent) {
 	orderIDs := extractOrderIDs(ev.Text)
 	if len(orderIDs) == 0 {
-		slog.Debug("watch_bot: no order IDs found in message",
-			"app", app.Name, "bot_id", wb.BotID, "channel", ev.Channel)
+		slog.Info("watch_bot: no order IDs found in message",
+			"app", app.Name, "bot_id", wb.BotID, "channel", ev.Channel, "text_len", len(ev.Text))
 		return
 	}
 
@@ -859,9 +859,9 @@ func (m *SlackSocketManager) handleWatchBotMessage(app *config.SlackAppConfig, w
 	}
 }
 
-// extractOrderIDs finds order ID patterns in text (e.g. AE1525IWPB00, GB2201XKQR00).
+// extractOrderIDs finds order ID patterns in text (e.g. AE1525IWPB00, US14UHB5BZ00, GB2201XKQR00).
 func extractOrderIDs(text string) []string {
-	re := regexp.MustCompile(`[A-Z]{2}\d{4}[A-Z0-9]{4,8}\d{2}`)
+	re := regexp.MustCompile(`[A-Z]{2}\d{1,4}[A-Z0-9]{4,8}\d{2}`)
 	matches := re.FindAllString(text, -1)
 	// Deduplicate
 	seen := make(map[string]bool, len(matches))
