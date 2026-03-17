@@ -839,7 +839,7 @@ func (m *SlackSocketManager) handleWatchBotMessage(app *config.SlackAppConfig, w
 
 	cmd := slackCommand{
 		Action: "run",
-		Target: wb.Skill,
+		Target: app.DomainScope + "/" + wb.Skill,
 		Input: map[string]any{
 			"order_ids": orderIDs,
 			"thread_ts": ev.TimeStamp,
