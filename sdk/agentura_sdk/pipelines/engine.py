@@ -462,7 +462,6 @@ async def _maybe_post_pr_review(
                 event=event,
                 commit_id=head_sha,
                 token=token,
-                diff_text=input_data.get("diff"),
             )
             logger.info("posted PR inline review on %s#%s (%d comments, event=%s)",
                         repo, pr_number, len(inline_comments), event)
@@ -731,8 +730,6 @@ async def run_pipeline_stream(
     """SSE streaming variant — yields newline-delimited JSON events.
 
     Supports both flat ``steps:`` and ``phases:`` (parallel/sequential mix).
-    Now includes fleet session tracking, PR diff prefetching, fan-in filtering,
-    agent result compaction, and PR review posting (parity with sync path).
     """
     pipeline = load_pipeline(name)
     skills_dir = SKILLS_DIR
@@ -740,14 +737,15 @@ async def run_pipeline_stream(
     carry_forward: dict[str, Any] = {}
     total_cost_ref = [0.0]
     total_expected = 0
-    all_results: list[dict] = []
-    session_id = ""
 
     normalized = _apply_input_mapping(pipeline_input, pipeline.input_mapping)
 
-    # Prefetch PR diff + changed files for GitHub PR pipelines
+    # Prefetch PR diff + changed files (same as sync path)
     if name.startswith("github-pr"):
         normalized = await _prefetch_pr_data(normalized)
+
+    all_results: list[dict] = []
+    session_id = ""
 
     if pipeline.phases:
         # --- Fleet session tracking ---
@@ -766,7 +764,7 @@ async def run_pipeline_stream(
         for phase in pipeline.phases:
             total_expected += len(phase.steps)
 
-            # Fan-in filtering: strip large diff/changed_files from downstream phases
+            # Fan-in: strip large fields consumed by upstream phases
             if phase.fan_in_from:
                 phase_input = {
                     k: v for k, v in normalized.items()
@@ -786,10 +784,11 @@ async def run_pipeline_stream(
                         except Exception:
                             pass
 
-                # Use sync parallel execution to collect results + stream SSE events
+                # Execute in parallel (sync), then emit SSE events for each result
                 phase_results = await execute_parallel_phase(phase, phase_input, skills_dir)
+                all_results.extend(phase_results)
 
-                # Yield SSE events for each agent result
+                # Emit SSE events
                 yield _sse("phase_started", {
                     "phase": phase.name,
                     "type": phase.type,
@@ -806,8 +805,6 @@ async def run_pipeline_stream(
                         "cost_usd": r.get("cost_usd", 0),
                     })
                 yield _sse("phase_completed", {"phase": phase.name})
-
-                all_results.extend(phase_results)
 
                 # Update fleet store with per-agent results
                 if store and session_id:
@@ -826,7 +823,7 @@ async def run_pipeline_stream(
                         except Exception:
                             pass
 
-                # Merge context_for_next and inject compacted agent_results for fan-in
+                # Merge context_for_next + inject agent_results for fan-in
                 for r in phase_results:
                     cfn = r.pop("context_for_next", {})
                     if cfn:
@@ -862,8 +859,7 @@ async def run_pipeline_stream(
             )
 
     # Post inline review + summary comment for GitHub PR pipelines
-    if all_results:
-        await _maybe_post_pr_review(name, normalized, all_results)
+    await _maybe_post_pr_review(name, normalized, all_results)
 
     final_url = (
         carry_forward.get("url")

@@ -855,14 +855,11 @@ func (m *SlackSocketManager) handleWatchBotMessage(app *config.SlackAppConfig, w
 		Text: ev.Text,
 	}
 
-	result, _ := m.dispatchAndFormat(app, ev.Channel, "", cmd, "", ev.TimeStamp)
+	_, _ = m.dispatchAndFormat(app, ev.Channel, "", cmd, "", ev.TimeStamp)
+	// Skills post their own results via MCP tools — do NOT double-post here.
 
-	// Reply in thread under the bot's original message
-	if blocks, fallback, ok := tryParseRichOutput(result); ok {
-		postSlackBlocksWithTS(app.BotToken, ev.Channel, ev.TimeStamp, fallback, blocks)
-	} else {
-		postSlackThreadReply(app.BotToken, ev.Channel, ev.TimeStamp, result)
-	}
+	slog.Info("watch_bot: skill completed",
+		"app", app.Name, "skill", wb.Skill, "channel", ev.Channel)
 }
 
 // extractOrderIDs finds order ID patterns in text (e.g. AE1525IWPB00, US14UHB5BZ00, GB2201XKQR00).
