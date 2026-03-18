@@ -162,6 +162,12 @@ func (h *HeartbeatRunner) runHeartbeat(ctx context.Context, agent config.AgentHe
 		heartbeatExecutionsTotal.WithLabelValues(domain, "error").Inc()
 		slog.Error("heartbeat: execution failed",
 			"domain", domain, "duration_s", duration, "error", err)
+		if ch := agent.Heartbeat.Observe; ch != "" {
+			if token := h.findBotToken(domain); token != "" {
+				postSlackMessageFromService(token, ch,
+					fmt.Sprintf(":x: *%s* heartbeat failed (%.1fs): %s", domain, duration, err.Error()))
+			}
+		}
 		return
 	}
 
@@ -172,6 +178,13 @@ func (h *HeartbeatRunner) runHeartbeat(ctx context.Context, agent config.AgentHe
 		heartbeatSuppressedTotal.WithLabelValues(domain).Inc()
 		slog.Info("heartbeat: HEARTBEAT_OK — suppressed",
 			"domain", domain, "duration_s", duration)
+		// Notify observe channel even when suppressed
+		if ch := agent.Heartbeat.Observe; ch != "" {
+			if token := h.findBotToken(domain); token != "" {
+				postSlackMessageFromService(token, ch,
+					fmt.Sprintf(":white_check_mark: *%s* heartbeat OK (%.1fs)", domain, duration))
+			}
+		}
 		return
 	}
 
@@ -243,25 +256,32 @@ func (h *HeartbeatRunner) deliverAlert(agent config.AgentHeartbeatEntry, output 
 	cleaned = strings.TrimSuffix(cleaned, "```")
 	cleaned = strings.Trim(cleaned, "` \n\r\t")
 
+	// Determine where notifications go: observe channel when silent, target otherwise
+	notifyChannel := target
+	if agent.Heartbeat.Silent && agent.Heartbeat.Observe != "" {
+		notifyChannel = agent.Heartbeat.Observe
+	}
+
 	if err := json.Unmarshal([]byte(cleaned), &payload); err != nil || len(payload.Due) == 0 {
-		// Couldn't parse — post raw output as fallback (unless silent)
+		// Couldn't parse — post raw output as fallback
 		if !agent.Heartbeat.Silent {
-			postSlackMessageFromService(botToken, target, output)
+			postSlackMessageFromService(botToken, notifyChannel, output)
+		} else if agent.Heartbeat.Observe != "" {
+			postSlackMessageFromService(botToken, notifyChannel,
+				fmt.Sprintf(":warning: *%s* heartbeat returned unparseable output (%d chars)", agent.Domain, len(output)))
 		}
 		slog.Info("heartbeat: alert delivered (raw)", "domain", agent.Domain, "silent", agent.Heartbeat.Silent)
 		return
 	}
 
-	// Post formatted notification (unless silent mode)
-	if !agent.Heartbeat.Silent {
-		skillList := strings.Join(payload.Due, ", ")
-		msg := fmt.Sprintf(":heartbeat: *Heartbeat — %d skill(s) due:* %s", len(payload.Due), skillList)
-		if payload.Message != "" {
-			msg += "\n> " + payload.Message
-		}
-		msg += "\n_Triggering now..._"
-		postSlackMessageFromService(botToken, target, msg)
+	// Post formatted notification
+	skillList := strings.Join(payload.Due, ", ")
+	msg := fmt.Sprintf(":heartbeat: *Heartbeat — %d skill(s) due:* %s", len(payload.Due), skillList)
+	if payload.Message != "" {
+		msg += "\n> " + payload.Message
 	}
+	msg += "\n_Triggering now..._"
+	postSlackMessageFromService(botToken, notifyChannel, msg)
 
 	// Trigger each due skill
 	for _, skill := range payload.Due {
