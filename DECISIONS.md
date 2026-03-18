@@ -325,21 +325,3 @@
 **Over**: Running synchronous Anthropic SDK calls directly in async generator, using async Anthropic client
 **Why**: Synchronous `messages.create()` blocked FastAPI's event loop for 10-30s per call, making `/health` endpoint unresponsive. K8s readiness probe failures killed pods mid-execution ("Server disconnected"). `asyncio.to_thread()` is minimal change — keeps sync SDK, unblocks event loop.
 **Constraint**: All blocking I/O in FastAPI async endpoints MUST use `asyncio.to_thread()` or equivalent; async Anthropic client is a future option but requires broader refactor
-
-## DEC-098: Coroot CE for cluster observability (2026-03-18)
-**Chose**: Coroot Community Edition (coroot-operator + coroot-ce Helm) in dedicated `coroot` namespace with gp3 EBS CSI storage
-**Over**: Datadog (SaaS cost), kube-prometheus-stack (heavy for team size), Grafana+Loki (more config overhead)
-**Why**: eBPF auto-discovery + built-in log collection + Prometheus scraping in one tool. Lightweight (~2-3Gi). No instrumentation changes needed — auto-discovers services.
-**Constraint**: gp3 StorageClass (EBS CSI) is now default — in-tree gp2 provisioner doesn't work; Coroot UI requires first-time project setup; node-agent DaemonSet needs eBPF (kernel 5.8+)
-
-## DEC-099: Shared slackutil package for Block Kit rendering (2026-03-18)
-**Chose**: `gateway/internal/slackutil/blocks.go` with exported `TryParseRichOutput` + `RenderRichOutputToBlocks`
-**Over**: Duplicating rendering logic in handler and service packages
-**Why**: Heartbeat runner (service layer) and webhook handler both need to parse rich_output → Block Kit. Shared package eliminates duplication and ensures rendering consistency.
-**Constraint**: Handler still has local copies (will migrate later); service layer imports slackutil
-
-## DEC-100: Idempotent heartbeat alert delivery via content-hash deduplication (2026-03-18)
-**Chose**: In-memory `alertDedup` map keyed by `domain:sha256(content)` with 30-min TTL and 5-min sweep
-**Over**: No deduplication (current — allows duplicate Slack messages), DB-backed dedup, Redis
-**Why**: Same heartbeat output (identical stuck orders) posted multiple times when cron fires repeatedly. In-memory is sufficient for single-gateway instance. Matches thread registry pattern (DEC-086).
-**Constraint**: Dedup is per-gateway-instance (not distributed); 30-min TTL means same alert won't re-post within 30 min even if data hasn't changed

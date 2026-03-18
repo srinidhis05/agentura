@@ -462,6 +462,7 @@ async def _maybe_post_pr_review(
                 event=event,
                 commit_id=head_sha,
                 token=token,
+                diff_text=input_data.get("diff"),
             )
             logger.info("posted PR inline review on %s#%s (%d comments, event=%s)",
                         repo, pr_number, len(inline_comments), event)
@@ -730,6 +731,8 @@ async def run_pipeline_stream(
     """SSE streaming variant — yields newline-delimited JSON events.
 
     Supports both flat ``steps:`` and ``phases:`` (parallel/sequential mix).
+    Now includes fleet session tracking, PR diff prefetching, fan-in filtering,
+    agent result compaction, and PR review posting (parity with sync path).
     """
     pipeline = load_pipeline(name)
     skills_dir = SKILLS_DIR
@@ -737,26 +740,98 @@ async def run_pipeline_stream(
     carry_forward: dict[str, Any] = {}
     total_cost_ref = [0.0]
     total_expected = 0
+    all_results: list[dict] = []
+    session_id = ""
 
     normalized = _apply_input_mapping(pipeline_input, pipeline.input_mapping)
 
+    # Prefetch PR diff + changed files for GitHub PR pipelines
+    if name.startswith("github-pr"):
+        normalized = await _prefetch_pr_data(normalized)
+
     if pipeline.phases:
+        # --- Fleet session tracking ---
+        store = _get_fleet_store()
+        total_agents = sum(len(p.steps) for p in pipeline.phases)
+        if store:
+            session_id = store.create_session(
+                pipeline_name=name,
+                trigger_type=pipeline.trigger.get("type", "manual"),
+                total_agents=total_agents,
+                input_data=pipeline_input,
+            )
+            store.update_session_status(session_id, "running")
+
         # --- Phase-based streaming ---
         for phase in pipeline.phases:
             total_expected += len(phase.steps)
-            phase_input = dict(normalized)
+
+            # Fan-in filtering: strip large diff/changed_files from downstream phases
+            if phase.fan_in_from:
+                phase_input = {
+                    k: v for k, v in normalized.items()
+                    if k not in ("diff", "changed_files")
+                }
+            else:
+                phase_input = dict(normalized)
             phase_input.update(carry_forward)
 
             if phase.type == "parallel":
-                async for event in stream_parallel_phase(phase, phase_input, skills_dir):
-                    yield event
-                    # Track cost from agent_completed events
-                    if '"cost_usd"' in event:
+                # Register agents in fleet store
+                if store and session_id:
+                    for step in phase.steps:
+                        aid = step.agent_id or step.skill.replace("/", "-")
                         try:
-                            data = json.loads(event.split("data: ", 1)[1].split("\n", 1)[0])
-                            total_cost_ref[0] += data.get("cost_usd", 0)
+                            store.create_agent(session_id, f"{session_id}-{aid}", step.skill)
                         except Exception:
                             pass
+
+                # Use sync parallel execution to collect results + stream SSE events
+                phase_results = await execute_parallel_phase(phase, phase_input, skills_dir)
+
+                # Yield SSE events for each agent result
+                yield _sse("phase_started", {
+                    "phase": phase.name,
+                    "type": phase.type,
+                    "agents": [s.agent_id or s.skill.replace("/", "-") for s in phase.steps],
+                })
+                for r in phase_results:
+                    total_cost_ref[0] += r.get("cost_usd", 0)
+                    yield _sse("agent_completed", {
+                        "agent_id": r.get("agent_id", ""),
+                        "skill": r.get("skill", ""),
+                        "success": r.get("success", False),
+                        "execution_id": r.get("execution_id", ""),
+                        "latency_ms": r.get("latency_ms", 0),
+                        "cost_usd": r.get("cost_usd", 0),
+                    })
+                yield _sse("phase_completed", {"phase": phase.name})
+
+                all_results.extend(phase_results)
+
+                # Update fleet store with per-agent results
+                if store and session_id:
+                    for r in phase_results:
+                        aid = r.get("agent_id", "")
+                        try:
+                            store.update_agent_status(
+                                f"{session_id}-{aid}",
+                                "completed" if r.get("success") else "failed",
+                                execution_id=r.get("execution_id", ""),
+                                success=r.get("success", False),
+                                output=r.get("output"),
+                                cost_usd=r.get("cost_usd", 0),
+                                latency_ms=r.get("latency_ms", 0),
+                            )
+                        except Exception:
+                            pass
+
+                # Merge context_for_next and inject compacted agent_results for fan-in
+                for r in phase_results:
+                    cfn = r.pop("context_for_next", {})
+                    if cfn:
+                        carry_forward.update(cfn)
+                carry_forward["agent_results"] = _compact_agent_results(phase_results)
             else:
                 async for event in _stream_flat_steps(phase.steps, phase_input, carry_forward, skills_dir, total_cost_ref):
                     yield event
@@ -767,6 +842,28 @@ async def run_pipeline_stream(
             yield event
 
     total_latency = (time.monotonic() - start) * 1000
+    all_success = all(
+        r.get("status") == "success" or r.get("success") is True
+        for r in all_results
+    ) if all_results else True
+
+    # Update fleet session final status
+    if session_id:
+        store = _get_fleet_store()
+        if store:
+            completed = sum(1 for r in all_results if r.get("success") or r.get("status") == "success")
+            failed = sum(1 for r in all_results if not (r.get("success") or r.get("status") == "success"))
+            store.update_session_status(
+                session_id,
+                status="completed" if all_success else "failed",
+                completed_agents=completed,
+                failed_agents=failed,
+                total_cost_usd=total_cost_ref[0],
+            )
+
+    # Post inline review + summary comment for GitHub PR pipelines
+    if all_results:
+        await _maybe_post_pr_review(name, normalized, all_results)
 
     final_url = (
         carry_forward.get("url")
@@ -776,7 +873,8 @@ async def run_pipeline_stream(
 
     yield _sse("pipeline_done", {
         "pipeline": name,
-        "success": True,
+        "session_id": session_id,
+        "success": all_success,
         "total_steps": total_expected,
         "total_latency_ms": total_latency,
         "total_cost_usd": total_cost_ref[0],

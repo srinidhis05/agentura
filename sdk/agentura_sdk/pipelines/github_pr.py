@@ -449,6 +449,7 @@ async def run_pr_pipeline(pr_event: dict) -> dict:
                     event=event,
                     commit_id=head_sha,
                     token=token,
+                    diff_text=diff,
                 )
                 github_review_posted = True
         except Exception as e:

@@ -99,6 +99,31 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
 
 logger = logging.getLogger(__name__)
 
+# Per-million-token pricing for cost estimation
+_MODEL_PRICING: dict[str, tuple[float, float]] = {
+    # (input_per_M, output_per_M)
+    "claude-sonnet-4-5-latest": (3.0, 15.0),
+    "claude-haiku-4-5-latest": (0.80, 4.0),
+    "claude-opus-4-latest": (15.0, 75.0),
+    "claude-opus-4-6-latest": (15.0, 75.0),
+}
+
+
+def _estimate_cost(model_name: str, tokens_in: int, tokens_out: int) -> float:
+    """Estimate cost in USD from token counts and model pricing."""
+    pricing = _MODEL_PRICING.get(model_name)
+    if not pricing:
+        # Try prefix match for dated IDs that weren't normalized
+        for key, val in _MODEL_PRICING.items():
+            if model_name.startswith(key.replace("-latest", "")):
+                pricing = val
+                break
+    if not pricing:
+        return 0.0
+    input_cost = (tokens_in / 1_000_000) * pricing[0]
+    output_cost = (tokens_out / 1_000_000) * pricing[1]
+    return input_cost + output_cost
+
 
 def _post_execution_hook(ctx: SkillContext, result: SkillResult) -> None:
     """Fire-and-forget post-execution actions (incident-to-eval, etc.)."""
@@ -186,6 +211,7 @@ async def _execute_via_openrouter(ctx: SkillContext) -> SkillResult:
 
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
+        logger.error("specialist skill %s (openrouter) failed: %s", ctx.skill_name, e, exc_info=True)
         skill_result = SkillResult(
             skill_name=ctx.skill_name,
             success=False,
@@ -211,8 +237,14 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
         _MODEL_ALIASES = {
             "claude-sonnet-4.5": "claude-sonnet-4-5-latest",
             "claude-haiku-4.5": "claude-haiku-4-5-latest",
+            "claude-opus-4": "claude-opus-4-latest",
+            "claude-opus-4.6": "claude-opus-4-6-latest",
         }
         model_name = _MODEL_ALIASES.get(model_name, model_name)
+        # Normalize dated model IDs (e.g. claude-sonnet-4-5-20250929) to -latest
+        import re
+        if re.match(r"^claude-[a-z]+-\d+-\d+-\d{8}$", model_name):
+            model_name = re.sub(r"-\d{8}$", "-latest", model_name)
         provider = AnthropicProvider(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         model = AnthropicModel(model_name, provider=provider)
 
@@ -232,6 +264,16 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
         except (json.JSONDecodeError, TypeError):
             output = {"raw_output": str(output_text)}
 
+        # Extract cost from Pydantic AI usage data
+        cost_usd = 0.0
+        try:
+            usage = result.usage()
+            tokens_in = usage.request_tokens or 0
+            tokens_out = usage.response_tokens or 0
+            cost_usd = _estimate_cost(model_name, tokens_in, tokens_out)
+        except Exception:
+            pass
+
         skill_result = SkillResult(
             skill_name=ctx.skill_name,
             success=True,
@@ -239,6 +281,7 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
             reasoning_trace=[f"Executed via {ctx.model}"],
             model_used=ctx.model,
             latency_ms=latency_ms,
+            cost_usd=cost_usd,
         )
         execution_id = log_execution(ctx, skill_result)
         skill_result.reasoning_trace.append(f"Logged as {execution_id}")
@@ -247,6 +290,7 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
 
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
+        logger.error("specialist skill %s (pydantic-ai) failed: %s", ctx.skill_name, e, exc_info=True)
         skill_result = SkillResult(
             skill_name=ctx.skill_name,
             success=False,

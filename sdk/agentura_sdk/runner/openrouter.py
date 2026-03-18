@@ -183,7 +183,7 @@ def _call_model_messages(
         content=choice["message"]["content"],
         model=data.get("model", model_id),
         latency_ms=latency_ms,
-        cost_usd=0.0,
+        cost_usd=float(resp.headers.get("x-total-cost", 0.0)),
         tokens_in=usage.get("prompt_tokens", 0),
         tokens_out=usage.get("completion_tokens", 0),
     )

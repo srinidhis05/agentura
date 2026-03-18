@@ -174,15 +174,3 @@ Local k3d (`-n agentura`) is legacy/dev-only. If user explicitly says "local", t
 **Impact**: FastAPI's `/health` endpoint became unresponsive during LLM calls. K8s readiness probe failed → pod killed → "Server disconnected" error to user. This looked like a network issue but was actually event loop starvation.
 **Rule**: In FastAPI async endpoints/generators, ALL blocking I/O (LLM API calls, MCP tool calls, file I/O) MUST use `asyncio.to_thread()` or an async client. The event loop must remain responsive for health probes.
 **Detection**: Any `anthropic.messages.create()`, `requests.post()`, or similar sync call inside an `async def` function without `asyncio.to_thread()` wrapper.
-
-## GR-033: ALL Slack posting paths must handle rich_output → Block Kit (2026-03-18)
-**Mistake**: Heartbeat runner's `deliverAlert()` and `triggerDueSkill()` posted raw JSON strings to Slack when skills returned `{"fallback":"...", "rich_output":{...}}`. The webhook handler correctly parsed rich_output → Block Kit, but the heartbeat/service layer code path bypassed it entirely.
-**Impact**: Users saw raw JSON in Slack channels instead of formatted Block Kit messages. Issue persisted across multiple sessions despite DEC-096 fixing the webhook handler path.
-**Rule**: Every code path that posts skill output to Slack MUST check for rich_output via `slackutil.TryParseRichOutput()` before falling back to plain text. New Slack posting paths MUST be tested with rich_output payloads.
-**Detection**: Any call to `postSlackMessageFromService()` or `postSlackMessage()` where the text could contain `rich_output` JSON without a prior `TryParseRichOutput()` check.
-
-## GR-034: EKS gp2 StorageClass uses deprecated in-tree provisioner — use gp3 (2026-03-18)
-**Mistake**: Installed Coroot with `storageClassName: gp2`. PVCs stayed Pending because `gp2` used `kubernetes.io/aws-ebs` (deprecated in-tree provisioner). The EBS CSI driver (`ebs.csi.eks.amazonaws.com`) was installed but had no StorageClass referencing it.
-**Impact**: Coroot deployment blocked for 15+ minutes debugging PVC binding failures.
-**Rule**: On EKS, always use `gp3` StorageClass with `ebs.csi.eks.amazonaws.com` provisioner. Never use in-tree `kubernetes.io/aws-ebs` — it doesn't work with EKS Auto Mode. `gp3` is now the default StorageClass.
-**Detection**: Any PVC or StorageClass referencing `kubernetes.io/aws-ebs` provisioner.

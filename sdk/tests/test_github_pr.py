@@ -1,7 +1,115 @@
 """Tests for PR review publishing — both github_pr.py and engine.py code paths."""
 
+from agentura_sdk.pipelines.github_client import build_diff_position_map
 from agentura_sdk.pipelines.github_pr import _format_inline_comments, _format_summary_comment
 from agentura_sdk.pipelines.engine import _extract_reviewer_output, _format_review_comments
+
+
+# ---------------------------------------------------------------------------
+# Diff position mapping tests (github_client.py)
+# ---------------------------------------------------------------------------
+
+SAMPLE_DIFF = """\
+diff --git a/src/main.go b/src/main.go
+index abc1234..def5678 100644
+--- a/src/main.go
++++ b/src/main.go
+@@ -10,6 +10,8 @@ func main() {
+     fmt.Println("hello")
+     fmt.Println("world")
++    fmt.Println("added line 1")
++    fmt.Println("added line 2")
+     fmt.Println("unchanged")
+     fmt.Println("also unchanged")
+ }
+diff --git a/src/util.go b/src/util.go
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/src/util.go
+@@ -0,0 +1,5 @@
++package main
++
++func helper() {
++    // TODO
++}
+"""
+
+
+class TestBuildDiffPositionMap:
+    def test_basic_added_lines(self):
+        pos_map = build_diff_position_map(SAMPLE_DIFF)
+        assert "src/main.go" in pos_map
+        # Line 12 is "added line 1" — context(10) @pos1(hunk), context(11) @pos2, context(12) @pos3, +line12 @pos4
+        # Hunk starts at new_line=10, position=1 (hunk header)
+        # context "hello" → pos2, new_line 10→11
+        # context "world" → pos3, new_line 11→12
+        # +added1 → pos4, new_line 12→13
+        # +added2 → pos5, new_line 13→14
+        assert pos_map["src/main.go"][12] == 4
+        assert pos_map["src/main.go"][13] == 5
+
+    def test_new_file(self):
+        pos_map = build_diff_position_map(SAMPLE_DIFF)
+        assert "src/util.go" in pos_map
+        # New file: hunk @@ -0,0 +1,5 @@ → position 1 (hunk header)
+        # +package main → pos2, line 1
+        # + (empty) → pos3, line 2
+        # +func helper → pos4, line 3
+        # +    // TODO → pos5, line 4
+        # +} → pos6, line 5
+        assert pos_map["src/util.go"][1] == 2
+        assert pos_map["src/util.go"][3] == 4
+        assert pos_map["src/util.go"][5] == 6
+
+    def test_empty_diff(self):
+        assert build_diff_position_map("") == {}
+
+    def test_context_lines_not_in_map(self):
+        pos_map = build_diff_position_map(SAMPLE_DIFF)
+        # Line 10 ("hello") is a context line — it should NOT appear in the map
+        # (only added lines are mapped since those are what inline comments target)
+        assert 10 not in pos_map["src/main.go"]
+        assert 11 not in pos_map["src/main.go"]
+
+    def test_deleted_lines_not_in_map(self):
+        diff = """\
+diff --git a/f.go b/f.go
+index aaa..bbb 100644
+--- a/f.go
++++ b/f.go
+@@ -5,4 +5,3 @@ func f() {
+     kept
+-    removed
+     also kept
+"""
+        pos_map = build_diff_position_map(diff)
+        # "kept" is context at new_line 5 → not in map
+        # "-removed" is a deletion → no new_line entry
+        # "also kept" is context at new_line 6 → not in map
+        assert "f.go" in pos_map
+        assert len(pos_map["f.go"]) == 0  # no added lines
+
+    def test_multiple_hunks(self):
+        diff = """\
+diff --git a/multi.go b/multi.go
+index aaa..bbb 100644
+--- a/multi.go
++++ b/multi.go
+@@ -1,3 +1,4 @@
+ line1
++inserted_at_2
+ line2
+ line3
+@@ -20,3 +21,4 @@
+ line20
++inserted_at_22
+ line21
+ line22
+"""
+        pos_map = build_diff_position_map(diff)
+        assert pos_map["multi.go"][2] is not None  # first hunk addition
+        assert pos_map["multi.go"][22] is not None  # second hunk addition
 
 
 # Exact output from the pr-code-reviewer skill (second run)
