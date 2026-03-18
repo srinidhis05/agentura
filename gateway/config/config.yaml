@@ -302,6 +302,7 @@ agents:
     heartbeat:
       every: "30m"
       target: "${GROWTH_HEARTBEAT_CHANNEL}"
+      observe: "C0ALSCUV7J8"
       model: "anthropic/claude-sonnet-4-5-20250929"
       light_context: true
       isolated_session: true
@@ -316,6 +317,7 @@ agents:
     heartbeat:
       every: "30m"
       target: "${ECM_HEARTBEAT_CHANNEL}"
+      observe: "C0ALSCUV7J8"
       model: "anthropic/claude-sonnet-4-5-20250929"
       light_context: true
       isolated_session: true
