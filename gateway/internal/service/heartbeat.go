@@ -339,48 +339,19 @@ func (h *HeartbeatRunner) deliverAlert(agent config.AgentHeartbeatEntry, output 
 		return
 	}
 
-	// Post formatted notification
+	// Post formatted notification — notify only, do NOT auto-trigger skills.
+	// Skills triggered by heartbeat post top-level messages to their default
+	// channel (e.g. #ops-tech-issues) without thread context, causing noise.
+	// Users can trigger skills manually from the observe channel.
 	skillList := strings.Join(payload.Due, ", ")
 	msg := fmt.Sprintf(":heartbeat: *Heartbeat — %d skill(s) due:* %s", len(payload.Due), skillList)
 	if payload.Message != "" {
 		msg += "\n> " + payload.Message
 	}
-	msg += "\n_Triggering now..._"
 	postSlackMessageFromService(botToken, target, msg)
 
-	// Trigger each due skill
-	for _, skill := range payload.Due {
-		go h.triggerDueSkill(agent.Domain, skill, target, botToken)
-	}
-
-	slog.Info("heartbeat: dispatched due skills",
+	slog.Info("heartbeat: alert delivered (notify-only)",
 		"domain", agent.Domain, "skills", payload.Due)
-}
-
-// triggerDueSkill executes a single due skill and logs the result.
-func (h *HeartbeatRunner) triggerDueSkill(domain, skill, channel, botToken string) {
-	slog.Info("heartbeat: triggering skill", "domain", domain, "skill", skill)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	req := executor.ExecuteRequest{
-		InputData: map[string]any{
-			"trigger": "heartbeat",
-		},
-	}
-
-	_, err := h.executor.Execute(ctx, domain, skill, req)
-	if err != nil {
-		slog.Error("heartbeat: skill execution failed",
-			"domain", domain, "skill", skill, "error", err)
-		postSlackMessageFromService(botToken, channel,
-			fmt.Sprintf(":x: *%s* failed: %s", skill, err.Error()))
-		return
-	}
-
-	slog.Info("heartbeat: skill completed", "domain", domain, "skill", skill)
-	// Skills post their own results via MCP tools — do NOT double-post here.
 }
 
 // findBotToken looks up the Slack bot token for a domain from configured apps.
