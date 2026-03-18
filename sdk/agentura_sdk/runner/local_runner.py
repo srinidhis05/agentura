@@ -99,13 +99,13 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
 
 logger = logging.getLogger(__name__)
 
-# Per-million-token pricing for cost estimation
+# Per-million-token pricing for cost estimation (keyed by dated model IDs)
 _MODEL_PRICING: dict[str, tuple[float, float]] = {
     # (input_per_M, output_per_M)
-    "claude-sonnet-4-5-latest": (3.0, 15.0),
-    "claude-haiku-4-5-latest": (0.80, 4.0),
-    "claude-opus-4-latest": (15.0, 75.0),
-    "claude-opus-4-6-latest": (15.0, 75.0),
+    "claude-sonnet-4-5-20250929": (3.0, 15.0),
+    "claude-haiku-4-5-20251001": (0.80, 4.0),
+    "claude-opus-4-20250514": (15.0, 75.0),
+    "claude-opus-4-6-20250430": (15.0, 75.0),
 }
 
 
@@ -113,9 +113,10 @@ def _estimate_cost(model_name: str, tokens_in: int, tokens_out: int) -> float:
     """Estimate cost in USD from token counts and model pricing."""
     pricing = _MODEL_PRICING.get(model_name)
     if not pricing:
-        # Try prefix match for dated IDs that weren't normalized
+        # Try prefix match (e.g. "claude-opus-4-6" matches "claude-opus-4-6-20250430")
         for key, val in _MODEL_PRICING.items():
-            if model_name.startswith(key.replace("-latest", "")):
+            base = key.rsplit("-", 1)[0]  # strip date suffix
+            if model_name == base or model_name.startswith(base):
                 pricing = val
                 break
     if not pricing:
@@ -235,16 +236,12 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
 
         model_name = ctx.model.removeprefix("anthropic/")
         _MODEL_ALIASES = {
-            "claude-sonnet-4.5": "claude-sonnet-4-5-latest",
-            "claude-haiku-4.5": "claude-haiku-4-5-latest",
-            "claude-opus-4": "claude-opus-4-latest",
-            "claude-opus-4.6": "claude-opus-4-6-latest",
+            "claude-sonnet-4.5": "claude-sonnet-4-5-20250929",
+            "claude-haiku-4.5": "claude-haiku-4-5-20251001",
+            "claude-opus-4": "claude-opus-4-20250514",
+            "claude-opus-4.6": "claude-opus-4-6-20250430",
         }
         model_name = _MODEL_ALIASES.get(model_name, model_name)
-        # Normalize dated model IDs (e.g. claude-sonnet-4-5-20250929) to -latest
-        import re
-        if re.match(r"^claude-[a-z]+-\d+-\d+-\d{8}$", model_name):
-            model_name = re.sub(r"-\d{8}$", "-latest", model_name)
         provider = AnthropicProvider(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         model = AnthropicModel(model_name, provider=provider)
 
