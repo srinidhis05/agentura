@@ -52,6 +52,8 @@ type AgentHeartbeatEntry struct {
 type AgentHeartbeatConfig struct {
 	Every           string             `yaml:"every"`            // e.g. "30m", "1h"
 	Target          string             `yaml:"target"`           // Slack channel or "none"
+	Observe         string             `yaml:"observe"`          // observe channel for status updates
+	Silent          bool               `yaml:"silent"`           // silent mode: notifications go to observe, not target
 	Model           string             `yaml:"model"`            // model override
 	LightContext    bool               `yaml:"light_context"`    // send only HEARTBEAT.md
 	IsolatedSession bool               `yaml:"isolated_session"` // fresh session per beat
