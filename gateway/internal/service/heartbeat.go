@@ -281,7 +281,7 @@ func (h *HeartbeatRunner) deliverAlert(agent config.AgentHeartbeatEntry, output 
 		"domain", agent.Domain, "skills", payload.Due)
 }
 
-// triggerDueSkill executes a single due skill and logs the result.
+// triggerDueSkill executes a single due skill and posts the result to the channel.
 func (h *HeartbeatRunner) triggerDueSkill(domain, skill, channel, botToken string) {
 	slog.Info("heartbeat: triggering skill", "domain", domain, "skill", skill)
 
@@ -294,7 +294,7 @@ func (h *HeartbeatRunner) triggerDueSkill(domain, skill, channel, botToken strin
 		},
 	}
 
-	_, err := h.executor.Execute(ctx, domain, skill, req)
+	resp, err := h.executor.Execute(ctx, domain, skill, req)
 	if err != nil {
 		slog.Error("heartbeat: skill execution failed",
 			"domain", domain, "skill", skill, "error", err)
@@ -303,7 +303,15 @@ func (h *HeartbeatRunner) triggerDueSkill(domain, skill, channel, botToken strin
 		return
 	}
 
-	slog.Info("heartbeat: skill completed", "domain", domain, "skill", skill)
+	// Post skill output to the channel so results are visible
+	output := extractHeartbeatOutput(resp)
+	if output != "" && output != "null" && output != "{}" {
+		postSlackMessageFromService(botToken, channel,
+			fmt.Sprintf(":white_check_mark: *%s* completed:\n%s", skill, truncateOutput(output, 3500)))
+	}
+
+	slog.Info("heartbeat: skill completed", "domain", domain, "skill", skill,
+		"output_len", len(output))
 }
 
 // findBotToken looks up the Slack bot token for a domain from configured apps.
@@ -349,6 +357,14 @@ func parseHHMM(s string) (int, int) {
 	var h, m int
 	fmt.Sscanf(s, "%d:%d", &h, &m)
 	return h, m
+}
+
+// truncateOutput trims output to maxLen characters for Slack posting.
+func truncateOutput(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "\n... (truncated)"
 }
 
 // isPlaceholder checks if a string is an unresolved env var placeholder.
