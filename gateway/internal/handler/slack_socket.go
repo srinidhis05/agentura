@@ -843,9 +843,15 @@ func (m *SlackSocketManager) handleWatchBotMessage(app *config.SlackAppConfig, w
 		"thread_ts", ev.TimeStamp,
 	)
 
+	// Prepend domain scope so dispatchAndFormat gets "domain/skill" format
+	target := wb.Skill
+	if app.DomainScope != "" && !strings.Contains(target, "/") {
+		target = app.DomainScope + "/" + target
+	}
+
 	cmd := slackCommand{
 		Action: "run",
-		Target: app.DomainScope + "/" + wb.Skill,
+		Target: target,
 		Input: map[string]any{
 			"order_ids": orderIDs,
 			"thread_ts": ev.TimeStamp,
