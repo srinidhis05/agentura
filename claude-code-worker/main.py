@@ -64,8 +64,17 @@ async def execute_stream(request: AgentRequest):
         start = time.monotonic()
         iteration_count = 0
 
-        # Write input to workspace
+        # Write input to workspace — git init required by Claude Code SDK
+        import subprocess
         Path(WORK_DIR).mkdir(parents=True, exist_ok=True)
+        if not (Path(WORK_DIR) / ".git").exists():
+            subprocess.run(["git", "init"], cwd=WORK_DIR, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "--allow-empty", "-m", "init"],
+                cwd=WORK_DIR, capture_output=True,
+                env={**os.environ, "GIT_AUTHOR_NAME": "agentura", "GIT_AUTHOR_EMAIL": "bot@agentura",
+                     "GIT_COMMITTER_NAME": "agentura", "GIT_COMMITTER_EMAIL": "bot@agentura"},
+            )
 
         allowed_tools = request.allowed_tools or [
             "Read", "Write", "Edit", "Bash", "Glob", "Grep",
