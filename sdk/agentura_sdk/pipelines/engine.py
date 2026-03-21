@@ -294,12 +294,19 @@ def _get_fleet_store():
         return None
 
 
+MAX_AGENT_OUTPUT_CHARS = int(os.environ.get("MAX_AGENT_OUTPUT_CHARS", "50000"))
+
+
 def _compact_agent_results(results: list[dict]) -> list[dict]:
     """Strip large fields from agent results for fan-in phases.
 
     Specialist skills wrap JSON output in markdown code blocks (```json ... ```).
     Parse these to clean structured data to avoid blowing the context window.
+    Per-agent output is capped at MAX_AGENT_OUTPUT_CHARS to prevent exceeding
+    the 200K token limit on downstream skills (verifier, reporter).
     """
+    import re
+
     compacted = []
     for r in results:
         entry = {
@@ -315,7 +322,6 @@ def _compact_agent_results(results: list[dict]) -> list[dict]:
             raw = output.get("raw_output", "")
             if isinstance(raw, str) and raw.strip().startswith("```"):
                 # Parse JSON from markdown code block
-                import re
                 match = re.search(r"```(?:json)?\s*\n(.*?)\n```", raw, re.DOTALL)
                 if match:
                     try:
@@ -328,6 +334,23 @@ def _compact_agent_results(results: list[dict]) -> list[dict]:
                 entry["output"] = output
         else:
             entry["output"] = output
+
+        # Cap output size to prevent blowing context window on downstream fan-in
+        serialized = json.dumps(entry["output"], default=str)
+        if len(serialized) > MAX_AGENT_OUTPUT_CHARS:
+            agent_id = entry["agent_id"]
+            original_len = len(serialized)
+            truncated = serialized[:MAX_AGENT_OUTPUT_CHARS]
+            entry["output"] = {
+                "truncated": True,
+                "original_chars": original_len,
+                "content": truncated,
+                "note": f"Output truncated from {original_len} to {MAX_AGENT_OUTPUT_CHARS} chars for fan-in",
+            }
+            logger.warning(
+                "agent %s output truncated: %d -> %d chars",
+                agent_id, original_len, MAX_AGENT_OUTPUT_CHARS,
+            )
         compacted.append(entry)
     return compacted
 

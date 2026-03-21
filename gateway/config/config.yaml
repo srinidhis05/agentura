@@ -282,6 +282,36 @@ triggers:
             extract:
               input: "Watch {corridor} corridor for 7 days"
             description: "Set a daily corridor watch"
+          - pattern: "retention {question}"
+            skill: "retention-analyst"
+            extract:
+              input: "{question}"
+            description: "Deep retention and churn analysis"
+          - pattern: "revenue {question}"
+            skill: "revenue-analyst"
+            extract:
+              input: "{question}"
+            description: "TPV, FX spread, corridor P&L analysis"
+          - pattern: "ops {question}"
+            skill: "ops-analyst"
+            extract:
+              input: "{question}"
+            description: "P90 TAT, SLA breaches, acquirer health"
+          - pattern: "kyc {question}"
+            skill: "kyc-analyst"
+            extract:
+              input: "{question}"
+            description: "KYC funnel, rejection patterns, provider performance"
+          - pattern: "experiment {question}"
+            skill: "experimentation-analyst"
+            extract:
+              input: "{question}"
+            description: "A/B test analysis with statistical rigor"
+          - pattern: "acquisition {question}"
+            skill: "acquisition-analyst"
+            extract:
+              input: "{question}"
+            description: "D0 activation, signup funnel, referral quality"
       - name: ge
         signing_secret: "${SLACK_GE_SIGNING_SECRET}"
         bot_token: "${SLACK_GE_BOT_TOKEN}"
@@ -302,9 +332,11 @@ agents:
     heartbeat:
       every: "30m"
       target: "${GROWTH_HEARTBEAT_CHANNEL}"
+      observe: "C0ALSCUV7J8"
       model: "anthropic/claude-sonnet-4-5-20250929"
       light_context: true
       isolated_session: true
+      silent: true
       active_hours:
         start: "03:00"
         end: "17:00"
@@ -318,6 +350,7 @@ agents:
       model: "anthropic/claude-sonnet-4-5-20250929"
       light_context: true
       isolated_session: true
+      silent: true
       active_hours:
         start: "02:30"
         end: "17:30"

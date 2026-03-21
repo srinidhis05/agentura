@@ -333,10 +333,18 @@ def _update_canvas(args: dict) -> str:
 def _lookup_channel(args: dict) -> str:
     client = _client(args.get("bot_token"))
     target = args["name"].lstrip("#").lower()
-    resp = client.conversations_list(types="public_channel,private_channel", limit=1000)
-    for ch in resp.data.get("channels", []):
-        if ch["name"].lower() == target:
-            return json.dumps({"id": ch["id"], "name": ch["name"], "is_private": ch.get("is_private", False)})
+    cursor = None
+    while True:
+        kwargs = {"types": "public_channel,private_channel", "limit": 200}
+        if cursor:
+            kwargs["cursor"] = cursor
+        resp = client.conversations_list(**kwargs)
+        for ch in resp.data.get("channels", []):
+            if ch["name"].lower() == target:
+                return json.dumps({"id": ch["id"], "name": ch["name"], "is_private": ch.get("is_private", False)})
+        cursor = resp.data.get("response_metadata", {}).get("next_cursor", "")
+        if not cursor:
+            break
     return json.dumps({"error": f"Channel #{target} not found"})
 
 
