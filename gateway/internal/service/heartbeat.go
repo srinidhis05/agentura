@@ -162,16 +162,43 @@ func (h *HeartbeatRunner) runHeartbeat(ctx context.Context, agent config.AgentHe
 		heartbeatExecutionsTotal.WithLabelValues(domain, "error").Inc()
 		slog.Error("heartbeat: execution failed",
 			"domain", domain, "duration_s", duration, "error", err)
+		if ch := agent.Heartbeat.Observe; ch != "" {
+			if token := h.findBotToken(domain); token != "" {
+				postSlackMessageFromService(token, ch,
+					fmt.Sprintf(":x: *%s* heartbeat failed (%.1fs): %s", domain, duration, err.Error()))
+			}
+		}
 		return
 	}
 
 	output := extractHeartbeatOutput(resp)
+
+	if isExecutorError(output) {
+		heartbeatExecutionsTotal.WithLabelValues(domain, "error").Inc()
+		slog.Error("heartbeat: executor returned error in output",
+			"domain", domain, "duration_s", duration,
+			"output_preview", truncateOutput(output, 200))
+		if ch := agent.Heartbeat.Observe; ch != "" {
+			if token := h.findBotToken(domain); token != "" {
+				postSlackMessageFromService(token, ch,
+					fmt.Sprintf(":x: *%s* heartbeat executor error (%.1fs): %s", domain, duration, truncateOutput(output, 300)))
+			}
+		}
+		return
+	}
 
 	if isHeartbeatOK(output, agent.Heartbeat.AckMaxChars) {
 		heartbeatExecutionsTotal.WithLabelValues(domain, "ok").Inc()
 		heartbeatSuppressedTotal.WithLabelValues(domain).Inc()
 		slog.Info("heartbeat: HEARTBEAT_OK — suppressed",
 			"domain", domain, "duration_s", duration)
+		// Notify observe channel even when suppressed
+		if ch := agent.Heartbeat.Observe; ch != "" {
+			if token := h.findBotToken(domain); token != "" {
+				postSlackMessageFromService(token, ch,
+					fmt.Sprintf(":white_check_mark: *%s* heartbeat OK (%.1fs)", domain, duration))
+			}
+		}
 		return
 	}
 
@@ -183,7 +210,9 @@ func (h *HeartbeatRunner) runHeartbeat(ctx context.Context, agent config.AgentHe
 	h.deliverAlert(agent, output)
 }
 
-// extractHeartbeatOutput pulls the raw text output from the executor response.
+// extractHeartbeatOutput pulls the output from the executor response.
+// If the output contains rich_output, returns it as JSON for Block Kit rendering.
+// Otherwise returns raw text for plain posting.
 func extractHeartbeatOutput(resp json.RawMessage) string {
 	var result map[string]any
 	if err := json.Unmarshal(resp, &result); err != nil {
@@ -191,6 +220,13 @@ func extractHeartbeatOutput(resp json.RawMessage) string {
 	}
 
 	if output, ok := result["output"].(map[string]any); ok {
+		// If output has rich_output, return it as JSON so Block Kit renderer picks it up
+		if _, hasRich := output["rich_output"]; hasRich {
+			b, err := json.Marshal(output)
+			if err == nil {
+				return string(b)
+			}
+		}
 		if raw, ok := output["raw_output"].(string); ok && raw != "" {
 			return raw
 		}
@@ -204,6 +240,26 @@ func extractHeartbeatOutput(resp json.RawMessage) string {
 	}
 
 	return string(resp)
+}
+
+// isExecutorError detects when executor output contains an upstream API/runtime error
+// rather than actual skill output. Prevents raw errors from being posted to Slack.
+func isExecutorError(output string) bool {
+	errorPatterns := []string{
+		"Error code: 4",           // HTTP 4xx from Anthropic/OpenRouter
+		"Error code: 5",           // HTTP 5xx
+		"credit balance is too low",
+		"rate_limit_error",
+		"authentication_error",
+		"overloaded_error",
+		"Traceback (most recent",  // Python stack trace from executor
+	}
+	for _, p := range errorPatterns {
+		if strings.Contains(output, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // isHeartbeatOK returns true if the response indicates nothing needs attention.
@@ -243,33 +299,39 @@ func (h *HeartbeatRunner) deliverAlert(agent config.AgentHeartbeatEntry, output 
 	cleaned = strings.TrimSuffix(cleaned, "```")
 	cleaned = strings.Trim(cleaned, "` \n\r\t")
 
+	// Observe channel gets operational notifications; target gets only skill output
+	observeChannel := agent.Heartbeat.Observe
+
 	if err := json.Unmarshal([]byte(cleaned), &payload); err != nil || len(payload.Due) == 0 {
-		// Couldn't parse — post raw output as fallback
-		postSlackMessageFromService(botToken, target, output)
+		// Couldn't parse — log it, post to observe only
+		if observeChannel != "" {
+			postSlackMessageFromService(botToken, observeChannel,
+				fmt.Sprintf(":warning: *%s* heartbeat returned unparseable output (%d chars)", agent.Domain, len(output)))
+		}
 		slog.Info("heartbeat: alert delivered (raw)", "domain", agent.Domain)
 		return
 	}
 
-	// Post formatted notification
+	// Post "skills due" notification to observe channel only (operational noise)
 	skillList := strings.Join(payload.Due, ", ")
-	msg := fmt.Sprintf(":heartbeat: *Heartbeat — %d skill(s) due:* %s", len(payload.Due), skillList)
-	if payload.Message != "" {
-		msg += "\n> " + payload.Message
+	msg := fmt.Sprintf(":heartbeat: *%d skill(s) due:* %s", len(payload.Due), skillList)
+	if observeChannel != "" {
+		postSlackMessageFromService(botToken, observeChannel, msg)
 	}
-	msg += "\n_Triggering now..._"
-	postSlackMessageFromService(botToken, target, msg)
+	slog.Info("heartbeat: skills due", "domain", agent.Domain, "skills", skillList)
 
-	// Trigger each due skill
+	// Trigger each due skill — skills self-post via MCP, failures go to observe
 	for _, skill := range payload.Due {
-		go h.triggerDueSkill(agent.Domain, skill, target, botToken)
+		go h.triggerDueSkill(agent.Domain, skill, observeChannel, botToken)
 	}
 
 	slog.Info("heartbeat: dispatched due skills",
 		"domain", agent.Domain, "skills", payload.Due)
 }
 
-// triggerDueSkill executes a single due skill and logs the result.
-func (h *HeartbeatRunner) triggerDueSkill(domain, skill, channel, botToken string) {
+// triggerDueSkill executes a single due skill. Skills handle their own Slack delivery
+// via MCP tools — the heartbeat runner only logs results and posts failures to observe.
+func (h *HeartbeatRunner) triggerDueSkill(domain, skill, observeChannel, botToken string) {
 	slog.Info("heartbeat: triggering skill", "domain", domain, "skill", skill)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -285,8 +347,10 @@ func (h *HeartbeatRunner) triggerDueSkill(domain, skill, channel, botToken strin
 	if err != nil {
 		slog.Error("heartbeat: skill execution failed",
 			"domain", domain, "skill", skill, "error", err)
-		postSlackMessageFromService(botToken, channel,
-			fmt.Sprintf(":x: *%s* failed: %s", skill, err.Error()))
+		if observeChannel != "" {
+			postSlackMessageFromService(botToken, observeChannel,
+				fmt.Sprintf(":x: *%s* failed: %s", skill, err.Error()))
+		}
 		return
 	}
 
@@ -336,6 +400,14 @@ func parseHHMM(s string) (int, int) {
 	var h, m int
 	fmt.Sscanf(s, "%d:%d", &h, &m)
 	return h, m
+}
+
+// truncateOutput trims output to maxLen characters for Slack posting.
+func truncateOutput(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "\n... (truncated)"
 }
 
 // isPlaceholder checks if a string is an unresolved env var placeholder.

@@ -52,11 +52,13 @@ type AgentHeartbeatEntry struct {
 type AgentHeartbeatConfig struct {
 	Every           string             `yaml:"every"`            // e.g. "30m", "1h"
 	Target          string             `yaml:"target"`           // Slack channel or "none"
+	Observe         string             `yaml:"observe"`          // optional channel for status notifications
 	Model           string             `yaml:"model"`            // model override
 	LightContext    bool               `yaml:"light_context"`    // send only HEARTBEAT.md
 	IsolatedSession bool               `yaml:"isolated_session"` // fresh session per beat
 	ActiveHours     ActiveHoursConfig  `yaml:"active_hours"`
 	AckMaxChars     int                `yaml:"ack_max_chars"`    // max chars for HEARTBEAT_OK ack
+	Silent          bool               `yaml:"silent"`           // suppress ack messages, still trigger skills
 }
 
 // ActiveHoursConfig gates heartbeat execution to a time window.

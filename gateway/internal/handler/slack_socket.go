@@ -113,6 +113,12 @@ func (m *SlackSocketManager) handleEventsAPI(app *config.SlackAppConfig, evtAPI 
 			}
 			return
 		}
+		// Skip messages posted via API (e.g. our own bot replies) — they have
+		// no User set.  Without this guard the bot's thread reply loops back
+		// as a new event and gets re-dispatched as a standalone channel post.
+		if ev.User == "" {
+			return
+		}
 		if !m.isEventEnabled(app, "message") {
 			return
 		}
@@ -837,9 +843,15 @@ func (m *SlackSocketManager) handleWatchBotMessage(app *config.SlackAppConfig, w
 		"thread_ts", ev.TimeStamp,
 	)
 
+	// Prepend domain scope so dispatchAndFormat gets "domain/skill" format
+	target := wb.Skill
+	if app.DomainScope != "" && !strings.Contains(target, "/") {
+		target = app.DomainScope + "/" + target
+	}
+
 	cmd := slackCommand{
 		Action: "run",
-		Target: wb.Skill,
+		Target: target,
 		Input: map[string]any{
 			"order_ids": orderIDs,
 			"thread_ts": ev.TimeStamp,
