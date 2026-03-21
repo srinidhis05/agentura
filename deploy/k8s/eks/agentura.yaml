@@ -469,6 +469,8 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+            - name: API_TARGET
+              value: http://gateway:3001
           readinessProbe:
             httpGet:
               path: /
