@@ -46,6 +46,8 @@ def _resolve_model(model: str) -> str:
     return {
         "claude-sonnet-4.5": "claude-sonnet-4-5-latest",
         "claude-haiku-4.5": "claude-haiku-4-5-latest",
+        "claude-opus-4.6": "claude-opus-4-6-20250430",
+        "claude-opus-4-6": "claude-opus-4-6-20250430",
     }.get(name, name)
 
 
