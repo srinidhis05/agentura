@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: notion-mcp
+  name: notion-mcp
+  namespace: agentura-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notion-mcp
+  template:
+    metadata:
+      labels:
+        app: notion-mcp
+    spec:
+      containers:
+        - name: notion-mcp
+          image: 441250065216.dkr.ecr.ap-south-1.amazonaws.com/agentura/notion-mcp:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8095
+          envFrom:
+            - secretRef:
+                name: agentura-api-keys
+                optional: true
+            - secretRef:
+                name: agentura-mcp-config
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: "250m"
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notion-mcp
+  namespace: agentura-system
+spec:
+  selector:
+    app: notion-mcp
+  ports:
+    - port: 8095
+      targetPort: 8095
