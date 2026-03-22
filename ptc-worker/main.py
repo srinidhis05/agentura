@@ -114,7 +114,8 @@ def _mcp_initialize(server_url: str) -> bool:
 def _fetch_tools_rest(server_url: str) -> list[dict] | None:
     """Try REST API: GET {url}/tools → [{name, description, input_schema}]."""
     try:
-        resp = httpx.get(f"{server_url}/tools", timeout=MCP_FETCH_TIMEOUT)
+        headers = _mcp_server_headers.get(server_url, {})
+        resp = httpx.get(f"{server_url}/tools", headers=headers, timeout=MCP_FETCH_TIMEOUT)
         if resp.status_code in (405, 406):
             logger.debug("REST GET /tools returned %d for %s — falling back to MCP protocol", resp.status_code, server_url)
             return None  # Not REST — signal to try MCP protocol
@@ -252,9 +253,12 @@ def _fetch_mcp_tools(
 
 def _call_mcp_tool_rest(server_url: str, tool_name: str, arguments: dict) -> str:
     """Call tool via REST API: POST {url}/tools/call."""
+    headers = {"Content-Type": "application/json"}
+    headers.update(_mcp_server_headers.get(server_url, {}))
     resp = httpx.post(
         f"{server_url}/tools/call",
         json={"name": tool_name, "arguments": arguments},
+        headers=headers,
         timeout=MCP_CALL_TIMEOUT,
     )
     resp.raise_for_status()
