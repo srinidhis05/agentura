@@ -127,6 +127,7 @@ func (h *SkillHandler) ExecuteSkill(w http.ResponseWriter, r *http.Request) {
 			Skill:     skill,
 			InputData: req.InputData,
 			DryRun:    req.DryRun,
+			UserID:    req.UserID,
 		}
 		result, err := h.dispatcher.Dispatch(r.Context(), dispatchReq)
 		if err != nil {
