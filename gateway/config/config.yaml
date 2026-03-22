@@ -315,16 +315,50 @@ triggers:
       - name: ge
         signing_secret: "${SLACK_GE_SIGNING_SECRET}"
         bot_token: "${SLACK_GE_BOT_TOKEN}"
-        mode: "http"
+        app_token: "${SLACK_GE_APP_TOKEN}"
+        mode: "socket"
         domain_scope: "ge"
         allowed_skills: ["*"]
         ack_reaction: "eyes"
+        typing_reaction: "hourglass_flowing_sand"
         dm:
-          policy: "pairing"
+          policy: "open"
         events:
           message: true
           app_mention: true
           reaction: true
+        commands:
+          - pattern: "briefing"
+            skill: "daily-briefing"
+            extract: {"project_slug": "global-equities"}
+            description: "Morning briefing for GE team"
+          - pattern: "wrap"
+            skill: "daily-wrap"
+            extract: {"project_slug": "global-equities"}
+            description: "End-of-day wrap-up"
+          - pattern: "tracker"
+            skill: "action-tracker"
+            extract: {"project_slug": "global-equities"}
+            description: "Check action items, deadlines, blockers"
+          - pattern: "scan meetings"
+            skill: "meeting-scan"
+            extract: {"project_slug": "global-equities"}
+            description: "Scan unprocessed meetings and pending emails"
+          - pattern: "refresh"
+            skill: "context-refresh"
+            extract: {"project_slug": "global-equities"}
+            description: "Rebuild Notion context index"
+          - pattern: "sync {notes}"
+            skill: "notion-sync"
+            extract: {"project_slug": "global-equities", "meeting_notes": "{notes}"}
+            description: "Sync meeting notes to Notion"
+          - pattern: "heartbeat"
+            skill: "heartbeat"
+            description: "Check which skills are due now"
+          - pattern: "query {question}"
+            skill: "pm-query"
+            extract: {"project_slug": "global-equities", "query": "{question}"}
+            description: "Ask a question about GE project"
 
 agents:
   - domain: growth
@@ -354,5 +388,20 @@ agents:
       active_hours:
         start: "02:30"
         end: "17:30"
+        timezone: "UTC"
+      ack_max_chars: 300
+  - domain: ge
+    coordinator: ge-coordinator
+    heartbeat:
+      every: "30m"
+      target: "C0AF7RASHNX"
+      observe: "C0AF7RASHNX"
+      model: "anthropic/claude-sonnet-4-5-20250929"
+      light_context: true
+      isolated_session: true
+      silent: true
+      active_hours:
+        start: "03:00"
+        end: "15:00"
         timezone: "UTC"
       ack_max_chars: 300
