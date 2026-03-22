@@ -15,6 +15,7 @@ type ExecutionDispatchRequest struct {
 	Parameters  map[string]any `json:"parameters,omitempty"`
 	InputData   map[string]any `json:"input_data,omitempty"`
 	DryRun      bool           `json:"dry_run,omitempty"`
+	UserID      string         `json:"user_id,omitempty"`
 }
 
 // ExecutionDispatcher abstracts skill execution across different backends.

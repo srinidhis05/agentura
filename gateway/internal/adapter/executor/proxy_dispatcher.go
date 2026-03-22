@@ -22,6 +22,7 @@ func (d *ProxyDispatcher) Dispatch(ctx context.Context, req ExecutionDispatchReq
 	execReq := ExecuteRequest{
 		InputData: req.InputData,
 		DryRun:    req.DryRun,
+		UserID:    req.UserID,
 	}
 	if execReq.InputData == nil {
 		execReq.InputData = make(map[string]any)
