@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: clickup-mcp
+  name: clickup-mcp
+  namespace: agentura-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickup-mcp
+  template:
+    metadata:
+      labels:
+        app: clickup-mcp
+    spec:
+      containers:
+        - name: clickup-mcp
+          image: 441250065216.dkr.ecr.ap-south-1.amazonaws.com/agentura/clickup-mcp:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8096
+          envFrom:
+            - secretRef:
+                name: agentura-api-keys
+                optional: true
+            - secretRef:
+                name: agentura-mcp-config
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8096
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: "250m"
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickup-mcp
+  namespace: agentura-system
+spec:
+  selector:
+    app: clickup-mcp
+  ports:
+    - port: 8096
+      targetPort: 8096
