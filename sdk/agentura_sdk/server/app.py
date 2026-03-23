@@ -2150,6 +2150,54 @@ def cortex_synthesize(req: SynthesizeRequest):
     )
 
 
+class MaintenanceResponse(BaseModel):
+    synthesis: SynthesizeResponse
+    decayed_count: int = 0
+
+
+@app.post("/api/v1/cortex/maintain", response_model=MaintenanceResponse)
+def cortex_maintain():
+    """Run full memory maintenance: synthesize patterns + decay stale reflexions.
+
+    Designed to be called by a K8s CronJob on a daily schedule.
+    """
+    from agentura_sdk.cortex.synthesizer import synthesize
+
+    result = synthesize(since_hours=24, min_pattern_count=2)
+
+    # Decay is now handled inside synthesize(), but report the count
+    decayed = 0
+    try:
+        from agentura_sdk.memory import get_memory_store
+
+        store = get_memory_store()
+        if hasattr(store, "_pg") and hasattr(store._pg, "decay_stale_reflexions"):
+            decayed = store._pg.decay_stale_reflexions(days=30)
+        elif hasattr(store, "decay_stale_reflexions"):
+            decayed = store.decay_stale_reflexions(days=30)
+    except Exception:
+        pass
+
+    return MaintenanceResponse(
+        synthesis=SynthesizeResponse(
+            executions_analyzed=result.executions_analyzed,
+            skills_analyzed=result.skills_analyzed,
+            candidates=[
+                SynthesizeCandidateResponse(
+                    rule=c.rule,
+                    applies_when=c.applies_when,
+                    pattern_count=c.pattern_count,
+                    skill=c.skill,
+                )
+                for c in result.candidates
+            ],
+            duplicates_skipped=result.duplicates_skipped,
+            stored_count=result.stored_count,
+        ),
+        decayed_count=decayed,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Domain API
 # ---------------------------------------------------------------------------

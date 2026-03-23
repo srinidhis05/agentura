@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cortex-maintenance
+  namespace: agentura-system
+  labels:
+    app: cortex-maintenance
+spec:
+  schedule: "0 2 * * *"  # Daily at 02:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app: cortex-maintenance
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: maintain
+              image: curlimages/curl:8.5.0
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Running cortex maintenance..."
+                  RESPONSE=$(curl -sf -X POST \
+                    http://executor:8000/api/v1/cortex/maintain \
+                    -H "Content-Type: application/json" \
+                    -w "\nHTTP_STATUS:%{http_code}" \
+                    --max-time 90)
+                  HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | sed 's/HTTP_STATUS://')
+                  BODY=$(echo "$RESPONSE" | grep -v "HTTP_STATUS:")
+                  echo "Status: $HTTP_STATUS"
+                  echo "Response: $BODY"
+                  if [ "$HTTP_STATUS" != "200" ]; then
+                    echo "ERROR: maintenance failed with status $HTTP_STATUS"
+                    exit 1
+                  fi
+                  echo "Done."
+              resources:
+                limits:
+                  cpu: "50m"
+                  memory: 32Mi

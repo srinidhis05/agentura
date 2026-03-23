@@ -166,6 +166,20 @@ def synthesize(
             except Exception:
                 logger.debug("Failed to store synthesis reflexion", exc_info=True)
 
+    # Decay stale reflexions after synthesis (DEC-066)
+    if not dry_run:
+        try:
+            if hasattr(store, "decay_stale_reflexions"):
+                decayed = store.decay_stale_reflexions(days=30)
+                if decayed:
+                    logger.info("Decayed %d stale reflexions", decayed)
+            elif hasattr(store, "_pg") and hasattr(store._pg, "decay_stale_reflexions"):
+                decayed = store._pg.decay_stale_reflexions(days=30)
+                if decayed:
+                    logger.info("Decayed %d stale reflexions", decayed)
+        except Exception:
+            logger.debug("Failed to decay stale reflexions", exc_info=True)
+
     return result
 
 
