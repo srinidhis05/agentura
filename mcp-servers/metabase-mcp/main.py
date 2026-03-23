@@ -183,11 +183,7 @@ TOOLS = [
 def health():
     if not METABASE_URL or not API_KEY:
         return HealthResponse(status="missing_config")
-    try:
-        _get("/user/current")
-        return HealthResponse(status="ready")
-    except Exception:
-        return HealthResponse(status="degraded")
+    return HealthResponse(status="ready")
 
 
 @app.get("/tools")

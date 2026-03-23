@@ -15,6 +15,8 @@ spec:
       labels:
         app: metabase-mcp
     spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: metabase-mcp
           image: 441250065216.dkr.ecr.ap-south-1.amazonaws.com/agentura/metabase-mcp:latest
