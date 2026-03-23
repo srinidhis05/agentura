@@ -342,7 +342,7 @@ triggers:
             description: "Check action items, deadlines, blockers"
           - pattern: "scan meetings"
             skill: "meeting-scan"
-            extract: {"project_slug": "global-equities"}
+            extract: {"project_slug": "global-equities", "days_back": "30"}
             description: "Scan unprocessed meetings and pending emails"
           - pattern: "refresh"
             skill: "context-refresh"
