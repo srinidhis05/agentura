@@ -309,7 +309,9 @@ func (m *SlackSocketManager) dispatchAndFormat(app *config.SlackAppConfig, chann
 	// then fall back to domain triage if no alias matches.
 	if cmd.Action == "auto" {
 		if aliasCmd := matchCommandAlias(cmd.Text, app); aliasCmd != nil {
+			savedUserID := cmd.UserID
 			cmd = *aliasCmd
+			cmd.UserID = savedUserID
 		}
 	}
 
