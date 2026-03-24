@@ -43,9 +43,7 @@ docs/OPENSOURCE_EDITION.md
 docs/DX_ROADMAP.md
 
 # Private workspace content (lives in a separate private repo)
-# skills/dev/, skills/examples/, skills/incubator/ are tracked (public showcase)
-# agency/incubator/ is tracked (public showcase)
-skills/ecm/
+# skills/dev/, skills/examples/ are tracked
 skills/ge/
 skills/hr/
 skills/platform/
@@ -54,7 +52,6 @@ skills/product/
 skills/productivity/
 skills/qa/
 skills/support/
-agency/ecm/
 agency/ge/
 agency/pm/
 agency/agents.yaml

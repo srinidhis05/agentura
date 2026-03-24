@@ -99,7 +99,7 @@ def test_env_var_overrides_gateway():
     # 1. Gateway discovers Notion at vigil URL
     registry.register("notion", MCPServerConfig(
         name="notion",
-        url="https://vigil.internal.genorim.xyz/mcp-connect/notion",
+        url="https://your-mcp-gateway.example.com/mcp-connect/notion",
         transport="streamable-http"
     ))
 
@@ -208,12 +208,12 @@ def test_hybrid_gateway_plus_individual():
     # Servers from Vigil gateway
     registry.register("clickup", MCPServerConfig(
         name="clickup",
-        url="https://vigil.internal.genorim.xyz/mcp-connect/clickup",
+        url="https://your-mcp-gateway.example.com/mcp-connect/clickup",
         transport="streamable-http"
     ))
     registry.register("granola", MCPServerConfig(
         name="granola",
-        url="https://vigil.internal.genorim.xyz/mcp-connect/granola",
+        url="https://your-mcp-gateway.example.com/mcp-connect/granola",
         transport="streamable-http"
     ))
 

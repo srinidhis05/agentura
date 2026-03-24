@@ -84,8 +84,8 @@ export default function TicketsPage() {
             className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground"
           >
             <option value="">All domains</option>
-            <option value="ecm">ECM</option>
-            <option value="incubator">Incubator</option>
+            <option value="ops">Ops</option>
+            <option value="builder">Builder</option>
             <option value="ge">Global Equities</option>
           </select>
         </div>

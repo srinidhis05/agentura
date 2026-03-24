@@ -168,13 +168,13 @@ def create_skill(skill_path: str, lang: str, role: str, skills_dir: str | None):
 def create_agent(agent_path: str, role: str, executor: str, model: str, agency_dir: str | None):
     """Create a new agent scaffold.
 
-    AGENT_PATH should be domain/agent-name, e.g. ecm/my-agent.
+    AGENT_PATH should be domain/agent-name, e.g. sales/my-agent.
     """
     console = Console()
 
     parts = agent_path.strip("/").split("/")
     if len(parts) != 2:
-        console.print("[red]Error: agent path must be domain/name (e.g. ecm/my-agent)[/]")
+        console.print("[red]Error: agent path must be domain/name (e.g. sales/my-agent)[/]")
         raise SystemExit(1)
 
     domain, agent_name = parts

@@ -160,7 +160,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Channel name without # (e.g. growth-pulse)"},
+                "name": {"type": "string", "description": "Channel name without # (e.g. general-alerts)"},
             },
             "required": ["name"],
         },

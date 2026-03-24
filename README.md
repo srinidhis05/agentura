@@ -17,7 +17,7 @@ Correction → Reflexion → Prompt injection = Learning loop that compounds
 **18 skills across 3 public domains**, orchestrated by **5 pipelines** and **6 agents**:
 
 - **4-Agent PR Review Fleet** — Code reviewer, test runner, SLT validator, and doc generator analyze PRs in parallel. A reporter aggregates severity-tagged findings into a single PR comment.
-- **Incubator Pipeline** — Takes a Lovable prototype and produces PRs in both backend (Spring Boot) and mobile (Kotlin/Compose) repos. 7 skills across 4 pipeline phases: analyze → build → refine → ship.
+- **Build Pipeline** — CI/CD pipeline for automated code generation, testing, and deployment.
 - **Agency System** — Agents with personality (SOUL.md), schedules (HEARTBEAT.md), and domain context (DOMAIN.md). Hierarchical delegation with budget controls.
 - **MCP Gateway Integration** — External tools (Gmail, Notion, Slack, ClickUp, Granola) connected via centralized auth broker. Skills declare tool access in config.
 
@@ -102,8 +102,6 @@ https://github.com/user-attachments/assets/48519761-0369-4f5d-9d99-9e5bd9cfc146
 | `pr-doc-generator` | Agent | Generates CHANGELOG entries, README patches, docstrings |
 | `pr-reporter` | Specialist | Aggregates parallel PR review results into one comment |
 
-### `incubator/` — Prototype-to-Production (7 skills)
-
 | Skill | Role | What It Does |
 |-------|------|--------------|
 | `orchestrate` | Manager | Routes to analyze/build/refine/ship pipelines |
@@ -150,10 +148,9 @@ GitHub PR Webhook (opened / synchronize)
     └─────────────────────────────────┘
 ```
 
-### Incubator — Prototype to Production
+### Builder — CI/CD Pipeline
 
 ```
-incubator-analyze → incubator-build → incubator-refine → incubator-ship
 
 Build phase:
   pit-builder ──┐
@@ -264,15 +261,14 @@ agency/
 ```
 
 ```yaml
-# agency/incubator/pit-builder/agent.yaml
 name: pit-builder
-domain: incubator
+domain: dev
 role: field
 executor: claude-code
 model: anthropic/claude-sonnet-4-5-20250929
-reports_to: incubator-lead
+reports_to: dev-lead
 skills:
-  - incubator/pit-builder
+  - dev/scaffolder
 budget:
   monthly_limit_usd: 100
   per_execution_limit: 3.00
@@ -311,15 +307,12 @@ agentura/
 │
 ├── skills/                           # Skill definitions (Markdown + YAML)
 │   ├── dev/                          # 8 skills: PR fleet, app-builder, deployer, triage
-│   ├── incubator/                    # 7 skills: prototype → production pipeline
 │   └── examples/                     # 3 reference implementations
 │
 ├── agency/                           # Agent definitions (YAML + SOUL.md + HEARTBEAT.md)
-│   └── incubator/                    # 6 agents: lead, spec-analyzer, builders, QA, reporter
 │
 ├── pipelines/                        # Pipeline orchestration (YAML)
 │   ├── github-pr-parallel.yaml       # 4-agent PR review fleet
-│   └── incubator-*.yaml              # 4-phase incubation pipeline
 │
 ├── claude-code-worker/               # CC worker Docker image
 ├── ptc-worker/                       # PTC worker Docker image

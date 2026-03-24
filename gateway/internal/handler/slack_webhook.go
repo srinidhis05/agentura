@@ -372,7 +372,7 @@ func (h *SlackWebhookHandler) isEventEnabled(app *config.SlackAppConfig, eventTy
 
 func (h *SlackWebhookHandler) handleMessage(w http.ResponseWriter, app *config.SlackAppConfig, event domain.SlackMessageEvent) {
 	text := strings.TrimSpace(event.Text)
-	// Strip bot mention prefix (e.g. "<@U12345> run incubator/spec-analyzer")
+	// Strip bot mention prefix (e.g. "<@U12345> run dev/code-reviewer")
 	if idx := strings.Index(text, "> "); idx != -1 && strings.HasPrefix(text, "<@") {
 		text = strings.TrimSpace(text[idx+2:])
 	}

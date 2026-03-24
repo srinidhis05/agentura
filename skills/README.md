@@ -42,8 +42,6 @@ The `dev/pr-*` skills work together via the `github-pr-parallel` pipeline — 4 
 
 These are generic templates. Copy one, rename the domain, and adapt the prompt for your use case.
 
-### `incubator/` — Feature Incubation Pipeline
-
 | Skill | Role | Executor | What It Does |
 |-------|------|----------|--------------|
 | `orchestrate` | Manager | — | Routes feature requests to analyze/build/refine/ship pipelines |
@@ -54,7 +52,6 @@ These are generic templates. Copy one, rename the domain, and adapt the prompt f
 | `preview-generator` | Agent | Claude Code | Generates phone-frame previews of the mobile feature |
 | `reporter` | Specialist | — | Aggregates pipeline results into PM-facing summary |
 
-The incubator skills work together via 4 pipelines: `incubator-analyze` → `incubator-build` → `incubator-refine` → `incubator-ship`. Backend and mobile builders run in parallel, then quality-gate verifies, then reporter summarizes.
 
 ## Key Concepts
 

@@ -7,7 +7,7 @@ The gateway has TWO Slack message handlers that MUST stay in sync:
 | File | Mode | Used by |
 |------|------|---------|
 | `slack_webhook.go` | HTTP Events API webhooks | Legacy/fallback |
-| `slack_socket.go` | Socket Mode (WebSocket) | GE, PM, Growth, ECM bots |
+| `slack_socket.go` | Socket Mode (WebSocket) | domain-specific bots |
 
 Both files contain their own copies of `dispatchAndFormat`, `dispatchSkill`, `dispatchAuto`, and related functions. **Any change to dispatch logic in one file MUST be mirrored in the other.**
 

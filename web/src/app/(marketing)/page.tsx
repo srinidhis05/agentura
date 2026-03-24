@@ -6,7 +6,7 @@ export default function LandingPage() {
       <CompoundingIntelligence />
       <AgencySystem />
       <PRFleet />
-      <IncubatorPipeline />
+      <BuildPipeline />
       <HowItWorks />
       <ExecutorTypes />
       <Architecture />
@@ -239,9 +239,9 @@ function AgencySystem() {
                 <span className="h-2 w-2 rounded-full bg-emerald-500/50" />
               </div>
               <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-muted-foreground">
-                <code>{`# ECM Manager — Soul
+                <code>{`# Ops Manager — Soul
 
-You are the ECM Manager, the
+You are the Ops Manager, the
 operational brain behind enterprise
 content management workflows.
 
@@ -308,18 +308,18 @@ not just assignments.`}</code>
                 <span className="h-2 w-2 rounded-full bg-emerald-500/50" />
               </div>
               <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-muted-foreground">
-                <code>{`name: ecm-manager
+                <code>{`name: ops-manager
 role: manager
 executor: claude-code
 skills:
-  - ecm/triage-and-assign
-  - ecm/ecm-daily-flow
-  - ecm/pattern-intelligence
+  - ops/triage
+  - ops/daily-report
+  - ops/pattern-analysis
 budget:
   monthly_limit_usd: 50
   per_execution_limit: 0.50
 delegation:
-  can_assign_to: [ecm-field]
+  can_assign_to: [ops-field]
   max_concurrent_tickets: 10`}</code>
               </pre>
             </div>
@@ -330,7 +330,7 @@ delegation:
         <div className="mt-10 rounded-xl border border-violet-500/20 bg-violet-500/[0.03] p-6 text-center">
           <p className="text-sm text-muted-foreground">
             <span className="font-semibold text-violet-400">14 agents</span> across 4 domains
-            &mdash; ECM, Incubator, Global Equities, Project Management &mdash;
+            &mdash; Ops, DevOps, Analytics, Project Management &mdash;
             each with personality, scheduled heartbeats, and budget controls
           </p>
         </div>
@@ -472,9 +472,9 @@ function PRFleet() {
   );
 }
 
-/* ── Incubator Pipeline ── */
+/* ── Build Pipeline ── */
 
-function IncubatorPipeline() {
+function BuildPipeline() {
   const phases = [
     { name: "Analyze", skill: "spec-analyzer", desc: "Decompose Lovable prototype into backend + mobile specs", color: "text-cyan-400", border: "border-cyan-500/30", bg: "bg-cyan-500/10" },
     { name: "Build", skill: "pit + mobile", desc: "Backend and mobile code generation in parallel", color: "text-emerald-400", border: "border-emerald-500/30", bg: "bg-emerald-500/10" },
@@ -487,7 +487,7 @@ function IncubatorPipeline() {
       <div className="mx-auto max-w-6xl px-6">
         <div className="mb-12 text-center">
           <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-emerald-400">
-            Incubator
+            Build Pipeline
           </p>
           <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
             Prototype to Production Pipeline
@@ -524,20 +524,20 @@ function IncubatorPipeline() {
             <span className="h-2 w-2 rounded-full bg-red-500/50" />
             <span className="h-2 w-2 rounded-full bg-amber-500/50" />
             <span className="h-2 w-2 rounded-full bg-emerald-500/50" />
-            <span className="ml-2 text-[10px] text-muted-foreground">incubator-build.yaml</span>
+            <span className="ml-2 text-[10px] text-muted-foreground">ci-build.yaml</span>
           </div>
           <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-muted-foreground">
-            <code>{`name: incubator-build
+            <code>{`name: ci-build
 description: "Build backend + mobile from spec"
 
 phases:
   - name: codegen
     type: parallel               # fan-out
     steps:
-      - skill: incubator/pit-builder
+      - skill: dev/scaffolder
         agent_id: backend
         required: true
-      - skill: incubator/mobile-builder
+      - skill: dev/builder
         agent_id: frontend
         required: true
 
@@ -545,13 +545,13 @@ phases:
     type: sequential
     fan_in_from: codegen          # fan-in
     steps:
-      - skill: incubator/quality-gate
+      - skill: dev/quality-gate
         agent_id: reviewer
 
   - name: report
     type: sequential
     steps:
-      - skill: incubator/reporter
+      - skill: dev/reporter
         agent_id: reporter`}</code>
           </pre>
         </div>
@@ -1082,7 +1082,7 @@ function SkillsCatalog() {
       ],
     },
     {
-      name: "incubator",
+      name: "builder",
       label: "Feature Incubation",
       color: "emerald",
       skills: [
@@ -1096,14 +1096,14 @@ function SkillsCatalog() {
       ],
     },
     {
-      name: "ecm",
+      name: "ops",
       label: "Enterprise Content Mgmt",
       color: "amber",
       skills: [
         { name: "triage", role: "Agent", desc: "Queries Redshift for stuck orders, classifies, assigns" },
-        { name: "ecm-daily-flow", role: "Agent", desc: "Generates ECM backlog dashboard with trends" },
+        { name: "ops-daily-report", role: "Agent", desc: "Generates daily ops dashboard with trends" },
         { name: "pattern-intelligence", role: "Agent", desc: "Analyzes stuck order patterns, detects SLA breaches" },
-        { name: "process-stuck-order", role: "Agent", desc: "Diagnoses and resolves stuck orders via MCP tools" },
+        { name: "process-ticket-handler", role: "Agent", desc: "Diagnoses and resolves stuck orders via MCP tools" },
       ],
     },
   ];

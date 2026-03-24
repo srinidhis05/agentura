@@ -154,7 +154,7 @@ class MCPRegistry:
         """Discover MCP servers from a running Obot/Vigil registry.
 
         Args:
-            obot_url: Base URL (e.g. https://vigil.internal.genorim.xyz)
+            obot_url: Base URL (e.g. https://your-mcp-gateway.example.com)
             api_key: Bearer token for authenticated access
         """
         import logging
@@ -238,7 +238,7 @@ def get_registry() -> MCPRegistry:
     """Return the MCP registry singleton. Auto-discovers servers on first call.
 
     Env vars:
-        OBOT_URL: Base URL for Obot/Vigil MCP gateway (e.g. https://vigil.internal.genorim.xyz)
+        OBOT_URL: Base URL for Obot/Vigil MCP gateway (e.g. https://your-mcp-gateway.example.com)
         MCP_GATEWAY_API_KEY: Bearer token for Obot/Vigil API access
         MCP_{SERVER}_URL: Override URL for a specific server (takes priority over Obot)
     """

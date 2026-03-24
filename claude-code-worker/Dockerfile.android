@@ -1,4 +1,4 @@
-FROM 441250065216.dkr.ecr.ap-south-1.amazonaws.com/agentura/claude-code-worker:latest
+FROM your-registry.example.com/agentura/claude-code-worker:latest
 
 USER root
 

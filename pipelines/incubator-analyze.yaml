@@ -1,5 +1,0 @@
-name: incubator-analyze
-description: "Analyze Lovable prototype into structured feature spec with clarifying questions"
-steps:
-  - skill: incubator/spec-analyzer
-    required: true
