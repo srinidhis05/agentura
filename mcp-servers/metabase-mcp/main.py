@@ -286,14 +286,44 @@ def _get_dashboard(args: dict) -> str:
     return json.dumps(result, indent=2)
 
 
+def _find_dashboard_by_name(name: str, collection_id: int | None = None) -> dict | None:
+    """Search for an existing dashboard by exact name. Returns first match or None."""
+    results = _get("/search", params={"q": name, "models": "dashboard"})
+    for item in results.get("data", []):
+        if item.get("name") == name:
+            if collection_id is None or item.get("collection_id") == collection_id:
+                return item
+    return None
+
+
+def _clear_dashboard_cards(dashboard_id: int) -> None:
+    """Remove all cards from a dashboard so it can be repopulated."""
+    dash = _get(f"/dashboard/{dashboard_id}")
+    for dc in dash.get("dashcards", []):
+        httpx.delete(
+            f"{METABASE_URL}/api/dashboard/{dashboard_id}/cards",
+            headers=_headers(),
+            params={"dashcardId": dc["id"]},
+            timeout=15,
+        )
+
+
 def _create_dashboard(args: dict) -> str:
-    body = {"name": args["name"]}
+    name = args["name"]
+    collection_id = args.get("collection_id")
+    # Upsert: reuse existing dashboard with same name, clear its cards
+    existing = _find_dashboard_by_name(name, collection_id)
+    if existing:
+        _clear_dashboard_cards(existing["id"])
+        logger.info("Reusing dashboard %d (%s) — cleared old cards", existing["id"], name)
+        return json.dumps({"id": existing["id"], "name": name, "reused": True})
+    body = {"name": name}
     if args.get("description"):
         body["description"] = args["description"]
-    if args.get("collection_id"):
-        body["collection_id"] = args["collection_id"]
+    if collection_id:
+        body["collection_id"] = collection_id
     data = _post("/dashboard", body)
-    return json.dumps({"id": data["id"], "name": data["name"]})
+    return json.dumps({"id": data["id"], "name": data["name"], "reused": False})
 
 
 def _create_card(args: dict) -> str:
