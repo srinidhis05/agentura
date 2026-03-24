@@ -163,17 +163,6 @@ TOOLS = [
             "required": ["name"],
         },
     },
-    {
-        "name": "metabase_get_public_link",
-        "description": "Get or create a public sharing link for a dashboard. Returns embeddable URL.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "dashboard_id": {"type": "integer", "description": "Dashboard ID"},
-            },
-            "required": ["dashboard_id"],
-        },
-    },
 ]
 
 
@@ -203,7 +192,6 @@ def call_tool(req: ToolCallRequest):
         "metabase_create_card": _create_card,
         "metabase_add_card_to_dashboard": _add_card_to_dashboard,
         "metabase_create_collection": _create_collection,
-        "metabase_get_public_link": _get_public_link,
     }
     handler = handlers.get(req.name)
     if not handler:
@@ -317,15 +305,32 @@ def _create_card(args: dict) -> str:
 
 def _add_card_to_dashboard(args: dict) -> str:
     dashboard_id = args["dashboard_id"]
-    body = {
-        "cardId": args["card_id"],
+    # Metabase v0.47+ uses PUT /api/dashboard/{id} with full dashcards array
+    dash = _get(f"/dashboard/{dashboard_id}")
+    existing = []
+    for dc in dash.get("dashcards", []):
+        existing.append({
+            "id": dc["id"],
+            "card_id": dc.get("card", {}).get("id") or dc.get("card_id"),
+            "row": dc.get("row", 0),
+            "col": dc.get("col", 0),
+            "size_x": dc.get("size_x", 9),
+            "size_y": dc.get("size_y", 6),
+        })
+    new_card = {
+        "id": -1,
+        "card_id": args["card_id"],
         "row": args.get("row", 0),
         "col": args.get("col", 0),
         "size_x": args.get("size_x", 9),
         "size_y": args.get("size_y", 6),
     }
-    data = _post(f"/dashboard/{dashboard_id}/cards", body)
-    return json.dumps({"ok": True, "dashcard_id": data.get("id"), "dashboard_id": dashboard_id})
+    existing.append(new_card)
+    body = {"dashcards": existing, "ordered_tabs": []}
+    data = _put(f"/dashboard/{dashboard_id}", body)
+    added = [dc for dc in data.get("dashcards", []) if dc.get("card", {}).get("id") == args["card_id"]]
+    dashcard_id = added[0]["id"] if added else None
+    return json.dumps({"ok": True, "dashcard_id": dashcard_id, "dashboard_id": dashboard_id})
 
 
 def _create_collection(args: dict) -> str:
@@ -334,19 +339,6 @@ def _create_collection(args: dict) -> str:
         body["parent_id"] = args["parent_id"]
     data = _post("/collection", body)
     return json.dumps({"id": data["id"], "name": data["name"]})
-
-
-def _get_public_link(args: dict) -> str:
-    dashboard_id = args["dashboard_id"]
-    # Check if already has public UUID
-    dash = _get(f"/dashboard/{dashboard_id}")
-    public_uuid = dash.get("public_uuid")
-    if not public_uuid:
-        # Enable public sharing
-        result = _post(f"/dashboard/{dashboard_id}/public_link")
-        public_uuid = result.get("uuid")
-    url = f"{METABASE_URL}/public/dashboard/{public_uuid}" if public_uuid else ""
-    return json.dumps({"dashboard_id": dashboard_id, "public_uuid": public_uuid, "public_url": url})
 
 
 if __name__ == "__main__":
