@@ -57,12 +57,12 @@ class HealthResponse(BaseModel):
 
 TOOLS = [
     {
-        "name": "metabase_list_databases",
+        "name": "get_metabase_databases",
         "description": "List all databases configured in Metabase.",
         "input_schema": {"type": "object", "properties": {}},
     },
     {
-        "name": "metabase_list_tables",
+        "name": "list_metabase_tables",
         "description": "List tables in a Metabase database.",
         "input_schema": {
             "type": "object",
@@ -73,7 +73,7 @@ TOOLS = [
         },
     },
     {
-        "name": "metabase_execute_query",
+        "name": "execute_sql_query",
         "description": "Execute a native SQL query against a Metabase database. Returns rows as JSON.",
         "input_schema": {
             "type": "object",
@@ -86,7 +86,7 @@ TOOLS = [
         },
     },
     {
-        "name": "metabase_list_dashboards",
+        "name": "list_metabase_dashboards",
         "description": "List dashboards, optionally filtered by collection.",
         "input_schema": {
             "type": "object",
@@ -96,7 +96,7 @@ TOOLS = [
         },
     },
     {
-        "name": "metabase_get_dashboard",
+        "name": "get_metabase_dashboard",
         "description": "Get full details of a dashboard including its cards.",
         "input_schema": {
             "type": "object",
@@ -107,7 +107,7 @@ TOOLS = [
         },
     },
     {
-        "name": "metabase_create_dashboard",
+        "name": "create_metabase_dashboard",
         "description": "Create a new empty dashboard.",
         "input_schema": {
             "type": "object",
@@ -120,7 +120,7 @@ TOOLS = [
         },
     },
     {
-        "name": "metabase_create_card",
+        "name": "create_metabase_card",
         "description": "Create a saved question (card) with a native SQL query. Returns card_id.",
         "input_schema": {
             "type": "object",
@@ -136,7 +136,7 @@ TOOLS = [
         },
     },
     {
-        "name": "metabase_add_card_to_dashboard",
+        "name": "add_card_to_dashboard",
         "description": "Add an existing card to a dashboard at a given position.",
         "input_schema": {
             "type": "object",
@@ -152,7 +152,7 @@ TOOLS = [
         },
     },
     {
-        "name": "metabase_create_collection",
+        "name": "create_metabase_collection",
         "description": "Create a collection to organize dashboards and cards.",
         "input_schema": {
             "type": "object",
@@ -164,7 +164,7 @@ TOOLS = [
         },
     },
     {
-        "name": "metabase_get_public_link",
+        "name": "get_public_link",
         "description": "Get or create a public sharing link for a dashboard. Returns embeddable URL.",
         "input_schema": {
             "type": "object",
@@ -194,16 +194,16 @@ def list_tools():
 @app.post("/tools/call")
 def call_tool(req: ToolCallRequest):
     handlers = {
-        "metabase_list_databases": _list_databases,
-        "metabase_list_tables": _list_tables,
-        "metabase_execute_query": _execute_query,
-        "metabase_list_dashboards": _list_dashboards,
-        "metabase_get_dashboard": _get_dashboard,
-        "metabase_create_dashboard": _create_dashboard,
-        "metabase_create_card": _create_card,
-        "metabase_add_card_to_dashboard": _add_card_to_dashboard,
-        "metabase_create_collection": _create_collection,
-        "metabase_get_public_link": _get_public_link,
+        "get_metabase_databases": _list_databases,
+        "list_metabase_tables": _list_tables,
+        "execute_sql_query": _execute_query,
+        "list_metabase_dashboards": _list_dashboards,
+        "get_metabase_dashboard": _get_dashboard,
+        "create_metabase_dashboard": _create_dashboard,
+        "create_metabase_card": _create_card,
+        "add_card_to_dashboard": _add_card_to_dashboard,
+        "create_metabase_collection": _create_collection,
+        "get_public_link": _get_public_link,
     }
     handler = handlers.get(req.name)
     if not handler:
