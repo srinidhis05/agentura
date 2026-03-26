@@ -100,6 +100,11 @@ def log_execution(ctx: SkillContext, result: SkillResult) -> str:
 logger = logging.getLogger(__name__)
 
 
+def _is_anthropic_model(model: str) -> bool:
+    """Check if the model is an Anthropic Claude model."""
+    return model.startswith("anthropic/") or "claude" in model.lower()
+
+
 def _post_execution_hook(ctx: SkillContext, result: SkillResult) -> None:
     """Fire-and-forget post-execution actions (incident-to-eval, etc.)."""
     try:
@@ -141,6 +146,9 @@ async def execute_skill(ctx: SkillContext) -> SkillResult:
             return result
         from agentura_sdk.runner.agent_executor import execute_agent
         return await execute_agent(ctx)
+    # Prefer Anthropic direct for Claude models (accurate cost tracking, no proxy)
+    if os.environ.get("ANTHROPIC_API_KEY") and _is_anthropic_model(ctx.model):
+        return await _execute_via_pydantic_ai(ctx)
     if os.environ.get("OPENROUTER_API_KEY"):
         return await _execute_via_openrouter(ctx)
     if os.environ.get("ANTHROPIC_API_KEY"):
@@ -211,6 +219,9 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
         _MODEL_ALIASES = {
             "claude-sonnet-4.5": "claude-sonnet-4-5-latest",
             "claude-haiku-4.5": "claude-haiku-4-5-latest",
+            "claude-opus-4.6": "claude-opus-4-6-20260205",
+            "claude-opus-4-6": "claude-opus-4-6-20260205",
+            "claude-opus-4-6-20250430": "claude-opus-4-6-20260205",
         }
         model_name = _MODEL_ALIASES.get(model_name, model_name)
         provider = AnthropicProvider(api_key=os.environ.get("ANTHROPIC_API_KEY"))
@@ -222,7 +233,10 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
         )
 
         user_prompt = json.dumps(ctx.input_data, indent=2)
-        result = await agent.run(user_prompt)
+        result = await agent.run(
+            user_prompt,
+            model_settings={"max_tokens": ctx.max_tokens},
+        )
 
         latency_ms = (time.monotonic() - start) * 1000
 
@@ -236,7 +250,7 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
             skill_name=ctx.skill_name,
             success=True,
             output=output,
-            reasoning_trace=[f"Executed via {ctx.model}"],
+            reasoning_trace=[f"Executed via Anthropic ({model_name})"],
             model_used=ctx.model,
             latency_ms=latency_ms,
         )
