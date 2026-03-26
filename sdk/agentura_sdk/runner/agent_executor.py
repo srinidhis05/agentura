@@ -290,10 +290,12 @@ def _resolve_anthropic_model(model: str) -> str:
     """Resolve model string to Anthropic model ID."""
     name = model.removeprefix("anthropic/")
     aliases = {
-        "claude-sonnet-4.5": "claude-sonnet-4-5-latest",
-        "claude-haiku-4.5": "claude-haiku-4-5-latest",
-        "claude-opus-4.6": "claude-opus-4-6-20250430",
-        "claude-opus-4-6": "claude-opus-4-6-20250430",
+        "claude-sonnet-4.5": "claude-sonnet-4-5-20250929",
+        "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
+        "claude-haiku-4.5": "claude-haiku-4-5-20251001",
+        "claude-haiku-4-5": "claude-haiku-4-5-20251001",
+        "claude-opus-4.6": "claude-opus-4-6",
+        # claude-opus-4-6 is already the canonical API ID
     }
     return aliases.get(name, name)
 
