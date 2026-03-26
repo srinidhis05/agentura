@@ -23,7 +23,7 @@ MODEL_ALIASES: dict[str, str] = {
     "claude-sonnet-4.5": "anthropic/claude-sonnet-4.5",
     "claude-haiku-4.5": "anthropic/claude-haiku-4.5",
     "claude-opus-4": "anthropic/claude-opus-4",
-    "claude-opus-4.6": "anthropic/claude-opus-4",
+    "claude-opus-4.6": "anthropic/claude-opus-4.6",
     "gpt-4o": "openai/gpt-4o",
     "gpt-4o-mini": "openai/gpt-4o-mini",
     "gemini-2.0-flash": "google/gemini-2.0-flash-001",
@@ -33,8 +33,8 @@ MODEL_ALIASES: dict[str, str] = {
     "anthropic/claude-sonnet-4-5-20250929": "anthropic/claude-sonnet-4.5",
     "anthropic/claude-haiku-4-5-20251001": "anthropic/claude-haiku-4.5",
     "anthropic/claude-opus-4-20250514": "anthropic/claude-opus-4",
-    "anthropic/claude-opus-4-6-20250430": "anthropic/claude-opus-4",
-    "anthropic/claude-opus-4-6": "anthropic/claude-opus-4",
+    "anthropic/claude-opus-4-6-20250430": "anthropic/claude-opus-4.6",
+    "anthropic/claude-opus-4-6": "anthropic/claude-opus-4.6",
 }
 
 FALLBACK_CHAINS: dict[str, list[str]] = {
@@ -45,6 +45,10 @@ FALLBACK_CHAINS: dict[str, list[str]] = {
     "anthropic/claude-opus-4": [
         "anthropic/claude-sonnet-4.5",
         "openai/gpt-4o",
+    ],
+    "anthropic/claude-opus-4.6": [
+        "anthropic/claude-opus-4",
+        "anthropic/claude-sonnet-4.5",
     ],
     "openai/gpt-4o": [
         "anthropic/claude-sonnet-4.5",

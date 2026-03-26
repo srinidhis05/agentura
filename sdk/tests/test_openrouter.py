@@ -12,6 +12,11 @@ class TestModelResolution:
     def test_passthrough_full_id(self):
         assert resolve_model("anthropic/claude-opus-4") == "anthropic/claude-opus-4"
 
+    def test_opus_4_6_resolves_correctly(self):
+        assert resolve_model("claude-opus-4.6") == "anthropic/claude-opus-4.6"
+        assert resolve_model("anthropic/claude-opus-4-6") == "anthropic/claude-opus-4.6"
+        assert resolve_model("anthropic/claude-opus-4-6-20250430") == "anthropic/claude-opus-4.6"
+
     def test_unknown_model_passthrough(self):
         assert resolve_model("custom/my-model") == "custom/my-model"
 
