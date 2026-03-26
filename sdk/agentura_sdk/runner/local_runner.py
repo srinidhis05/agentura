@@ -105,6 +105,34 @@ def _is_anthropic_model(model: str) -> bool:
     return model.startswith("anthropic/") or "claude" in model.lower()
 
 
+# Anthropic pricing per million tokens (input, output)
+_ANTHROPIC_PRICING = {
+    "claude-opus-4-6": (5.0, 25.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-sonnet-4-5-20250929": (3.0, 15.0),
+    "claude-haiku-4-5-20251001": (1.0, 5.0),
+    "claude-opus-4-20250514": (15.0, 75.0),
+    "claude-sonnet-4-20250514": (3.0, 15.0),
+}
+
+
+def _estimate_anthropic_cost(model_name: str, input_tokens: int, output_tokens: int) -> float:
+    """Estimate cost in USD from token counts and model pricing."""
+    # Try exact match, then prefix match
+    pricing = _ANTHROPIC_PRICING.get(model_name)
+    if not pricing:
+        for prefix, p in _ANTHROPIC_PRICING.items():
+            if model_name.startswith(prefix):
+                pricing = p
+                break
+    if not pricing:
+        # Default to Sonnet pricing as safe estimate
+        pricing = (3.0, 15.0)
+    input_cost = (input_tokens / 1_000_000) * pricing[0]
+    output_cost = (output_tokens / 1_000_000) * pricing[1]
+    return round(input_cost + output_cost, 6)
+
+
 def _post_execution_hook(ctx: SkillContext, result: SkillResult) -> None:
     """Fire-and-forget post-execution actions (incident-to-eval, etc.)."""
     try:
@@ -250,13 +278,23 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
         except (json.JSONDecodeError, TypeError):
             output = {"raw_output": str(output_text)}
 
+        # Extract token usage and calculate cost
+        cost_usd = 0.0
+        usage = result.usage()
+        input_tokens = getattr(usage, 'input_tokens', 0) or 0
+        output_tokens = getattr(usage, 'output_tokens', 0) or 0
+        cost_usd = _estimate_anthropic_cost(model_name, input_tokens, output_tokens)
+        trace_msg = "Executed via Anthropic (%s, in=%d out=%d tokens, $%.4f)" % (
+            model_name, input_tokens, output_tokens, cost_usd)
+
         skill_result = SkillResult(
             skill_name=ctx.skill_name,
             success=True,
             output=output,
-            reasoning_trace=[f"Executed via Anthropic ({model_name})"],
+            reasoning_trace=[trace_msg],
             model_used=ctx.model,
             latency_ms=latency_ms,
+            cost_usd=cost_usd,
         )
         execution_id = log_execution(ctx, skill_result)
         skill_result.reasoning_trace.append(f"Logged as {execution_id}")
