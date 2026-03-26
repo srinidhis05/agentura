@@ -233,9 +233,12 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
         )
 
         user_prompt = json.dumps(ctx.input_data, indent=2)
+        max_tokens = 16384
+        if ctx.sandbox_config and ctx.sandbox_config.max_tokens:
+            max_tokens = ctx.sandbox_config.max_tokens
         result = await agent.run(
             user_prompt,
-            model_settings={"max_tokens": ctx.max_tokens},
+            model_settings={"max_tokens": max_tokens},
         )
 
         latency_ms = (time.monotonic() - start) * 1000
