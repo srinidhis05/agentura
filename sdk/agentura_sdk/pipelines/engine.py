@@ -355,8 +355,53 @@ def _compact_agent_results(results: list[dict]) -> list[dict]:
     return compacted
 
 
+def _truncate_diff(diff: str, changed_files: list[dict],
+                   max_chars: int = 500_000) -> tuple[str, list[str]]:
+    """Truncate diff to max_chars, prioritizing files with most changes.
+
+    Returns (truncated_diff, skipped_file_names).
+    """
+    if len(diff) <= max_chars:
+        return diff, []
+
+    sorted_files = sorted(
+        changed_files,
+        key=lambda f: f.get("changes", 0),
+        reverse=True,
+    )
+
+    included_files: set[str] = set()
+    budget = max_chars
+    for f in sorted_files:
+        patch = f.get("patch", "")
+        if budget - len(patch) > 0:
+            included_files.add(f.get("filename", ""))
+            budget -= len(patch)
+        else:
+            break
+
+    skipped = [
+        f.get("filename", "")
+        for f in sorted_files
+        if f.get("filename", "") not in included_files
+    ]
+
+    parts = []
+    for f in sorted_files:
+        fname = f.get("filename", "")
+        if fname in included_files:
+            parts.append("diff --git a/%s b/%s\n%s" % (fname, fname, f.get("patch", "")))
+
+    return "\n".join(parts)[:max_chars], skipped
+
+
 async def _prefetch_pr_data(input_data: dict[str, Any]) -> dict[str, Any]:
-    """For GitHub PR pipelines, fetch diff and changed files before fan-out."""
+    """For GitHub PR pipelines, fetch diff and changed files before fan-out.
+
+    Truncates the diff to 500K chars (~125K tokens) to stay within context
+    limits. Opus 4.6 (1M ctx) handles this easily; Sonnet 4.5 (200K ctx)
+    needs the headroom for system prompt + output.
+    """
     repo = input_data.get("Repo") or input_data.get("repo")
     pr_number = input_data.get("PRNumber") or input_data.get("pr_number")
     if not repo or not pr_number:
@@ -367,10 +412,17 @@ async def _prefetch_pr_data(input_data: dict[str, Any]) -> dict[str, Any]:
         from agentura_sdk.pipelines.github_client import fetch_pr_diff, fetch_pr_files
         diff = await fetch_pr_diff(repo=repo, pr_number=int(pr_number))
         files = await fetch_pr_files(repo=repo, pr_number=int(pr_number))
+        original_len = len(diff)
+        diff, skipped = _truncate_diff(diff, files)
         enriched["diff"] = diff
         enriched["changed_files"] = files
-        logger.info("prefetched PR diff (%d chars) and %d changed files for %s#%s",
-                     len(diff), len(files), repo, pr_number)
+        if skipped:
+            enriched["skipped_files"] = skipped
+            logger.info("prefetched PR diff (%d->%d chars, skipped %d files) for %s#%s",
+                        original_len, len(diff), len(skipped), repo, pr_number)
+        else:
+            logger.info("prefetched PR diff (%d chars) and %d changed files for %s#%s",
+                        len(diff), len(files), repo, pr_number)
     except Exception as e:
         logger.error("failed to prefetch PR data for %s#%s: %s", repo, pr_number, e)
     return enriched
