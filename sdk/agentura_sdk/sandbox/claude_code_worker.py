@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 WORKER_IMAGE = os.environ.get(
     "CLAUDE_CODE_WORKER_IMAGE", "agentura/claude-code-worker:latest"
 )
-WORKER_CPU = os.environ.get("CLAUDE_CODE_WORKER_CPU", "2")
-WORKER_MEMORY = os.environ.get("CLAUDE_CODE_WORKER_MEMORY", "2048Mi")
+WORKER_CPU = os.environ.get("CLAUDE_CODE_WORKER_CPU", "1")
+WORKER_MEMORY = os.environ.get("CLAUDE_CODE_WORKER_MEMORY", "1024Mi")
 
 
 def _build_worker_manifest(
