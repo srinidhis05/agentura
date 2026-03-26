@@ -298,6 +298,11 @@ def _resolve_anthropic_model(model: str) -> str:
     return aliases.get(name, name)
 
 
+def _is_anthropic_model(model: str) -> bool:
+    """Check if the model is an Anthropic Claude model."""
+    return model.startswith("anthropic/") or "claude" in model.lower()
+
+
 def _get_provider(
     model: str,
     system_prompt: str,
@@ -305,22 +310,28 @@ def _get_provider(
     max_tokens: int = 16384,
     budget_tokens: int = 0,
 ) -> _OpenRouterProvider | _AnthropicProvider:
-    """Select provider: OpenRouter primary, Anthropic fallback."""
+    """Select provider: Anthropic direct for Claude models, OpenRouter for others."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if api_key and _is_anthropic_model(model):
+        model_id = _resolve_anthropic_model(model)
+        logger.info("Using Anthropic provider for %s (resolved: %s, max_tokens=%d, budget_tokens=%d)",
+                     model, model_id, max_tokens, budget_tokens)
+        return _AnthropicProvider(model_id, system_prompt, api_key, tools,
+                                  max_tokens=max_tokens, budget_tokens=budget_tokens)
+
     if os.environ.get("OPENROUTER_API_KEY"):
-        logger.info("Using OpenRouter provider for agent execution (max_tokens=%d, budget_tokens=%d)",
-                     max_tokens, budget_tokens)
+        logger.info("Using OpenRouter provider for %s (max_tokens=%d, budget_tokens=%d)",
+                     model, max_tokens, budget_tokens)
         return _OpenRouterProvider(model, system_prompt, tools, max_tokens=max_tokens, budget_tokens=budget_tokens)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if api_key:
-        logger.info("Using Anthropic provider for agent execution (max_tokens=%d, budget_tokens=%d)",
-                     max_tokens, budget_tokens)
         model_id = _resolve_anthropic_model(model)
+        logger.info("Using Anthropic provider (fallback) for %s (resolved: %s)", model, model_id)
         return _AnthropicProvider(model_id, system_prompt, api_key, tools,
                                   max_tokens=max_tokens, budget_tokens=budget_tokens)
 
     raise RuntimeError(
-        "No LLM provider configured. Set OPENROUTER_API_KEY (preferred) or ANTHROPIC_API_KEY."
+        "No LLM provider configured. Set ANTHROPIC_API_KEY (preferred for Claude) or OPENROUTER_API_KEY."
     )
 
 
