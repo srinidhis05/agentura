@@ -356,8 +356,12 @@ def _compact_agent_results(results: list[dict]) -> list[dict]:
 
 
 def _truncate_diff(diff: str, changed_files: list[dict],
-                   max_chars: int = 500_000) -> tuple[str, list[str]]:
+                   max_chars: int = 200_000) -> tuple[str, list[str]]:
     """Truncate diff to max_chars, prioritizing files with most changes.
+
+    200K chars ≈ 50K tokens, leaving room for system prompt + output
+    within Sonnet 4.5's 200K token context. Opus 4.6 (1M ctx) has
+    more headroom but uses the same truncated diff for consistency.
 
     Returns (truncated_diff, skipped_file_names).
     """
