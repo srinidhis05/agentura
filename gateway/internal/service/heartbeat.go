@@ -320,18 +320,19 @@ func (h *HeartbeatRunner) deliverAlert(agent config.AgentHeartbeatEntry, output 
 	}
 	slog.Info("heartbeat: skills due", "domain", agent.Domain, "skills", skillList)
 
-	// Trigger each due skill — skills self-post via MCP, failures go to observe
+	// Trigger each due skill — deliver output to target channel, failures to observe
 	for _, skill := range payload.Due {
-		go h.triggerDueSkill(agent.Domain, skill, observeChannel, botToken)
+		go h.triggerDueSkill(agent.Domain, skill, target, observeChannel, botToken)
 	}
 
 	slog.Info("heartbeat: dispatched due skills",
 		"domain", agent.Domain, "skills", payload.Due)
 }
 
-// triggerDueSkill executes a single due skill. Skills handle their own Slack delivery
-// via MCP tools — the heartbeat runner only logs results and posts failures to observe.
-func (h *HeartbeatRunner) triggerDueSkill(domain, skill, observeChannel, botToken string) {
+// triggerDueSkill executes a single due skill and delivers its output to Slack.
+// Skills that call task_complete with rich_output get Block Kit rendering.
+// Skills with Slack MCP tools may also self-post (canvas updates, etc.).
+func (h *HeartbeatRunner) triggerDueSkill(domain, skill, targetChannel, observeChannel, botToken string) {
 	slog.Info("heartbeat: triggering skill", "domain", domain, "skill", skill)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -343,7 +344,7 @@ func (h *HeartbeatRunner) triggerDueSkill(domain, skill, observeChannel, botToke
 		},
 	}
 
-	_, err := h.executor.Execute(ctx, domain, skill, req)
+	resp, err := h.executor.Execute(ctx, domain, skill, req)
 	if err != nil {
 		slog.Error("heartbeat: skill execution failed",
 			"domain", domain, "skill", skill, "error", err)
@@ -355,6 +356,14 @@ func (h *HeartbeatRunner) triggerDueSkill(domain, skill, observeChannel, botToke
 	}
 
 	slog.Info("heartbeat: skill completed", "domain", domain, "skill", skill)
+
+	// Deliver skill output to the target channel (Block Kit if rich_output present)
+	if targetChannel != "" && botToken != "" {
+		output := extractHeartbeatOutput(resp)
+		if output != "" && !isHeartbeatOK(output, 0) {
+			postSkillOutputToSlack(botToken, targetChannel, skill, output)
+		}
+	}
 }
 
 // findBotToken looks up the Slack bot token for a domain from configured apps.
