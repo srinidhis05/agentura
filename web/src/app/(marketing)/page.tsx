@@ -126,9 +126,10 @@ function CompoundingIntelligence() {
             </h2>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               Every correction your team makes becomes a permanent guardrail.
-              Every reflexion rule gets injected into future prompts automatically.
-              Learnings persist per skill and domain &mdash; and the architecture is designed
-              so cross-domain recall can surface relevant knowledge across your entire organization.
+              Reflexion rules are automatically injected into future prompts &mdash;
+              and with <strong>scoped memory</strong>, learnings propagate across agents.
+              A rule learned by your code reviewer is instantly available to your deployer,
+              test runner, and every other agent in the same domain.
             </p>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               Six months in, your system has thousands of domain-specific
@@ -154,15 +155,15 @@ function CompoundingIntelligence() {
             />
             <MoatStep
               week="Month 3"
-              label="Domain expertise emerges"
-              detail="Hundreds of skill-level learnings. Agents know your naming conventions, preferences, and edge cases."
+              label="Cross-agent learning"
+              detail="Scoped memory kicks in. Rules propagate across agents in the same domain. The deployer benefits from what the reviewer learned."
               fill="w-[65%]"
               color="from-blue-500/70 to-cyan-500/40"
             />
             <MoatStep
               week="Month 6+"
               label="Institutional memory"
-              detail="Thousands of domain-specific guardrails stored in PostgreSQL. Searchable, versioned, and yours."
+              detail="Thousands of org-wide guardrails. Auto-synthesis generates new rules from failure patterns. Utility scoring surfaces what works."
               fill="w-[90%]"
               color="from-cyan-500/70 to-emerald-500/50"
             />
@@ -982,7 +983,7 @@ function MemoryLearning() {
             How the Memory System Works
           </h2>
           <p className="mt-3 text-sm text-muted-foreground">
-            Three layers of memory &mdash; session, skill, and domain &mdash; with cross-domain recall on the roadmap
+            Three scopes of memory &mdash; skill, domain, and org &mdash; with cross-agent learning built in
           </p>
         </div>
 
@@ -1035,25 +1036,23 @@ Apply to all UI builds."
           <div className="rounded-xl border border-amber-500/30 bg-card/50 p-6 shadow-lg">
             <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400">
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </div>
-            <h3 className="text-base font-semibold">Skill-Level Memory</h3>
+            <h3 className="text-base font-semibold">Cross-Agent Learning</h3>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Each skill accumulates its own corrections and reflexions.
-              Memory recall injects relevant learnings into the system prompt
-              before every execution. Stored in PostgreSQL, searchable via
-              semantic similarity with Qdrant fallback.
+              Rules have three scopes: <strong>skill</strong>, <strong>domain</strong>, and <strong>org</strong>.
+              A reflexion learned by your code reviewer automatically appears for your deployer and test runner.
+              Org-level rules apply to every agent. Utility scoring surfaces what actually helps.
             </p>
             <div className="mt-4 rounded-lg border border-border bg-background/50 p-3">
-              <pre className="font-mono text-xs text-muted-foreground leading-relaxed">{`# Memory injected at TOP of prompt:
-## Memory (from past executions)
-- Theme: dark mode, #8b5cf6
-- Stack: vanilla JS preferred
-- Deploys: always use NodePort 32xxx
+              <pre className="font-mono text-xs text-muted-foreground leading-relaxed">{`# Scoped reflexion injection:
+- REFL-042 [skill]: "Check null safety"
+- REFL-019 [domain]: "Use Kotlin conventions"
+- REFL-003 [org]: "Never expose internal IDs"
 
----
-# Original SKILL.md follows...`}</pre>
+# All three injected automatically
+# into every dev/* agent's prompt`}</pre>
             </div>
           </div>
         </div>

@@ -1,10 +1,12 @@
 /** Centralized dual-mode color maps for the dashboard. */
 
 export const domainColors: Record<string, { bg: string; border: string; text: string }> = {
+  ops: {
     bg: "bg-amber-50 dark:bg-amber-500/10",
     border: "border-amber-300 dark:border-amber-500/30",
     text: "text-amber-700 dark:text-amber-400",
   },
+  platform: {
     bg: "bg-violet-50 dark:bg-violet-500/10",
     border: "border-violet-300 dark:border-violet-500/30",
     text: "text-violet-700 dark:text-violet-400",
