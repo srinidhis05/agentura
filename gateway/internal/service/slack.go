@@ -144,6 +144,30 @@ func parseRichOutput(text string) (map[string]any, string, bool) {
 	return richOutput, fallback, true
 }
 
+// statusToEmoji maps rich_output status to the appropriate emoji.
+// 4-tier model: briefings (info), scans (healthy/watch), deep-dives (insight), signals (signal/critical).
+// Backward-compatible: "warning" maps to "watch".
+func statusToEmoji(status string) string {
+	switch status {
+	case "info":
+		return "\U0001F4CA " // 📊 briefing — neutral, no emotional charge
+	case "healthy":
+		return "\u2705 " // ✅ scan all clear — reassuring
+	case "watch":
+		return "\U0001F440 " // 👀 worth looking at — curiosity, not fear
+	case "warning":
+		return "\U0001F440 " // 👀 backward compat → watch
+	case "insight":
+		return "\U0001F52C " // 🔬 deep dive — scholarly
+	case "signal":
+		return "\U0001F4E1 " // 📡 strategic signal detected
+	case "critical":
+		return "\U0001F534 " // 🔴 structural shift — reserved for rare, truly urgent
+	default:
+		return ""
+	}
+}
+
 // buildHeaderBlocks creates a compact 2-block summary for the top-level Slack message.
 // Header block with status emoji + title, context block with truncated summary.
 func buildHeaderBlocks(skill string, rich map[string]any) []map[string]any {
@@ -156,14 +180,7 @@ func buildHeaderBlocks(skill string, rich map[string]any) []map[string]any {
 
 	statusEmoji := ""
 	if status, ok := rich["status"].(string); ok {
-		switch status {
-		case "healthy":
-			statusEmoji = "\U0001F7E2 "
-		case "warning":
-			statusEmoji = "\U0001F7E1 "
-		case "critical":
-			statusEmoji = "\U0001F534 "
-		}
+		statusEmoji = statusToEmoji(status)
 	}
 
 	blocks = append(blocks, map[string]any{
@@ -212,14 +229,7 @@ func renderRichBlocks(rich map[string]any) []map[string]any {
 	if title, ok := rich["title"].(string); ok && title != "" {
 		statusEmoji := ""
 		if status, ok := rich["status"].(string); ok {
-			switch status {
-			case "healthy":
-				statusEmoji = "\U0001F7E2 "
-			case "warning":
-				statusEmoji = "\U0001F7E1 "
-			case "critical":
-				statusEmoji = "\U0001F534 "
-			}
+			statusEmoji = statusToEmoji(status)
 		}
 		blocks = append(blocks, map[string]any{
 			"type": "header",
