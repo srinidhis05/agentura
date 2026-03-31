@@ -56,11 +56,15 @@ func postSlackMessageFromService(botToken, channel, text string) (string, error)
 }
 
 // postSlackBlocksFromService posts a Block Kit message to a Slack channel.
-func postSlackBlocksFromService(botToken, channel, fallbackText string, blocks []map[string]any) (string, error) {
+// Optional threadTS posts as a thread reply.
+func postSlackBlocksFromService(botToken, channel, fallbackText string, blocks []map[string]any, threadTS ...string) (string, error) {
 	msg := map[string]any{
 		"channel": channel,
 		"text":    fallbackText,
 		"blocks":  blocks,
+	}
+	if len(threadTS) > 0 && threadTS[0] != "" {
+		msg["thread_ts"] = threadTS[0]
 	}
 
 	payload, err := json.Marshal(msg)
@@ -99,8 +103,8 @@ func postSlackBlocksFromService(botToken, channel, fallbackText string, blocks [
 	return slackResp.TS, nil
 }
 
-// tryParseRichOutputService parses skill output for rich_output JSON and converts to Block Kit.
-func tryParseRichOutputService(text string) ([]map[string]any, string, bool) {
+// parseRichOutput extracts the rich_output object and fallback text from skill output.
+func parseRichOutput(text string) (map[string]any, string, bool) {
 	text = strings.TrimSpace(text)
 	if len(text) == 0 {
 		return nil, "", false
@@ -129,10 +133,6 @@ func tryParseRichOutputService(text string) ([]map[string]any, string, bool) {
 	if !ok {
 		return nil, "", false
 	}
-	blocks := renderRichBlocks(richOutput)
-	if len(blocks) == 0 {
-		return nil, "", false
-	}
 	fallback, _ := parsed["fallback"].(string)
 	if fallback == "" {
 		if title, ok := richOutput["title"].(string); ok {
@@ -141,7 +141,67 @@ func tryParseRichOutputService(text string) ([]map[string]any, string, bool) {
 			fallback = "Skill result"
 		}
 	}
-	return blocks, fallback, true
+	return richOutput, fallback, true
+}
+
+// buildHeaderBlocks creates a compact 2-block summary for the top-level Slack message.
+// Header block with status emoji + title, context block with truncated summary.
+func buildHeaderBlocks(skill string, rich map[string]any) []map[string]any {
+	var blocks []map[string]any
+
+	title, _ := rich["title"].(string)
+	if title == "" {
+		title = skill
+	}
+
+	statusEmoji := ""
+	if status, ok := rich["status"].(string); ok {
+		switch status {
+		case "healthy":
+			statusEmoji = "\U0001F7E2 "
+		case "warning":
+			statusEmoji = "\U0001F7E1 "
+		case "critical":
+			statusEmoji = "\U0001F534 "
+		}
+	}
+
+	blocks = append(blocks, map[string]any{
+		"type": "header",
+		"text": map[string]any{
+			"type":  "plain_text",
+			"text":  statusEmoji + title,
+			"emoji": true,
+		},
+	})
+
+	summary, _ := rich["summary"].(string)
+	if summary != "" {
+		if len(summary) > 200 {
+			summary = summary[:197] + "..."
+		}
+		blocks = append(blocks, map[string]any{
+			"type": "context",
+			"elements": []map[string]any{
+				{
+					"type": "mrkdwn",
+					"text": summary + "  \u00b7  _details in thread_ :thread:",
+				},
+			},
+		})
+	} else {
+		blocks = append(blocks, map[string]any{
+			"type": "context",
+			"elements": []map[string]any{
+				{
+					"type": "mrkdwn",
+					"text": "_Full report in thread_ :thread:",
+				},
+			},
+		})
+	}
+
+	return blocks
 }
 
 // renderRichBlocks converts a rich_output structure to Slack Block Kit blocks.
@@ -231,20 +291,39 @@ func renderRichBlocks(rich map[string]any) []map[string]any {
 	return blocks
 }
 
-// postSkillOutputToSlack posts skill output to Slack, using Block Kit if rich_output is present.
+// postSkillOutputToSlack posts skill output to Slack.
+// Rich outputs: compact header as top-level message, full content as thread reply.
+// Plain text: posted directly as top-level message.
 func postSkillOutputToSlack(botToken, channel, skill, output string) {
-	if blocks, fallback, ok := tryParseRichOutputService(output); ok {
-		slog.Info("heartbeat: posting rich_output as Block Kit",
-			"skill", skill, "blocks", len(blocks))
-		if _, err := postSlackBlocksFromService(botToken, channel, fallback, blocks); err != nil {
-			slog.Error("heartbeat: Block Kit post failed, falling back to text",
-				"skill", skill, "error", err)
-			postSlackMessageFromService(botToken, channel,
-				fmt.Sprintf(":white_check_mark: *%s* completed:\n%s", skill, truncateOutput(output, 3500)))
-		}
+	rich, fallback, ok := parseRichOutput(output)
+	if !ok {
+		postSlackMessageFromService(botToken, channel,
+			fmt.Sprintf(":white_check_mark: *%s* completed:\n%s", skill, truncateOutput(output, 3500)))
 		return
 	}
-	// No rich_output — post as plain text
-	postSlackMessageFromService(botToken, channel,
-		fmt.Sprintf(":white_check_mark: *%s* completed:\n%s", skill, truncateOutput(output, 3500)))
+
+	blocks := renderRichBlocks(rich)
+	if len(blocks) == 0 {
+		postSlackMessageFromService(botToken, channel,
+			fmt.Sprintf(":white_check_mark: *%s* completed:\n%s", skill, truncateOutput(output, 3500)))
+		return
+	}
+
+	// Post compact header as top-level message
+	headerBlocks := buildHeaderBlocks(skill, rich)
+	ts, err := postSlackBlocksFromService(botToken, channel, fallback, headerBlocks)
+	if err != nil {
+		slog.Error("heartbeat: header post failed, falling back to flat post",
+			"skill", skill, "error", err)
+		postSlackBlocksFromService(botToken, channel, fallback, blocks)
+		return
+	}
+
+	// Post full content as thread reply
+	slog.Info("heartbeat: posting rich_output as thread reply",
+		"skill", skill, "blocks", len(blocks), "thread_ts", ts)
+	if _, err := postSlackBlocksFromService(botToken, channel, fallback, blocks, ts); err != nil {
+		slog.Error("heartbeat: thread reply failed",
+			"skill", skill, "error", err)
+	}
 }
