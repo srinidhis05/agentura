@@ -945,25 +945,33 @@ func (h *SlackWebhookHandler) listSkills(ctx context.Context, app *config.SlackA
 }
 
 func (h *SlackWebhookHandler) dispatchAuto(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, slackCommand, error) {
+	if app.DomainScope == "" {
+		return h.helpText(app) + "\n\n_Type `help` to see available commands._", cmd, nil
+	}
+
 	// Domain-scoped bots: route unmatched messages to the domain's triage skill.
 	// Triage returns a route_to field — chain to the routed skill.
-	if app.DomainScope != "" {
-		routedSkill, entities := h.triageAndRoute(ctx, app, cmd)
-		if routedSkill != "" {
-			inputData := map[string]any{"text": cmd.Text}
-			for k, v := range entities {
-				inputData[k] = v
-			}
-			routedCmd := slackCommand{Action: "run", Target: routedSkill, Input: inputData, Text: cmd.Text, UserID: cmd.UserID}
-			result, err := h.dispatchSkill(ctx, app, routedCmd)
-			if err == nil {
-				return result, routedCmd, nil
-			}
-			slog.Error("dispatchAuto: routed skill failed", "skill", routedSkill, "error", err)
-			return "", routedCmd, err
-		}
+	routedSkill, entities := h.triageAndRoute(ctx, app, cmd)
+
+	// If triage didn't produce a route, fall back to data-query (general-purpose).
+	// Never dump help text for natural language — always attempt an answer.
+	if routedSkill == "" {
+		routedSkill = app.DomainScope + "/data-query"
+		slog.Info("dispatchAuto: no triage route, falling back to data-query",
+			"domain", app.DomainScope)
 	}
-	return h.helpText(app) + "\n\n_Type `help` to see available commands._", cmd, nil
+
+	inputData := map[string]any{"text": cmd.Text}
+	for k, v := range entities {
+		inputData[k] = v
+	}
+	routedCmd := slackCommand{Action: "run", Target: routedSkill, Input: inputData, Text: cmd.Text, UserID: cmd.UserID}
+	result, err := h.dispatchSkill(ctx, app, routedCmd)
+	if err != nil {
+		slog.Error("dispatchAuto: routed skill failed", "skill", routedSkill, "error", err)
+		return "", routedCmd, err
+	}
+	return result, routedCmd, nil
 }
 
 // triageAndRoute calls the triage skill and parses the route_to from its JSON output.
@@ -1004,14 +1012,33 @@ func parseTriageRoute(raw json.RawMessage) (string, map[string]any) {
 	rawOutput = strings.TrimSuffix(rawOutput, "```")
 	rawOutput = strings.TrimSpace(rawOutput)
 
+	// If LLM added explanation text before/around the JSON, extract the JSON object.
+	// Find the first '{' and last '}' to isolate the JSON payload.
+	if len(rawOutput) > 0 && rawOutput[0] != '{' {
+		if start := strings.Index(rawOutput, "{"); start >= 0 {
+			if end := strings.LastIndex(rawOutput, "}"); end > start {
+				rawOutput = rawOutput[start : end+1]
+			}
+		}
+	}
+
 	var triageResult map[string]any
 	if err := json.Unmarshal([]byte(rawOutput), &triageResult); err != nil {
+		slog.Debug("parseTriageRoute: JSON parse failed",
+			"error", err, "output_preview", rawOutput[:min(len(rawOutput), 200)])
 		return "", nil
 	}
 
 	routeTo, _ := triageResult["route_to"].(string)
 	entities, _ := triageResult["entities"].(map[string]any)
 	return routeTo, entities
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (h *SlackWebhookHandler) helpText(app *config.SlackAppConfig) string {
