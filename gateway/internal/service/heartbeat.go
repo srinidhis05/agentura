@@ -271,6 +271,13 @@ func isHeartbeatOK(response string, ackMaxChars int) bool {
 	return false
 }
 
+// isDataNotReady returns true if the skill signaled that its data source
+// (e.g. ETL pipeline) hasn't completed loading yet. The gateway will
+// schedule a retry instead of posting incomplete data.
+func isDataNotReady(output string) bool {
+	return strings.Contains(output, "DATA_NOT_READY")
+}
+
 // heartbeatDuePayload is the JSON structure returned by the heartbeat skill.
 type heartbeatDuePayload struct {
 	Due     []string `json:"due"`
@@ -331,17 +338,29 @@ func (h *HeartbeatRunner) deliverAlert(agent config.AgentHeartbeatEntry, output 
 
 // triggerDueSkill executes a single due skill and delivers its output to Slack.
 // Skills that call task_complete with rich_output get Block Kit rendering.
-// Skills with Slack MCP tools may also self-post (canvas updates, etc.).
+// Skills returning DATA_NOT_READY are retried after a delay.
 func (h *HeartbeatRunner) triggerDueSkill(domain, skill, targetChannel, observeChannel, botToken string) {
-	slog.Info("heartbeat: triggering skill", "domain", domain, "skill", skill)
+	h.triggerDueSkillWithRetry(domain, skill, targetChannel, observeChannel, botToken, 0)
+}
+
+const maxSkillRetries = 3
+const skillRetryDelay = 2 * time.Hour
+
+func (h *HeartbeatRunner) triggerDueSkillWithRetry(domain, skill, targetChannel, observeChannel, botToken string, attempt int) {
+	slog.Info("heartbeat: triggering skill", "domain", domain, "skill", skill, "attempt", attempt)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
+	inputData := map[string]any{
+		"trigger": "heartbeat",
+	}
+	if targetChannel != "" {
+		inputData["slack_channel"] = targetChannel
+	}
+
 	req := executor.ExecuteRequest{
-		InputData: map[string]any{
-			"trigger": "heartbeat",
-		},
+		InputData: inputData,
 	}
 
 	resp, err := h.executor.Execute(ctx, domain, skill, req)
@@ -357,9 +376,32 @@ func (h *HeartbeatRunner) triggerDueSkill(domain, skill, targetChannel, observeC
 
 	slog.Info("heartbeat: skill completed", "domain", domain, "skill", skill)
 
+	output := extractHeartbeatOutput(resp)
+
+	// Check if skill signaled data-not-ready (ETL incomplete)
+	if isDataNotReady(output) {
+		slog.Info("heartbeat: data not ready, scheduling retry",
+			"domain", domain, "skill", skill, "attempt", attempt)
+		if observeChannel != "" {
+			msg := fmt.Sprintf(":hourglass: *%s* skipped — ETL incomplete. Will retry in %s.",
+				skill, skillRetryDelay)
+			if attempt >= maxSkillRetries-1 {
+				msg = fmt.Sprintf(":warning: *%s* skipped — ETL incomplete. Max retries (%d) reached, giving up.",
+					skill, maxSkillRetries)
+			}
+			postSlackMessageFromService(botToken, observeChannel, msg)
+		}
+		if attempt < maxSkillRetries-1 {
+			nextAttempt := attempt + 1
+			time.AfterFunc(skillRetryDelay, func() {
+				h.triggerDueSkillWithRetry(domain, skill, targetChannel, observeChannel, botToken, nextAttempt)
+			})
+		}
+		return
+	}
+
 	// Deliver skill output to the target channel (Block Kit if rich_output present)
 	if targetChannel != "" && botToken != "" {
-		output := extractHeartbeatOutput(resp)
 		if output != "" && !isHeartbeatOK(output, 0) {
 			postSkillOutputToSlack(botToken, targetChannel, skill, output)
 		}
