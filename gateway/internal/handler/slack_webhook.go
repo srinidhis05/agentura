@@ -949,6 +949,13 @@ func (h *SlackWebhookHandler) dispatchAuto(ctx context.Context, app *config.Slac
 	// Triage returns a route_to field — chain to the routed skill.
 	if app.DomainScope != "" {
 		routedSkill, entities := h.triageAndRoute(ctx, app, cmd)
+		// Normalize: if triage returned a bare skill name (no "/"), qualify with domain scope.
+		if routedSkill != "" && !strings.Contains(routedSkill, "/") {
+			qualified := app.DomainScope + "/" + routedSkill
+			slog.Info("dispatchAuto: qualifying bare triage route",
+				"raw", routedSkill, "qualified", qualified)
+			routedSkill = qualified
+		}
 		if routedSkill != "" {
 			inputData := map[string]any{"text": cmd.Text}
 			for k, v := range entities {

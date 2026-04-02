@@ -436,6 +436,13 @@ func (m *SlackSocketManager) dispatchAuto(ctx context.Context, app *config.Slack
 		}
 
 		routeTo, entities := parseTriageRoute(resp)
+		// Normalize: if triage returned a bare skill name (no "/"), qualify with domain scope.
+		if routeTo != "" && !strings.Contains(routeTo, "/") {
+			qualified := app.DomainScope + "/" + routeTo
+			slog.Info("dispatchAuto: qualifying bare triage route",
+				"raw", routeTo, "qualified", qualified)
+			routeTo = qualified
+		}
 		if routeTo != "" {
 			routeInput := map[string]any{"text": cmd.Text}
 			for k, v := range entities {
