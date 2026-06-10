@@ -1098,7 +1098,7 @@ This is necessary but insufficient. A mature agent needs four memory layers.
 │                        Sequence templates learned from      │
 │                        successful executions                │
 │                                                             │
-│  Layer 2: DECLARATIVE  "Vendor Razorpay uses HDFC bank"    │
+│  Layer 2: DECLARATIVE  "Vendor Stripe uses JP Morgan bank"    │
 │  (domain facts)        "Region AU launched 2025-11-03"     │
 │                        Structured facts, human-authored     │
 │                        or agent-extracted, versioned        │
@@ -1170,13 +1170,13 @@ Recency is a tiebreaker only. A structurally similar episode from 3 months ago b
 ```yaml
 # skills/finance/DOMAIN_FACTS.yaml
 vendors:
-  razorpay:
-    bank: HDFC
-    entity: "Company UK Ltd"
-    agreement_expiry: 2026-12-31
   stripe:
     bank: JP Morgan
-    entity: "Company Technologies Inc"
+    entity: "Company US Ltd"
+    agreement_expiry: 2026-12-31
+  adyen:
+    bank: Barclays
+    entity: "Company UK Ltd"
     agreement_expiry: 2027-03-15
 
 regions:
