@@ -238,7 +238,8 @@ class _AnthropicProvider:
     def __init__(self, model_id: str, system_prompt: str, api_key: str, tools: list[dict],
                  max_tokens: int = 16384, budget_tokens: int = 0):
         from anthropic import Anthropic
-        self._client = Anthropic(api_key=api_key)
+        base_url = os.environ.get("ANTHROPIC_BASE_URL")
+        self._client = Anthropic(api_key=api_key, base_url=base_url) if base_url else Anthropic(api_key=api_key)
         self._model = model_id
         self._system = system_prompt
         self._messages: list[dict] = []
