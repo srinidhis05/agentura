@@ -201,6 +201,10 @@ spec:
           env:
             - name: SANDBOX_BACKEND
               value: k8s
+            - name: SANDBOX_NAMESPACE
+              value: srinidhi-agentura
+            - name: SANDBOX_IMAGE_PULL_POLICY
+              value: Always
             - name: SKILLS_DIR
               value: /skills
             - name: PIPELINES_DIR

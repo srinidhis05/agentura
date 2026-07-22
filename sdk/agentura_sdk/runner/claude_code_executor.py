@@ -106,6 +106,8 @@ def _build_worker_env(ctx: SkillContext) -> dict[str, str]:
     env: dict[str, str] = {}
     if os.environ.get("ANTHROPIC_API_KEY"):
         env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+    if os.environ.get("ANTHROPIC_BASE_URL"):
+        env["ANTHROPIC_BASE_URL"] = os.environ["ANTHROPIC_BASE_URL"]
     if os.environ.get("OPENROUTER_API_KEY"):
         env["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
     if os.environ.get("GITHUB_TOKEN"):
