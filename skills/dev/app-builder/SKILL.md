@@ -3,7 +3,7 @@ name: app-builder
 role: agent
 domain: dev
 trigger: manual
-model: anthropic/claude-sonnet-4-5-20250929
+model: anthropic/claude-sonnet-4-6
 cost_budget_per_execution: "$1.00"
 timeout: "600s"
 ---

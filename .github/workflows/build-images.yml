@@ -36,6 +36,29 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/agentura/executor:${{ github.sha }}
           platforms: linux/amd64
 
+  build-worker:
+    name: Build Claude Code Worker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: claude-code-worker
+          file: claude-code-worker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/agentura/claude-code-worker:${{ inputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/agentura/claude-code-worker:${{ github.sha }}
+          platforms: linux/amd64
+
   build-web:
     name: Build Web UI (Next.js)
     runs-on: ubuntu-latest

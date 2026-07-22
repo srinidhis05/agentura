@@ -125,16 +125,10 @@ stringData:
   password: "agentura-demo-2026"
   url: "postgresql://agentura:agentura-demo-2026@postgres:5432/agentura"
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: agentura-api-keys
-  namespace: srinidhi-agentura
-type: Opaque
-stringData:
-  LLM_BASE_URL: "https://llm-gateway.razorpay.com/"
-  OPENROUTER_API_KEY: "REPLACE_ME"
-  ANTHROPIC_API_KEY: "REPLACE_ME"
+# agentura-api-keys secret managed manually:
+# kubectl -n srinidhi-agentura create secret generic agentura-api-keys \
+#   --from-literal=ANTHROPIC_API_KEY=<key> \
+#   --from-literal=ANTHROPIC_BASE_URL=https://llm-gateway.razorpay.com
 
 ---
 # ── Executor ──
@@ -163,27 +157,44 @@ spec:
       securityContext:
         fsGroup: 1000
       initContainers:
-        - name: init-dirs
-          image: c.rzp.io/proxy_dockerhub/alpine:3.19
+        - name: git-sync-skills
+          image: c.rzp.io/proxy_dockerhub/alpine/git:2.43.0
           command: ["sh", "-c"]
           args:
             - |
-              mkdir -p /artifacts /data/.agentura /skills /pipelines /agency
-              chown -R 1000:1000 /artifacts /data /skills /pipelines /agency
+              set -e
+              REPO="https://github.com/srinidhis05/agentura.git"
+              BRANCH="main"
+              echo "Cloning ${REPO} (branch: ${BRANCH})..."
+              git clone --depth 1 --branch "${BRANCH}" "${REPO}" /repo
+              if [ -d "/repo/skills" ]; then cp -a /repo/skills/. /skills/; echo "Synced skills/"; fi
+              if [ -d "/repo/examples" ]; then cp -a /repo/examples/. /skills/examples/; echo "Synced examples/"; fi
+              if [ -d "/repo/pipelines" ]; then cp -a /repo/pipelines/. /pipelines/; echo "Synced pipelines/"; fi
+              if [ -d "/repo/agency" ]; then cp -a /repo/agency/. /agency/; echo "Synced agency/"; fi
+              chown -R 1000:1000 /skills /pipelines /agency
+              echo "Git sync complete."
           volumeMounts:
-            - name: artifacts
-              mountPath: /artifacts
-            - name: knowledge
-              mountPath: /data
             - name: skills
               mountPath: /skills
             - name: pipelines
               mountPath: /pipelines
             - name: agency
               mountPath: /agency
+        - name: init-dirs
+          image: c.rzp.io/proxy_dockerhub/alpine:3.19
+          command: ["sh", "-c"]
+          args:
+            - |
+              mkdir -p /artifacts /data/.agentura
+              chown -R 1000:1000 /artifacts /data
+          volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
+            - name: knowledge
+              mountPath: /data
       containers:
         - name: executor
-          image: c.rzp.io/proxy_dockerhub/srinidhisagentura/agentura-executor:latest
+          image: c.rzp.io/proxy_dockerhub/srinidhisagentura/agentura-executor:v3
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
@@ -205,6 +216,12 @@ spec:
                   key: url
             - name: UVICORN_WORKERS
               value: "2"
+            - name: CLAUDE_CODE_WORKER_IMAGE
+              value: c.rzp.io/proxy_dockerhub/srinidhisagentura/agentura-worker:v3
+            - name: CLAUDE_CODE_WORKER_CPU
+              value: "1"
+            - name: CLAUDE_CODE_WORKER_MEMORY
+              value: "1024Mi"
           envFrom:
             - secretRef:
                 name: agentura-api-keys
