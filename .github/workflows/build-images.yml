@@ -1,0 +1,60 @@
+name: Build and Push Container Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag (default: latest)'
+        required: false
+        default: 'latest'
+
+env:
+  REGISTRY: ghcr.io
+  REPO_OWNER: srinidhis05
+
+jobs:
+  build-executor:
+    name: Build Executor (Python SDK)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: sdk
+          file: sdk/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/agentura/executor:${{ inputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/agentura/executor:${{ github.sha }}
+          platforms: linux/amd64
+
+  build-gateway:
+    name: Build Gateway (Go)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          file: gateway/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/agentura/gateway:${{ inputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/agentura/gateway:${{ github.sha }}
+          platforms: linux/amd64
