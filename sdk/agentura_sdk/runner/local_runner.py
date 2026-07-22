@@ -274,12 +274,11 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
 
         model_name = ctx.model.removeprefix("anthropic/")
         _MODEL_ALIASES = {
-            "claude-sonnet-4.5": "claude-sonnet-4-5-20250929",
-            "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
-            "claude-haiku-4.5": "claude-haiku-4-5-20251001",
-            "claude-haiku-4-5": "claude-haiku-4-5-20251001",
+            "claude-sonnet-4.5": "claude-sonnet-4-6",
+            "claude-sonnet-4-5": "claude-sonnet-4-6",
+            "claude-haiku-4.5": "claude-haiku-4-5",
+            "claude-haiku-4-5": "claude-haiku-4-5",
             "claude-opus-4.6": "claude-opus-4-6",
-            # claude-opus-4-6 is already the canonical ID — no alias needed
         }
         model_name = _MODEL_ALIASES.get(model_name, model_name)
         provider = AnthropicProvider(api_key=os.environ.get("ANTHROPIC_API_KEY"))
