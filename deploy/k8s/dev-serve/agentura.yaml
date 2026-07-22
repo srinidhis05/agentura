@@ -347,3 +347,64 @@ spec:
   ports:
     - port: 3001
       targetPort: 3001
+
+---
+# ── Web UI ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: srinidhi-agentura
+  labels:
+    devstack_label: srinidhi-agentura
+  annotations:
+    janitor/ttl: "72h"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: c.rzp.io/proxy_dockerhub/srinidhisagentura/agentura-web:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: API_TARGET
+              value: http://gateway:3001
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: srinidhi-agentura
+  labels:
+    devstack_label: srinidhi-agentura
+spec:
+  type: ClusterIP
+  selector:
+    app: web
+  ports:
+    - port: 3000
+      targetPort: 3000
