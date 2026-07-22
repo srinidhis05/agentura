@@ -308,7 +308,7 @@ async def _execute_via_pydantic_ai(ctx: SkillContext) -> SkillResult:
 
         # Extract token usage and calculate cost
         cost_usd = 0.0
-        usage = result.usage()
+        usage = result.usage() if callable(result.usage) else result.usage
         input_tokens = getattr(usage, 'input_tokens', 0) or 0
         output_tokens = getattr(usage, 'output_tokens', 0) or 0
         cost_usd = _estimate_anthropic_cost(model_name, input_tokens, output_tokens)
