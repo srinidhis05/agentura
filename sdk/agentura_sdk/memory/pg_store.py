@@ -149,6 +149,12 @@ CREATE INDEX IF NOT EXISTS idx_executions_triggered_by ON executions(triggered_b
 -- Cross-agent learning: reflexion scope (skill | domain | org)
 ALTER TABLE reflexions ADD COLUMN IF NOT EXISTS scope VARCHAR(10) DEFAULT 'skill';
 CREATE INDEX IF NOT EXISTS idx_reflexions_scope ON reflexions(scope);
+
+-- Engram: rubric-scored rule lifecycle
+ALTER TABLE reflexions ADD COLUMN IF NOT EXISTS status VARCHAR(10) DEFAULT 'active';
+ALTER TABLE reflexions ADD COLUMN IF NOT EXISTS rubric_scores JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE reflexions ADD COLUMN IF NOT EXISTS last_fired_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_reflexions_status ON reflexions(status);
 """
 
 
@@ -186,14 +192,14 @@ class PgStore:
 
     def _deserialize_row(self, row: dict) -> dict:
         d = dict(row)
-        for field in ("input_summary", "output_summary", "original_output", "pending_approvals"):
+        for field in ("input_summary", "output_summary", "original_output", "pending_approvals", "rubric_scores"):
             val = d.get(field)
             if isinstance(val, str):
                 try:
                     d[field] = json.loads(val)
                 except (json.JSONDecodeError, TypeError):
                     pass
-        for field in ("timestamp", "created_at"):
+        for field in ("timestamp", "created_at", "last_fired_at", "last_scored_at"):
             val = d.get(field)
             if hasattr(val, "isoformat"):
                 d[field] = val.isoformat()
@@ -503,7 +509,8 @@ class PgStore:
         if not updates:
             return
         allowed = {"rule", "applies_when", "confidence", "validated_by_test",
-                   "utility_score", "times_injected", "times_helped", "source", "scope"}
+                   "utility_score", "times_injected", "times_helped", "source", "scope",
+                   "status", "rubric_scores", "last_fired_at"}
         set_parts = []
         values: list[object] = []
         for key, value in updates.items():
@@ -575,31 +582,46 @@ class PgStore:
             self._pool.putconn(conn)
 
     def get_top_reflexions(self, skill_path: str, limit: int = 5, min_score: float = 0.3) -> list[dict]:
-        """Retrieve reflexions sorted by utility score (Bayesian: (h+2)/(n+4))."""
+        """Retrieve active reflexions sorted by utility score with time-based decay."""
         conn = self._pool.getconn()
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
-                    """SELECT * FROM reflexions
-                       WHERE skill = %s AND workspace_id = %s AND utility_score >= %s
-                       ORDER BY utility_score DESC, confidence DESC
+                    """SELECT *,
+                            utility_score * GREATEST(0.1,
+                                1.0 - EXTRACT(EPOCH FROM (NOW() - COALESCE(last_fired_at, created_at))) / 86400.0 / 30.0
+                            ) AS decayed_score
+                       FROM reflexions
+                       WHERE skill = %s AND workspace_id = %s
+                         AND COALESCE(status, 'active') = 'active'
+                         AND utility_score * GREATEST(0.1,
+                                1.0 - EXTRACT(EPOCH FROM (NOW() - COALESCE(last_fired_at, created_at))) / 86400.0 / 30.0
+                            ) >= %s
+                       ORDER BY decayed_score DESC, confidence DESC
                        LIMIT %s""",
                     (skill_path, self._workspace_id, min_score, limit),
                 )
-                return [self._deserialize_row(row) for row in cur.fetchall()]
+                rows = cur.fetchall()
+                results = []
+                for row in rows:
+                    d = self._deserialize_row(row)
+                    d.pop("decayed_score", None)
+                    results.append(d)
+                return results
         finally:
             self._pool.putconn(conn)
 
     def get_top_reflexions_with_scope(
         self, skill_path: str, limit: int = 5, min_score: float = 0.3
     ) -> list[dict]:
-        """Retrieve reflexions across skill/domain/org scopes, prioritized.
+        """Retrieve reflexions across skill/domain/org scopes with decay, prioritized.
 
         Returns reflexions matching:
         - scope='skill' AND skill = skill_path (priority 1)
         - scope='domain' AND domain = extracted_domain (priority 2)
         - scope='org' (priority 3)
-        Ordered by scope priority ASC, utility_score DESC.
+        Ordered by scope priority ASC, decayed_score DESC.
+        Retired rules are excluded.
         """
         domain = self._domain_from_skill(skill_path)
         conn = self._pool.getconn()
@@ -612,16 +634,22 @@ class PgStore:
                                 WHEN 'domain' THEN 2
                                 WHEN 'org'    THEN 3
                                 ELSE 4
-                            END AS scope_priority
+                            END AS scope_priority,
+                            utility_score * GREATEST(0.1,
+                                1.0 - EXTRACT(EPOCH FROM (NOW() - COALESCE(last_fired_at, created_at))) / 86400.0 / 30.0
+                            ) AS decayed_score
                        FROM reflexions
                        WHERE workspace_id = %s
-                         AND utility_score >= %s
+                         AND COALESCE(status, 'active') = 'active'
+                         AND utility_score * GREATEST(0.1,
+                                1.0 - EXTRACT(EPOCH FROM (NOW() - COALESCE(last_fired_at, created_at))) / 86400.0 / 30.0
+                            ) >= %s
                          AND (
                              (scope = 'skill' AND skill = %s)
                              OR (scope = 'domain' AND domain = %s)
                              OR (scope = 'org')
                          )
-                       ORDER BY scope_priority ASC, utility_score DESC, confidence DESC
+                       ORDER BY scope_priority ASC, decayed_score DESC, confidence DESC
                        LIMIT %s""",
                     (self._workspace_id, min_score, skill_path, domain, limit),
                 )
@@ -630,6 +658,7 @@ class PgStore:
                 for row in rows:
                     d = self._deserialize_row(row)
                     d.pop("scope_priority", None)
+                    d.pop("decayed_score", None)
                     results.append(d)
                 return results
         finally:
@@ -651,6 +680,84 @@ class PgStore:
                 count = cur.rowcount
             conn.commit()
             return count
+        finally:
+            self._pool.putconn(conn)
+
+    # --- Engram: rubric-scored rule lifecycle ---
+
+    def score_reflexion_with_rubric(self, reflexion_id: str, rubric_scores: dict[str, float]) -> float:
+        """Score a reflexion using a multi-dimensional rubric.
+
+        rubric_scores: {"accuracy": 4.0, "relevance": 3.5, "actionability": 4.5}
+        Returns: composite score (weighted average normalized to 0-1).
+        """
+        from agentura_sdk.memory.store import RUBRIC_WEIGHTS
+
+        total_weight = 0.0
+        weighted_sum = 0.0
+        for dim, score in rubric_scores.items():
+            weight = RUBRIC_WEIGHTS.get(dim, 1.0)
+            weighted_sum += score * weight
+            total_weight += weight
+
+        composite = (weighted_sum / total_weight / 5.0) if total_weight > 0 else 0.0
+
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE reflexions
+                       SET rubric_scores = %s, utility_score = %s, last_fired_at = NOW()
+                       WHERE reflexion_id = %s""",
+                    (json.dumps(rubric_scores), composite, reflexion_id),
+                )
+            conn.commit()
+        finally:
+            self._pool.putconn(conn)
+        return composite
+
+    def retire_stale_reflexions(self, skill_path: str, min_score: float = 0.3, max_age_days: int = 30) -> list[str]:
+        """Retire reflexions that have decayed below threshold.
+
+        Returns list of retired reflexion IDs. Rules are set to status='retired', not deleted.
+        """
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """UPDATE reflexions
+                       SET status = 'retired'
+                       WHERE skill = %s AND workspace_id = %s
+                         AND COALESCE(status, 'active') = 'active'
+                         AND utility_score * GREATEST(0.1,
+                                1.0 - EXTRACT(EPOCH FROM (NOW() - COALESCE(last_fired_at, created_at))) / 86400.0 / %s
+                            ) < %s
+                       RETURNING reflexion_id""",
+                    (skill_path, self._workspace_id, float(max_age_days), min_score),
+                )
+                retired = [row["reflexion_id"] for row in cur.fetchall()]
+            conn.commit()
+            for rid in retired:
+                import logging
+                logging.getLogger(__name__).info(
+                    "retired reflexion %s for skill %s", rid, skill_path
+                )
+            return retired
+        finally:
+            self._pool.putconn(conn)
+
+    def promote_reflexion(self, reflexion_id: str, target_scope: str) -> None:
+        """Promote a reflexion from skill-scoped to domain-scoped or org-scoped."""
+        if target_scope not in ("domain", "org"):
+            raise ValueError(f"Invalid promotion target scope: {target_scope}")
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE reflexions SET scope = %s, status = 'promoted' WHERE reflexion_id = %s",
+                    (target_scope, reflexion_id),
+                )
+            conn.commit()
         finally:
             self._pool.putconn(conn)
 

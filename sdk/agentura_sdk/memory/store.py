@@ -12,10 +12,20 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
+
+logger = logging.getLogger(__name__)
+
+# Engram rubric: default weights for multi-dimensional scoring
+RUBRIC_WEIGHTS: dict[str, float] = {
+    "accuracy": 1.0,
+    "relevance": 1.0,
+    "actionability": 1.0,
+}
 
 
 class MemoryStore(Protocol):
@@ -42,6 +52,10 @@ class MemoryStore(Protocol):
     def approve_execution_atomic(self, execution_id: str, new_outcome: str, reviewer_notes: str = "") -> tuple[str, dict | None]: ...
     def update_execution_output(self, execution_id: str, output_summary: object, outcome: str | None = None) -> bool: ...
     def update_execution_pending_approvals(self, execution_id: str, pending_approvals: list[dict]) -> bool: ...
+    # Engram: rubric-scored rule lifecycle
+    def score_reflexion_with_rubric(self, reflexion_id: str, rubric_scores: dict[str, float]) -> float: ...
+    def retire_stale_reflexions(self, skill_path: str, min_score: float = 0.3, max_age_days: int = 30) -> list[str]: ...
+    def promote_reflexion(self, reflexion_id: str, target_scope: str) -> None: ...
 
 
 _store_instance: MemoryStore | None = None
@@ -158,6 +172,22 @@ class CompositeStore:
         if hasattr(self._pg, "update_execution_pending_approvals"):
             return self._pg.update_execution_pending_approvals(execution_id, pending_approvals)
         return False
+
+    # --- Engram: rubric-scored rule lifecycle ---
+
+    def score_reflexion_with_rubric(self, reflexion_id: str, rubric_scores: dict[str, float]) -> float:
+        if hasattr(self._pg, "score_reflexion_with_rubric"):
+            return self._pg.score_reflexion_with_rubric(reflexion_id, rubric_scores)
+        return 0.0
+
+    def retire_stale_reflexions(self, skill_path: str, min_score: float = 0.3, max_age_days: int = 30) -> list[str]:
+        if hasattr(self._pg, "retire_stale_reflexions"):
+            return self._pg.retire_stale_reflexions(skill_path, min_score, max_age_days)
+        return []
+
+    def promote_reflexion(self, reflexion_id: str, target_scope: str) -> None:
+        if hasattr(self._pg, "promote_reflexion"):
+            self._pg.promote_reflexion(reflexion_id, target_scope)
 
     @property
     def pg(self):
