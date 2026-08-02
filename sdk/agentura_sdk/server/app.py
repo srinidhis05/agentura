@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from agentura_sdk.runner.skill_loader import load_skill_md
-from agentura_sdk.types import SandboxConfig, SkillContext, SkillResult, SkillRole, VerifyConfig
+from agentura_sdk.types import JudgeConfig, SandboxConfig, SkillContext, SkillResult, SkillRole, VerifyConfig
 
 SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", "/skills"))
 KNOWLEDGE_DIR = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(".agentura"))
@@ -738,6 +738,7 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest, request: Re
 
     # Load verify config (DEC-069)
     verify_config = None
+    judge_config = None
     skill_config_check = root / "agentura.config.yaml"
     if skill_config_check.exists():
         try:
@@ -745,8 +746,15 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest, request: Re
             verify_raw = cfg_raw.get("verify", {})
             if verify_raw and verify_raw.get("enabled"):
                 verify_config = VerifyConfig(**verify_raw)
+            judge_raw = cfg_raw.get("judge", {})
+            if judge_raw and judge_raw.get("enabled"):
+                judge_config = JudgeConfig(**judge_raw)
         except Exception:
             pass
+
+    # Judge config from SKILL.md frontmatter takes precedence over config file
+    if skill_md.judge_config:
+        judge_config = skill_md.judge_config
 
     ctx = SkillContext(
         skill_name=skill_md.metadata.name,
@@ -759,6 +767,7 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest, request: Re
         sandbox_config=sandbox_config,
         injected_reflexion_ids=skill_md.injected_reflexion_ids,
         verify_config=verify_config,
+        judge_config=judge_config,
     )
 
     if req.dry_run:
