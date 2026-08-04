@@ -161,54 +161,67 @@ def _build_skill_context(
 
     sandbox_config = None
     mcp_bindings: list[dict] = []
+
+    # Bind MCP tools for ANY skill that declares them (not just agents).
+    # Specialists like pr-context-enricher need Datadog/Jira MCP access.
     if loaded.metadata.role == SkillRole.AGENT:
         sandbox_config = SandboxConfig()
-        config_path = skill_dir / "agentura.config.yaml"
-        if config_path.exists():
-            try:
-                cfg = yaml.safe_load(config_path.read_text()) or {}
-                sandbox_raw = cfg.get("sandbox", {}) or cfg.get("agent", {})
-                if sandbox_raw:
-                    sandbox_config = SandboxConfig(**sandbox_raw)
-                gateway_api_key = os.environ.get("MCP_GATEWAY_API_KEY", "")
-                for mcp_ref in cfg.get("mcp_tools", []):
-                    server_name = mcp_ref.get("server", "")
-                    tools = mcp_ref.get("tools", [])
-                    binding: dict | None = None
 
-                    # 1. Explicit env var
-                    env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
-                    server_url = os.environ.get(env_key, "")
-                    if server_url:
-                        binding = {"server": server_name, "url": server_url, "tools": tools}
-                        auth_key = f"MCP_{server_name.upper().replace('-', '_')}_API_KEY"
-                        api_key = os.environ.get(auth_key, "")
-                        if api_key:
-                            binding["headers"] = {"Authorization": f"Bearer {api_key}"}
+    config_path = skill_dir / "agentura.config.yaml"
+    if config_path.exists():
+        try:
+            cfg = yaml.safe_load(config_path.read_text()) or {}
+            sandbox_raw = cfg.get("sandbox", {}) or cfg.get("agent", {})
+            if sandbox_raw and sandbox_config is not None:
+                sandbox_config = SandboxConfig(**sandbox_raw)
+            gateway_api_key = os.environ.get("MCP_GATEWAY_API_KEY", "")
+            # mcp_tools can be at top level OR inside skills[].mcp_tools
+            mcp_tools = cfg.get("mcp_tools", [])
+            if not mcp_tools:
+                for skill_cfg in cfg.get("skills", []):
+                    if skill_cfg.get("name") == loaded.metadata.name:
+                        mcp_tools = skill_cfg.get("mcp_tools", [])
+                        break
+            for mcp_ref in mcp_tools:
+                server_name = mcp_ref.get("server", "")
+                tools = mcp_ref.get("tools", [])
+                binding: dict | None = None
 
-                    # 2. MCP registry fallback (Obot auto-discovery)
-                    if binding is None:
-                        try:
-                            from agentura_sdk.mcp.registry import get_registry
-                            reg = get_registry()
-                            srv = reg.get(server_name)
-                            if srv and srv.url:
-                                binding = {"server": server_name, "url": srv.url, "tools": tools}
-                                if gateway_api_key:
-                                    binding["headers"] = {"Authorization": f"Bearer {gateway_api_key}"}
-                                logger.debug("MCP server %s resolved via registry: %s", server_name, srv.url)
-                        except Exception:
-                            pass
+                # 1. Explicit env var
+                env_key = f"MCP_{server_name.upper().replace('-', '_')}_URL"
+                server_url = os.environ.get(env_key, "")
+                if server_url:
+                    binding = {"server": server_name, "url": server_url, "tools": tools}
+                    auth_key = f"MCP_{server_name.upper().replace('-', '_')}_API_KEY"
+                    api_key = os.environ.get(auth_key, "")
+                    if api_key:
+                        binding["headers"] = {"Authorization": f"Bearer {api_key}"}
 
-                    if binding is None:
+                # 2. MCP registry fallback (Obot auto-discovery)
+                if binding is None:
+                    try:
+                        from agentura_sdk.mcp.registry import get_registry
+                        reg = get_registry()
+                        srv = reg.get(server_name)
+                        if srv and srv.url:
+                            binding = {"server": server_name, "url": srv.url, "tools": tools}
+                            if gateway_api_key:
+                                binding["headers"] = {"Authorization": f"Bearer {gateway_api_key}"}
+                            logger.debug("MCP server %s resolved via registry: %s", server_name, srv.url)
+                    except Exception:
+                        pass
+
+                if binding is None:
+                    if not mcp_ref.get("optional"):
                         logger.warning("MCP server %s: no URL found (env var %s not set, registry empty)", server_name, env_key)
-                        continue
+                    continue
 
-                    if mcp_ref.get("approval_required"):
-                        binding["approval_required"] = mcp_ref["approval_required"]
-                    mcp_bindings.append(binding)
-            except Exception:
-                pass
+                if mcp_ref.get("approval_required"):
+                    binding["approval_required"] = mcp_ref["approval_required"]
+                mcp_bindings.append(binding)
+                logger.info("MCP tool bound: %s → %s (%d tools)", server_name, binding["url"], len(tools))
+        except Exception:
+            pass
 
     return SkillContext(
         skill_name=loaded.metadata.name,
@@ -410,8 +423,10 @@ async def _prefetch_pr_data(input_data: dict[str, Any]) -> dict[str, Any]:
     enriched = dict(input_data)
     try:
         from agentura_sdk.pipelines.github_client import fetch_pr_diff, fetch_pr_files
-        diff = await fetch_pr_diff(repo=repo, pr_number=int(pr_number))
-        files = await fetch_pr_files(repo=repo, pr_number=int(pr_number))
+        # Prefer fresh token from gateway input over stale env var
+        token = input_data.get("github_token") or None
+        diff = await fetch_pr_diff(repo=repo, pr_number=int(pr_number), token=token)
+        files = await fetch_pr_files(repo=repo, pr_number=int(pr_number), token=token)
         original_len = len(diff)
         diff, skipped = _truncate_diff(diff, files)
         enriched["diff"] = diff
@@ -486,6 +501,76 @@ def _format_review_comments(review_output: dict[str, Any]) -> list[dict]:
     return comments
 
 
+def _record_reflexion_feedback(all_results: list[dict], input_data: dict) -> None:
+    """Feed verifier verdicts back into the reflexion store.
+
+    When the verifier marks a finding as false_positive, create a negative
+    reflexion so the reviewer is less confident on that pattern next time.
+    When findings are verified, boost the injected reflexions' utility scores.
+    """
+    try:
+        from agentura_sdk.memory import get_memory_store
+        store = get_memory_store()
+    except Exception:
+        return
+
+    repo = input_data.get("Repo") or input_data.get("repo", "")
+
+    # Find verifier output
+    verifier_output = None
+    reviewer_reflexion_ids = []
+    for r in all_results:
+        skill = r.get("skill", "")
+        if "verifier" in skill:
+            verifier_output = r.get("output", {})
+        if "reviewer" in skill and r.get("injected_reflexion_ids"):
+            reviewer_reflexion_ids = r.get("injected_reflexion_ids", [])
+
+    if not verifier_output:
+        return
+
+    # Parse verifier findings
+    findings = verifier_output.get("findings", [])
+    false_positives = [f for f in findings if f.get("status") == "false_positive"]
+    verified = [f for f in findings if f.get("status") == "verified"]
+
+    # Create negative reflexions for false positives
+    for fp in false_positives:
+        title = fp.get("title", "")
+        severity = fp.get("severity", "")
+        reason = fp.get("reason", "")
+        if title:
+            content = (
+                f"FALSE POSITIVE on {repo}: '{title}' ({severity}) was flagged "
+                f"but verifier determined: {reason}. Lower confidence on this pattern."
+            )
+            try:
+                store.create_reflexion(
+                    execution_id="",
+                    rule=content,
+                    skill_path="dev/pr-code-reviewer",
+                    scope=f"repo:{repo}",
+                )
+                logger.info("Created false-positive reflexion for repo=%s finding=%s", repo, title[:50])
+            except Exception as e:
+                logger.debug("Failed to create reflexion: %s", e)
+
+    # Boost utility scores for reflexions that led to verified findings
+    if verified and reviewer_reflexion_ids:
+        for rid in reviewer_reflexion_ids:
+            try:
+                store.record_execution_success(rid)
+                logger.info("Boosted reflexion %s (verified findings found)", rid)
+            except Exception as e:
+                logger.debug("Failed to boost reflexion: %s", e)
+
+    if false_positives or (verified and reviewer_reflexion_ids):
+        logger.info(
+            "Reflexion feedback: %d false positives logged, %d reflexions boosted for repo=%s",
+            len(false_positives), len(reviewer_reflexion_ids) if verified else 0, repo,
+        )
+
+
 async def _maybe_post_pr_review(
     pipeline_name: str,
     input_data: dict[str, Any],
@@ -506,7 +591,8 @@ async def _maybe_post_pr_review(
         return
 
     from agentura_sdk.pipelines import github_client
-    token = github_client.get_token()
+    # Prefer fresh token from gateway input over stale env var
+    token = input_data.get("github_token") or github_client.get_token()
     if not token:
         logger.warning("GITHUB_TOKEN not set — skipping PR review posting")
         return
@@ -522,12 +608,11 @@ async def _maybe_post_pr_review(
             inline_comments = _format_review_comments(review_output)
             summary = review_output.get("summary", "Automated review by Agentura")
 
-            verdict = review_output.get("verdict", "")
-            has_blocking = verdict == "request-changes" or any(
-                f.get("severity", "").upper() == "BLOCKER"
-                for f in review_output.get("findings", [])
-            )
-            event = "REQUEST_CHANGES" if has_blocking else "COMMENT"
+            # Always use COMMENT — never REQUEST_CHANGES during beta rollout.
+            # REQUEST_CHANGES blocks merge, which is too aggressive before
+            # severity calibration is complete. Graduate to REQUEST_CHANGES
+            # after false positive rate < 10% across 50+ reviews.
+            event = "COMMENT"
 
             await github_client.post_review(
                 repo=repo,
@@ -545,16 +630,78 @@ async def _maybe_post_pr_review(
     else:
         logger.warning("no reviewer output found — skipping inline review on %s#%s", repo, pr_number)
 
-    # Post reporter summary as a PR comment
+    # Post reporter summary as a PR comment — but skip if findings unchanged
     final_output = all_results[-1].get("output", {}) if all_results else {}
     logger.debug("reporter final_output keys=%s", list(final_output.keys()) if isinstance(final_output, dict) else type(final_output))
     body = final_output.get("raw_output") or final_output.get("output", "")
     if body:
-        try:
-            await github_client.post_comment(repo=repo, pr_number=int(pr_number), body=body, token=token)
-            logger.info("posted PR summary comment on %s#%s", repo, pr_number)
-        except Exception as e:
-            logger.error("failed to post PR summary comment on %s#%s: %s", repo, pr_number, e)
+        # Dedup: check if the last Shipwright comment has the same findings
+        if await _is_duplicate_review_comment(repo, int(pr_number), body, token):
+            logger.info("skipping duplicate review comment on %s#%s — findings unchanged", repo, pr_number)
+        else:
+            try:
+                await github_client.post_comment(repo=repo, pr_number=int(pr_number), body=body, token=token)
+                logger.info("posted PR summary comment on %s#%s", repo, pr_number)
+            except Exception as e:
+                logger.error("failed to post PR summary comment on %s#%s: %s", repo, pr_number, e)
+
+
+async def _is_duplicate_review_comment(repo: str, pr_number: int, new_body: str, token: str) -> bool:
+    """Check if posting this review would be noise.
+
+    Two conditions that skip posting:
+    1. Same findings — the last Shipwright comment has identical verdict+findings
+       (cost/duration change every run, so we ignore those)
+    2. Recent review — a Shipwright comment was posted in the last 24 hours and
+       findings are the same (batching: avoid reviewing unchanged code repeatedly)
+
+    If the code changed and findings are different → always post.
+    """
+    import hashlib
+    from datetime import datetime, timezone, timedelta
+    try:
+        comments = await github_client.get_pr_comments(repo, pr_number, token)
+        bot_comments = [
+            c for c in comments
+            if c.get("user", {}).get("login") == "shipwright-crew[bot]"
+            and ("Shipwright Review" in c.get("body", "") or "Deep Review" in c.get("body", ""))
+        ]
+        if not bot_comments:
+            return False
+
+        last_comment = bot_comments[-1]
+        last_body = last_comment["body"]
+        last_created = last_comment.get("created_at", "")
+
+        # Hash the substantive part (verdict + findings) — ignore run-specific metadata
+        def findings_hash(body: str) -> str:
+            lines = []
+            for line in body.split("\n"):
+                if any(skip in line.lower() for skip in [
+                    "total cost:", "cost:", "duration:", "fleet session:",
+                    "exec-", "generated:", "| duration", "| cost"
+                ]):
+                    continue
+                lines.append(line.strip())
+            return hashlib.md5("\n".join(lines).encode()).hexdigest()
+
+        old_hash = findings_hash(last_body)
+        new_hash = findings_hash(new_body)
+
+        # Same findings → always skip (regardless of time)
+        if old_hash == new_hash:
+            logger.info("skipping duplicate review on %s#%d — findings unchanged (hash: %s)",
+                        repo, pr_number, old_hash[:8])
+            return True
+
+        # Different findings but recent review → post (code actually changed)
+        # This ensures new pushes with real changes get a fresh review
+        logger.info("findings changed on %s#%d — posting new review (old: %s, new: %s)",
+                    repo, pr_number, old_hash[:8], new_hash[:8])
+        return False
+    except Exception as e:
+        logger.debug("duplicate check failed (allowing post): %s", e)
+        return False
 
 
 async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, Any]:
@@ -612,16 +759,32 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
             phase_input.update(carry_forward)
 
             if phase.type == "parallel":
+                # Skip agents from: .shipwright.yaml (in input_data) > triage output (in carry_forward)
+                skip_agents = set(normalized.get("skip_agents", []))
+                skip_agents.update(carry_forward.get("skip_agents", []))
+                active_steps = [
+                    s for s in phase.steps
+                    if (s.agent_id or s.skill.split("/")[-1]) not in skip_agents
+                ]
+                if skip_agents and len(active_steps) < len(phase.steps):
+                    skipped = [s.agent_id or s.skill for s in phase.steps if s not in active_steps]
+                    logger.info("triage skip_agents: skipping %s (saving ~$%.2f)",
+                                skipped, len(skipped) * 0.7)
+                skipped_phase = PipelinePhase(
+                    name=phase.name, type=phase.type, steps=active_steps,
+                    fan_in_from=phase.fan_in_from,
+                )
+
                 # Register agents in fleet store
                 if store and session_id:
-                    for step in phase.steps:
+                    for step in active_steps:
                         aid = step.agent_id or step.skill.replace("/", "-")
                         try:
                             store.create_agent(session_id, f"{session_id}-{aid}", step.skill)
                         except Exception:
                             pass
 
-                phase_results = await execute_parallel_phase(phase, phase_input, skills_dir)
+                phase_results = await execute_parallel_phase(skipped_phase, phase_input, skills_dir)
                 all_results.extend(phase_results)
 
                 # Update fleet store with per-agent results
@@ -683,6 +846,18 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                 # Propagate agent_results for downstream fan-in phases
                 carry_forward["agent_results"] = _compact_agent_results(seq_results)
 
+                # Extract triage directives (skip_agents, model_override) into carry_forward
+                for r in seq_results:
+                    output = r.get("output") or {}
+                    if isinstance(output, str):
+                        try:
+                            output = json.loads(output)
+                        except (json.JSONDecodeError, TypeError):
+                            output = {}
+                    if "skip_agents" in output:
+                        carry_forward["skip_agents"] = output["skip_agents"]
+                        logger.info("triage directive: skip_agents=%s", output["skip_agents"])
+
             # Check for required-step failures — abort remaining phases
             has_required_failure = any(
                 r.get("success") is False and r.get("required", True)
@@ -719,6 +894,9 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
 
     # Post inline review + summary comment for GitHub PR pipelines
     await _maybe_post_pr_review(name, normalized, all_results)
+
+    # Feed verifier verdicts back to reflexion store (closes the learning loop)
+    _record_reflexion_feedback(all_results, normalized)
 
     return {
         "pipeline": name,

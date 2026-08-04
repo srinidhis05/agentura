@@ -3,14 +3,15 @@
 Provides tools for: channel history, posting messages, thread replies,
 canvas create/update, reactions, and channel listing.
 
-Multi-token support: Set SLACK_BOT_TOKEN as default. Skills can override
-via bot_token parameter on write operations for domain-scoped bots.
+Multi-token support: Set SLACK_BOT_TOKEN as default. Executor passes
+override tokens via X-Slack-Bot-Token request header (SEC-002).
 """
 import os
 import json
 import logging
+import re
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 
 app = FastAPI(title="slack-mcp")
@@ -18,10 +19,36 @@ logger = logging.getLogger("uvicorn")
 
 DEFAULT_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 
+# Thread-local storage for per-request token override
+_request_bot_token: str = ""
+
 
 def _client(bot_token: str | None = None):
     from slack_sdk import WebClient
-    return WebClient(token=bot_token or DEFAULT_BOT_TOKEN)
+    # Priority: explicit arg > request header > env default
+    token = bot_token or _request_bot_token or DEFAULT_BOT_TOKEN
+    return WebClient(token=token)
+
+
+# --- Redaction (SEC-001) ---
+
+_REDACTION_PATTERNS = [
+    (re.compile(r'xox[bpras]-[A-Za-z0-9\-]+'), '[REDACTED_SLACK_TOKEN]'),
+    (re.compile(r'AKIA[0-9A-Z]{16}'), '[REDACTED_AWS_KEY]'),
+    (re.compile(r'(?:token|key|secret|password|bearer)\s*[:=]\s*["\']?([A-Za-z0-9+/=\-_]{40,})["\']?', re.IGNORECASE), '[REDACTED_CREDENTIAL]'),
+    (re.compile(r'\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b'), '[REDACTED_INTERNAL_IP]'),
+    (re.compile(r'[a-z0-9\-]+\.[a-z0-9]+\.[a-z]{2}-[a-z]+-\d\.rds\.amazonaws\.com'), '[REDACTED_RDS_ENDPOINT]'),
+    (re.compile(r'(postgres|mysql|mongodb|redis|amqp)://[^\s]+'), '[REDACTED_CONNECTION_STRING]'),
+]
+
+
+def _redact_sensitive(text: str) -> str:
+    """Strip credentials, IPs, connection strings from text before LLM sees it."""
+    if not text:
+        return text
+    for pattern, replacement in _REDACTION_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 # --- Models ---
@@ -165,6 +192,19 @@ TOOLS = [
             "required": ["name"],
         },
     },
+    {
+        "name": "slack_get_thread_replies",
+        "description": "Get all replies in a Slack thread. Returns messages after the parent. Used by thread-harvester to extract RCA from alert discussions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "string", "description": "Channel ID"},
+                "thread_ts": {"type": "string", "description": "Parent message timestamp"},
+                "limit": {"type": "integer", "description": "Max replies (default 50)", "default": 50},
+            },
+            "required": ["channel", "thread_ts"],
+        },
+    },
 ]
 
 
@@ -181,7 +221,14 @@ def list_tools():
 
 
 @app.post("/tools/call")
-def call_tool(req: ToolCallRequest):
+def call_tool(req: ToolCallRequest, request: Request = None):
+    global _request_bot_token
+    # SEC-002: resolve bot token from request header, not from tool args
+    if request:
+        _request_bot_token = request.headers.get("X-Slack-Bot-Token", "")
+    else:
+        _request_bot_token = ""
+
     handlers = {
         "slack_conversations_history": _conversations_history,
         "slack_conversations_list": _conversations_list,
@@ -193,6 +240,7 @@ def call_tool(req: ToolCallRequest):
         "slack_create_canvas": _create_canvas,
         "slack_update_canvas": _update_canvas,
         "slack_lookup_channel": _lookup_channel,
+        "slack_get_thread_replies": _get_thread_replies,
     }
     handler = handlers.get(req.name)
     if not handler:
@@ -208,14 +256,39 @@ def call_tool(req: ToolCallRequest):
 # --- Read handlers ---
 
 def _conversations_history(args: dict) -> str:
-    client = _client(args.get("bot_token"))
+    client = _client()  # token from header, not args
     resp = client.conversations_history(
         channel=args["channel"],
         limit=min(args.get("limit", 50), 200),
         oldest=args.get("oldest"),
     )
     messages = resp.data.get("messages", [])
+    # SEC-001: redact sensitive data before returning to LLM
+    for msg in messages:
+        if msg.get("text"):
+            msg["text"] = _redact_sensitive(msg["text"])
     return json.dumps({"message_count": len(messages), "messages": messages[:50]}, indent=2)
+
+
+def _get_thread_replies(args: dict) -> str:
+    """Get all replies in a Slack thread. SEC-001: redacted before return."""
+    client = _client()  # token from header, not args
+    resp = client.conversations_replies(
+        channel=args["channel"],
+        ts=args["thread_ts"],
+        limit=args.get("limit", 50),
+    )
+    messages = resp.data.get("messages", [])
+    # Skip parent message (first element), return only replies
+    replies = []
+    for m in messages[1:]:
+        replies.append({
+            "user": m.get("user", ""),
+            "text": _redact_sensitive(m.get("text", "")),
+            "ts": m.get("ts", ""),
+            "bot_id": m.get("bot_id", ""),
+        })
+    return json.dumps(replies, indent=2)
 
 
 def _conversations_list(args: dict) -> str:

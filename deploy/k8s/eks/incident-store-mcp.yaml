@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incident-store-mcp
+  namespace: agentura-system
+  labels:
+    app: incident-store-mcp
+    tier: mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: incident-store-mcp
+  template:
+    metadata:
+      labels:
+        app: incident-store-mcp
+        tier: mcp-server
+      annotations:
+        karpenter.sh/do-not-disrupt: "true"
+    spec:
+      containers:
+        - name: incident-store-mcp
+          image: 441250065216.dkr.ecr.ap-south-1.amazonaws.com/agentura/incident-store-mcp:v1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agentura-db
+                  key: url
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: incident-store-mcp
+  namespace: agentura-system
+spec:
+  selector:
+    app: incident-store-mcp
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: incident-store-mcp-pdb
+  namespace: agentura-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: incident-store-mcp

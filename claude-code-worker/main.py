@@ -24,6 +24,150 @@ MAX_CONTINUATIONS = int(os.environ.get("MAX_CONTINUATIONS", "2"))
 
 app = FastAPI(title="Claude Code Worker", version="0.1.0")
 
+# Configure root logger so logger.info() actually outputs
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+
+def _setup_git_credentials(request: AgentRequest) -> None:
+    """Configure git to authenticate with GitHub using the available token.
+
+    Priority: GITHUB_TOKEN env var > github_token from input data > skip.
+    Sets up a global git credential helper so `git clone https://github.com/...`
+    works without the agent needing to manually configure auth.
+    """
+    import subprocess
+
+    # Try env var first (from K8s secret), then input data
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if not token:
+        try:
+            input_data = json.loads(request.prompt)
+            token = input_data.get("github_token", "")
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    if not token:
+        logger.info("No GitHub token available — git clone will require manual auth")
+        return
+
+    # Configure git to use token for all github.com HTTPS URLs
+    subprocess.run(
+        ["git", "config", "--global", "url.https://x-access-token:" + token + "@github.com/.insteadOf", "https://github.com/"],
+        capture_output=True,
+    )
+    # Also configure gh CLI
+    subprocess.run(
+        ["gh", "auth", "setup-git"],
+        capture_output=True,
+        env={**os.environ, "GITHUB_TOKEN": token, "GH_TOKEN": token},
+    )
+    logger.info("Git credentials configured for github.com")
+
+
+def _write_claude_md(request: AgentRequest) -> None:
+    """Write CLAUDE.md to workspace — strongest behavioral signal for Claude Code.
+
+    Claude Code reads CLAUDE.md as project-level instructions that take priority
+    over its default "software engineering assistant" behavior.
+    """
+    claude_md_path = Path(WORK_DIR) / "CLAUDE.md"
+
+    if request.task_type == "review":
+        claude_md = (
+            "# CLAUDE.md — Agentura Review Agent\n\n"
+            "You are executing a CODE REVIEW task inside an Agentura worker pod.\n\n"
+            "## CRITICAL RULES\n\n"
+            "1. **READ-ONLY** — Do NOT create files, write code, commit, push, or create PRs.\n"
+            "   The ONLY file you may write is `TASK_RESULT.json`.\n"
+            "2. **Output format** — You MUST write your findings to `TASK_RESULT.json` as valid JSON.\n"
+            "   The JSON schema is defined in your system prompt. Follow it exactly.\n"
+            "3. **No exploration loops** — Do not broadly explore the codebase. The PR diff and\n"
+            "   changed files are provided in your input. Analyze THOSE, not the whole repo.\n"
+            "4. **Evidence required** — Every finding must cite file:line and include a code snippet.\n"
+            "5. **Finish with TASK_RESULT.json** — Your task is NOT complete until this file exists.\n"
+            "   Write it using the Write tool as the LAST thing you do.\n\n"
+            "## What NOT to do\n\n"
+            "- Do NOT run `git push`, `git commit`, or `gh pr create`\n"
+            "- Do NOT create branches or modify the git state\n"
+            "- Do NOT produce a text-only summary without writing TASK_RESULT.json\n"
+            "- Do NOT ask follow-up questions — produce the verdict and stop\n"
+        )
+    else:
+        claude_md = (
+            "# CLAUDE.md — Agentura Build Agent\n\n"
+            "You are executing a BUILD task inside an Agentura worker pod.\n\n"
+            "## CRITICAL RULES\n\n"
+            "1. **Follow the system prompt** — Your task instructions are in the system prompt.\n"
+            "2. **Output format** — When done, write `TASK_RESULT.json` with your results.\n"
+            "3. **Stay focused** — Complete the task described. Do not explore unrelated code.\n"
+            "4. **Finish with TASK_RESULT.json** — Your task is NOT complete until this file exists.\n"
+        )
+
+    claude_md_path.write_text(claude_md)
+    logger.info("Wrote CLAUDE.md for task_type=%s", request.task_type)
+
+
+def _build_continuation(
+    task_type: str, summary: str, original_prompt: str, work_dir: str,
+) -> tuple[str, str]:
+    """Build task-type-aware continuation system prompt and user prompt."""
+
+    if task_type == "review":
+        cont_system = (
+            "You are a review delivery agent. A previous agent analyzed code but stopped "
+            "before writing TASK_RESULT.json. Your ONLY job is to:\n"
+            "1. Read the previous agent's analysis from the conversation\n"
+            "2. Synthesize it into the required JSON schema\n"
+            "3. Write TASK_RESULT.json to " + work_dir + "\n\n"
+            "Do NOT explore the codebase. Do NOT create PRs. Do NOT commit code.\n"
+            "ONLY write TASK_RESULT.json based on what the previous agent found."
+        )
+        continuation_prompt = (
+            "A previous review agent analyzed code but stopped before writing TASK_RESULT.json.\n\n"
+            "Previous agent findings:\n" + summary[:3000] + "\n\n"
+            "Original task:\n" + original_prompt[:2000] + "\n\n"
+            "Write " + work_dir + "/TASK_RESULT.json with the review findings in the JSON "
+            "schema defined in the system prompt. If the previous agent didn't produce a clear "
+            "verdict, use verdict: 'CONDITIONAL' and list what needs manual review under conditions.\n"
+            "IMPORTANT: Use the Write tool to create TASK_RESULT.json. Do nothing else."
+        )
+    else:
+        cont_system = (
+            "You are a delivery agent. A previous agent created code in a git repo "
+            "but stopped before pushing and creating a PR. Your ONLY job is to:\n"
+            "1. Find the git repo in /tmp/\n"
+            "2. Commit all changes, push the branch\n"
+            "3. Create a PR\n"
+            "4. If an APK exists under build/, upload it via gh release create\n"
+            "5. Write TASK_RESULT.json with pr_url and apk_url\n\n"
+            "Do NOT create new code. Do NOT re-clone. Do NOT read documentation. "
+            "Just push what exists and create the PR.\n"
+            "NEVER produce a text-only response without tool calls."
+        )
+        continuation_prompt = (
+            "A previous agent was working on this task but stopped before delivery.\n\n"
+            "Previous agent summary:\n" + summary[:2000] + "\n\n"
+            "Original task input:\n" + original_prompt[:2000] + "\n\n"
+            "Steps — execute ALL with tool calls:\n"
+            "1. Run: find /tmp -maxdepth 2 -name '.git' -type d\n"
+            "2. cd into the repo directory found above\n"
+            "3. Run: git status (see what files were created)\n"
+            "4. Run: git add -A && git commit -m 'feat: add feature from incubation spec'\n"
+            "5. Run: git push --force-with-lease origin HEAD\n"
+            "6. Run: gh pr create --base <target> --title 'feat: add feature' "
+            "--body 'Generated by Agentura incubator pipeline.'\n"
+            "   (use the target branch specified in the skill config)\n"
+            "7. If APK exists: find . -name '*.apk' -path '*/debug/*'\n"
+            "   If found, run: gh release create incubator-$(date +%s) <apk_path> "
+            "--repo <repo> --title 'Incubator debug APK' --prerelease\n"
+            "8. Write " + work_dir + "/TASK_RESULT.json:\n"
+            '   {"success": true, "pr_url": "<url from step 6>", '
+            '"apk_url": "<release url from step 7 or null>", '
+            '"summary": "Created feature. PR: <url>"}\n'
+        )
+
+    return cont_system, continuation_prompt
+
 
 class AgentRequest(BaseModel):
     prompt: str
@@ -35,6 +179,7 @@ class AgentRequest(BaseModel):
     allowed_tools: list[str] = Field(default_factory=list)
     verify_criteria: list[str] = Field(default_factory=list)
     verify_max_retries: int = 1
+    task_type: str = "build"  # "build" | "review" — controls continuation behavior
 
 
 def _sse(event: str, data: dict) -> str:
@@ -76,6 +221,14 @@ async def execute_stream(request: AgentRequest):
                      "GIT_COMMITTER_NAME": "agentura", "GIT_COMMITTER_EMAIL": "bot@agentura"},
             )
 
+        # Configure git credentials so the agent can clone repos.
+        # Uses GITHUB_TOKEN from env (set via K8s secret) or github_token from input.
+        _setup_git_credentials(request)
+
+        # Write CLAUDE.md — strongest signal to Claude Code about behavior.
+        # This overrides CC's default "software engineering assistant" persona.
+        _write_claude_md(request)
+
         allowed_tools = request.allowed_tools or [
             "Read", "Write", "Edit", "Bash", "Glob", "Grep",
         ]
@@ -103,6 +256,12 @@ async def execute_stream(request: AgentRequest):
                     for block in message.content:
                         if isinstance(block, ToolUseBlock):
                             iteration_count += 1
+                            # Log every tool call for debugging
+                            input_preview = str(block.input)[:200] if block.input else ""
+                            logger.info(
+                                "iter=%d tool=%s input=%s",
+                                iteration_count, block.name, input_preview,
+                            )
                             yield _sse("iteration", {
                                 "iteration": iteration_count,
                                 "tool_name": block.name,
@@ -111,6 +270,7 @@ async def execute_stream(request: AgentRequest):
                             })
                         elif isinstance(block, TextBlock):
                             final_text_parts.append(block.text)
+                            logger.info("agent_text: %s", block.text[:300])
 
                 elif isinstance(message, UserMessage):
                     if isinstance(message.content, list):
@@ -143,6 +303,10 @@ async def execute_stream(request: AgentRequest):
 
             # Continuation loop: if TASK_RESULT.json not written, retry
             result_path = Path(WORK_DIR) / "TASK_RESULT.json"
+            logger.info(
+                "main execution done. iterations=%d, TASK_RESULT exists=%s, task_type=%s",
+                iteration_count, result_path.exists(), request.task_type,
+            )
             continuation = 0
             while not result_path.exists() and continuation < MAX_CONTINUATIONS:
                 continuation += 1
@@ -161,40 +325,8 @@ async def execute_stream(request: AgentRequest):
                 # Summarize what was done so the continuation has context
                 summary = "\n".join(final_text_parts[-3:]) if final_text_parts else ""
 
-                # Focused system prompt — NOT the full SKILL.md
-                cont_system = (
-                    "You are a delivery agent. A previous agent created code in a git repo "
-                    "but stopped before pushing and creating a PR. Your ONLY job is to:\n"
-                    "1. Find the git repo in /tmp/\n"
-                    "2. Commit all changes, push the branch\n"
-                    "3. Create a PR\n"
-                    "4. If an APK exists under build/, upload it via gh release create\n"
-                    "5. Write TASK_RESULT.json with pr_url and apk_url\n\n"
-                    "Do NOT create new code. Do NOT re-clone. Do NOT read documentation. "
-                    "Just push what exists and create the PR.\n"
-                    "NEVER produce a text-only response without tool calls."
-                )
-
-                continuation_prompt = (
-                    "A previous agent was working on this task but stopped before delivery.\n\n"
-                    "Previous agent summary:\n" + summary[:2000] + "\n\n"
-                    "Original task input:\n" + request.prompt[:2000] + "\n\n"
-                    "Steps — execute ALL with tool calls:\n"
-                    "1. Run: find /tmp -maxdepth 2 -name '.git' -type d\n"
-                    "2. cd into the repo directory found above\n"
-                    "3. Run: git status (see what files were created)\n"
-                    "4. Run: git add -A && git commit -m 'feat: add feature from incubation spec'\n"
-                    "5. Run: git push --force-with-lease origin HEAD\n"
-                    "6. Run: gh pr create --base <target> --title 'feat: add feature' "
-                    "--body 'Generated by Agentura incubator pipeline.'\n"
-                    "   (use the target branch specified in the skill config)\n"
-                    "7. If APK exists: find . -name '*.apk' -path '*/debug/*'\n"
-                    "   If found, run: gh release create incubator-$(date +%s) <apk_path> "
-                    "--repo <repo> --title 'Incubator debug APK' --prerelease\n"
-                    "8. Write " + WORK_DIR + "/TASK_RESULT.json:\n"
-                    '   {"success": true, "pr_url": "<url from step 6>", '
-                    '"apk_url": "<release url from step 7 or null>", '
-                    '"summary": "Created feature. PR: <url>"}\n'
+                cont_system, continuation_prompt = _build_continuation(
+                    request.task_type, summary, request.prompt, WORK_DIR,
                 )
 
                 cont_options = ClaudeAgentOptions(

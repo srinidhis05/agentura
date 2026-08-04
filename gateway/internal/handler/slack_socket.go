@@ -109,7 +109,14 @@ func (m *SlackSocketManager) handleEventsAPI(app *config.SlackAppConfig, evtAPI 
 	case *slackevents.MessageEvent:
 		if ev.BotID != "" {
 			if wb := matchWatchBot(app, ev.BotID, ev.Channel); wb != nil {
-				go m.handleWatchBotMessage(app, wb, ev)
+				if wb.PassRawText {
+					// Ops-genie path: full-text pass-through (Datadog alerts)
+					// Dedup handled in-skill via find_active_incident (not a blunt rate limit)
+					go m.handleOpsGenieWatchBot(app, wb, ev)
+				} else {
+					// ECM path: existing behavior, untouched
+					go m.handleWatchBotMessage(app, wb, ev)
+				}
 			}
 			return
 		}
@@ -242,6 +249,13 @@ func (m *SlackSocketManager) handleSocketMessage(app *config.SlackAppConfig, cha
 			removeSlackReaction(app.BotToken, channel, ts, typingReaction)
 		}
 
+		// Suppress response if result is empty (e.g. triage-router returned null route)
+		if strings.TrimSpace(result) == "" {
+			slog.Info("empty result — suppressing Slack response",
+				"app", app.Name, "channel", channel)
+			return
+		}
+
 		// Post result — use Block Kit if skill returned rich_output
 		var postedTS string
 		if blocks, fallback, ok := tryParseRichOutput(result); ok {
@@ -256,10 +270,10 @@ func (m *SlackSocketManager) handleSocketMessage(app *config.SlackAppConfig, cha
 				threadParent = ts
 			}
 			postedTS, _ = postSlackBlocksWithTS(app.BotToken, channel, threadParent, fallback, blocks)
-		} else if replyTS != "" && replyTS != ts {
-			postedTS, _ = postSlackThreadReply(app.BotToken, channel, replyTS, result)
 		} else {
-			postedTS, _ = postSlackMessage(app.BotToken, channel, result)
+			// Always reply in a thread under the triggering message.
+			// This keeps the channel clean — bot output is in threads, not flat messages.
+			postedTS, _ = postSlackThreadReply(app.BotToken, channel, ts, result)
 		}
 
 		// Thread registration: remember skill for thread continuity
@@ -455,16 +469,15 @@ func (m *SlackSocketManager) dispatchAuto(ctx context.Context, app *config.Slack
 		routeTo = qualified
 	}
 
-	// If triage didn't produce a route, fall back to data-query (general-purpose).
-	// Never dump help text for natural language — always attempt an answer.
+	// If triage returned empty/null route, the message is not bot-directed — suppress response.
 	if routeTo == "" {
-		routeTo = app.DomainScope + "/data-query"
 		preview := cmd.Text
 		if len(preview) > 80 {
 			preview = preview[:80] + "..."
 		}
-		slog.Info("dispatchAuto: no triage route, falling back to data-query",
+		slog.Info("dispatchAuto: triage returned null route — suppressing response",
 			"domain", app.DomainScope, "text_preview", preview)
+		return "", cmd, nil
 	}
 
 	routeInput := map[string]any{"text": cmd.Text}
@@ -914,4 +927,197 @@ func extractOrderIDs(text string) []string {
 		}
 	}
 	return unique
+}
+
+// ---------- Ops Genie: watch_bot handler (new path, does not touch ECM) ----------
+
+// handleOpsGenieWatchBot processes Datadog alert messages for Ops Genie enrichment.
+// This is a completely separate path from handleWatchBotMessage (ECM).
+// The enricher is READ-ONLY — gateway handles all writes (incident store + Slack).
+func (m *SlackSocketManager) handleOpsGenieWatchBot(app *config.SlackAppConfig, wb *config.WatchBotConfig, ev *slackevents.MessageEvent) {
+	// Extract text from attachments (Datadog alerts have empty ev.Text, content in attachments)
+	alertTitle, alertText := extractDatadogAlert(app.BotToken, ev)
+	if alertTitle == "" && alertText == "" {
+		slog.Debug("ops-genie: no alert content in message", "channel", ev.Channel)
+		return
+	}
+
+	// Recovery message — resolve incident directly, no LLM needed ($0.00)
+	if isRecoveryMessage(alertTitle) {
+		slog.Info("ops-genie: recovery message detected", "title", alertTitle[:min(80, len(alertTitle))])
+		// TODO: call incident-store MCP to resolve incident when MCP client is added to gateway
+		return
+	}
+
+	// Noise skip list check
+	if isSkippedMonitor(alertTitle, wb.SkipMonitors) {
+		slog.Info("ops-genie: skipped (noise list)", "title", alertTitle[:min(80, len(alertTitle))])
+		return
+	}
+
+	slog.Info("ops-genie: enriching alert",
+		"app", app.Name,
+		"channel", ev.Channel,
+		"title", alertTitle[:min(100, len(alertTitle))],
+	)
+
+	// Dispatch to enricher skill (READ-ONLY — no write tools)
+	target := wb.Skill
+	if app.DomainScope != "" && !strings.Contains(target, "/") {
+		target = app.DomainScope + "/" + target
+	}
+	parts := strings.SplitN(target, "/", 2)
+	if len(parts) != 2 {
+		slog.Error("ops-genie: invalid skill target", "target", target)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	// Call executor directly (bypass dispatchAndFormat to get raw JSON — Professor #3)
+	rawResult, err := m.executor.Execute(ctx, parts[0], parts[1], executor.ExecuteRequest{
+		InputData: map[string]any{
+			"text":        alertTitle + "\n\n" + alertText,
+			"alert_title": alertTitle,
+			"alert_text":  alertText,
+			"thread_ts":   ev.TimeStamp,
+			"channel":     ev.Channel,
+			"trigger":     "watch_bot",
+			"mode":        "silent", // Phase 0: no Slack output
+		},
+	})
+	if err != nil {
+		slog.Error("ops-genie: enricher execution failed", "error", err, "channel", ev.Channel)
+		return
+	}
+
+	// Post-process: validate + write incident + optionally post to pilot channel
+	m.processOpsGenieResult(app, wb, ev, rawResult, alertTitle)
+}
+
+// processOpsGenieResult handles gateway-side validation and writes after enricher returns.
+// The enricher is read-only — this function does all side effects.
+func (m *SlackSocketManager) processOpsGenieResult(
+	app *config.SlackAppConfig,
+	wb *config.WatchBotConfig,
+	ev *slackevents.MessageEvent,
+	rawResult json.RawMessage,
+	alertTitle string,
+) {
+	// Parse the executor response shape: {output: {fallback, rich_output, ...}}
+	var execResult map[string]any
+	if err := json.Unmarshal(rawResult, &execResult); err != nil {
+		slog.Error("ops-genie: failed to parse executor response", "error", err, "raw_len", len(rawResult))
+		return
+	}
+
+	// Extract the output field (where the enricher's task_complete payload lives)
+	var output any
+	if o, ok := execResult["output"]; ok {
+		output = o
+	} else {
+		output = execResult
+	}
+
+	// Marshal output back to JSON string for tryParseRichOutput
+	outputJSON, err := json.Marshal(output)
+	if err != nil {
+		slog.Error("ops-genie: failed to marshal output", "error", err)
+		return
+	}
+
+	// Extract logging fields from the rich_output (enricher's structured output)
+	outputMap, _ := output.(map[string]any)
+	richOutput, _ := outputMap["rich_output"].(map[string]any)
+	title, _ := richOutput["title"].(string)
+	status, _ := richOutput["status"].(string)
+	fallback, _ := outputMap["fallback"].(string)
+
+	slog.Info("ops-genie: enrichment complete",
+		"title", title,
+		"status", status,
+		"channel", ev.Channel,
+		"alert_title", alertTitle[:min(80, len(alertTitle))],
+		"fallback_preview", fallback[:min(120, len(fallback))],
+	)
+
+	// Phase 0 (silent): no Slack output if output_channel is empty
+	outputChannel := wb.OutputChannel
+	if outputChannel == "" {
+		return
+	}
+
+	// Render rich_output as Slack Block Kit (same as ECM watch_bot does)
+	if blocks, fb, ok := tryParseRichOutput(string(outputJSON)); ok {
+		if fb == "" {
+			fb = title
+		}
+		postSlackBlocksWithTS(app.BotToken, outputChannel, "", fb, blocks)
+		return
+	}
+
+	// Fallback: if rich_output parsing failed, post the fallback text
+	if fallback != "" {
+		postSlackThreadReply(app.BotToken, outputChannel, "", fmt.Sprintf("*%s*\n%s", alertTitle, fallback))
+	} else {
+		postSlackThreadReply(app.BotToken, outputChannel, "", fmt.Sprintf("*%s*\n_(enrichment returned no rich_output)_", alertTitle))
+	}
+}
+
+// extractDatadogAlert fetches the full message via Slack API to get attachments.
+// slackevents.MessageEvent doesn't expose attachments, so we re-fetch using conversations.history.
+// This adds one API call (~100ms) per alert, well within Slack rate limits.
+func extractDatadogAlert(botToken string, ev *slackevents.MessageEvent) (title string, text string) {
+	// If ev.Text has content, use it directly (some integrations put text there)
+	if ev.Text != "" {
+		return ev.Text, ""
+	}
+
+	// Fetch full message with attachments via Slack API
+	api := slack.New(botToken)
+	params := &slack.GetConversationHistoryParameters{
+		ChannelID: ev.Channel,
+		Latest:    ev.TimeStamp,
+		Inclusive: true,
+		Limit:     1,
+	}
+	history, err := api.GetConversationHistory(params)
+	if err != nil {
+		slog.Error("ops-genie: failed to fetch message for attachments", "error", err, "channel", ev.Channel, "ts", ev.TimeStamp)
+		return "", ""
+	}
+	if len(history.Messages) == 0 {
+		return "", ""
+	}
+
+	msg := history.Messages[0]
+
+	// Datadog alerts: content is in attachments[0].title and attachments[0].text
+	if len(msg.Attachments) > 0 {
+		att := msg.Attachments[0]
+		return att.Title, att.Text
+	}
+
+	// Fallback to message text
+	return msg.Text, ""
+}
+
+// isRecoveryMessage checks if a Datadog alert title indicates recovery.
+func isRecoveryMessage(title string) bool {
+	lower := strings.ToLower(title)
+	return strings.HasPrefix(lower, "recovered:") ||
+		strings.HasPrefix(lower, "recovered ") ||
+		strings.Contains(lower, "[recovered]")
+}
+
+// isSkippedMonitor checks if an alert title matches any pattern in the noise skip list.
+func isSkippedMonitor(title string, skipPatterns []string) bool {
+	lower := strings.ToLower(title)
+	for _, pattern := range skipPatterns {
+		if strings.Contains(lower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
 }

@@ -164,7 +164,7 @@ func TestGitHubWebhookHandler_PullRequest(t *testing.T) {
 			h := NewGitHubWebhookHandler(client, config.GitHubWebhookConfig{
 				Enabled: true,
 				Secret:  tt.secret,
-			})
+			}, nil)
 
 			req := httptest.NewRequest("POST", "/api/v1/webhooks/github", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -271,7 +271,7 @@ func TestGitHubWebhookHandler_IssueComment(t *testing.T) {
 			h := NewGitHubWebhookHandler(client, config.GitHubWebhookConfig{
 				Enabled: true,
 				Secret:  "", // No signature check for comment tests
-			})
+			}, nil)
 
 			req := httptest.NewRequest("POST", "/api/v1/webhooks/github", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")

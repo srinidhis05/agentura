@@ -487,15 +487,72 @@ def _recall_memories(skill_path: str, input_data: dict) -> str:
         return ""
 
 
-def _build_prompt_with_memory(ctx: SkillContext) -> str:
-    """Compose system prompt with memory recall injected."""
-    memory_section = _recall_memories(
-        f"{ctx.domain}/{ctx.skill_name}", ctx.input_data
-    )
+def _inject_reflexions(skill_path: str) -> tuple[str, list[str]]:
+    """Load top utility-scored reflexions for prompt injection.
+
+    Returns (prompt_block, list_of_reflexion_ids) so the caller can
+    record which reflexions were injected after the execution_id is known.
+    """
+    try:
+        from agentura_sdk.memory import get_memory_store
+
+        store = get_memory_store()
+        reflexions = store.get_top_reflexions(skill_path, limit=5, min_score=0.3)
+        if not reflexions:
+            return "", []
+
+        lines = []
+        ids = []
+        for r in reflexions:
+            content = r.get("rule", "")
+            score = r.get("utility_score", 0.5)
+            rid = r.get("reflexion_id", "")
+            if content:
+                lines.append(f"- {content[:300]} (confidence: {score:.2f})")
+                if rid:
+                    ids.append(rid)
+
+        if not lines:
+            return "", []
+
+        block = (
+            "<past_learnings>\n"
+            "These are patterns learned from previous reviews on this repo. "
+            "Use them to calibrate your findings.\n"
+            + "\n".join(lines)
+            + "\n</past_learnings>"
+        )
+        logger.info("Injected %d reflexions into prompt for %s", len(ids), skill_path)
+        return block, ids
+    except Exception as exc:
+        logger.debug("Reflexion injection skipped: %s", exc)
+        return "", []
+
+
+def _build_prompt_with_memory(ctx: SkillContext) -> tuple[str, list[str]]:
+    """Compose system prompt with memory recall and reflexions injected.
+
+    Returns (system_prompt, injected_reflexion_ids).
+    """
+    skill_path = f"{ctx.domain}/{ctx.skill_name}"
+
+    # Inject utility-scored reflexions
+    reflexion_block, reflexion_ids = _inject_reflexions(skill_path)
+
+    # Recall general memories (corrections, etc.)
+    memory_section = _recall_memories(skill_path, ctx.input_data)
+
+    parts = []
+    if reflexion_block:
+        parts.append(reflexion_block)
     if memory_section:
-        logger.info("Injected %d chars of memory context", len(memory_section))
-        return f"{memory_section}\n\n---\n\n{ctx.system_prompt}"
-    return ctx.system_prompt
+        parts.append(memory_section)
+
+    if parts:
+        prefix = "\n\n---\n\n".join(parts)
+        logger.info("Injected %d chars of memory+reflexion context", len(prefix))
+        return f"{prefix}\n\n---\n\n{ctx.system_prompt}", reflexion_ids
+    return ctx.system_prompt, reflexion_ids
 
 
 # --- Agent loops ---
@@ -511,8 +568,8 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
     if tool_server_map:
         logger.info("MCP tools loaded: %s", list(tool_server_map.keys()))
 
-    # Compose prompt with memory recall
-    system_prompt = _build_prompt_with_memory(ctx)
+    # Compose prompt with memory recall + reflexion injection
+    system_prompt, injected_reflexion_ids = _build_prompt_with_memory(ctx)
 
     try:
         provider = _get_provider(ctx.model, system_prompt, all_tools,
@@ -678,6 +735,7 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
             context_for_next=context_for_next,
             verified=verified,
             verify_issues=verify_issues,
+            injected_reflexion_ids=injected_reflexion_ids,
         )
 
     except Exception as e:
@@ -710,8 +768,8 @@ async def execute_agent_streaming(
     if tool_server_map:
         logger.info("MCP tools loaded: %s", list(tool_server_map.keys()))
 
-    # Compose prompt with memory recall
-    system_prompt = _build_prompt_with_memory(ctx)
+    # Compose prompt with memory recall and reflexions
+    system_prompt, _reflexion_ids = _build_prompt_with_memory(ctx)
 
     try:
         provider = _get_provider(ctx.model, system_prompt, all_tools,

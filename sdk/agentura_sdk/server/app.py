@@ -78,6 +78,15 @@ async def validate_all_skills_on_startup():
                 agent_section = cfg_raw.get("agent", {}) or cfg_raw.get("sandbox", {})
                 if role == "agent" and not agent_section:
                     errors.append(f"{skill_id}: role=agent but no 'agent:' section with executor")
+                # Agent+PTC needs top-level mcp_tools (executor reads from top level, not skills[])
+                executor_type = (agent_section or {}).get("executor", "")
+                top_level_mcp = cfg_raw.get("mcp_tools", [])
+                nested_mcp = skills_list[0].get("mcp_tools", []) if skills_list else []
+                if role == "agent" and executor_type in ("ptc", "claude-code") and not top_level_mcp:
+                    if nested_mcp:
+                        errors.append(f"{skill_id}: mcp_tools is under skills[] but executor reads from top level — move mcp_tools to root of YAML")
+                    else:
+                        _logger.warning("Startup: %s is agent+%s with no mcp_tools — PTC will have no tools", skill_id, executor_type)
             except Exception as e:
                 errors.append(f"{skill_id}: invalid config YAML — {e}")
 
@@ -601,7 +610,15 @@ def _build_mcp_bindings(skill_cfg_raw: dict, user_id: str | None = None) -> list
     gateway_api_key = os.environ.get("MCP_GATEWAY_API_KEY", "")
 
     bindings: list[dict] = []
-    for mcp_ref in skill_cfg_raw.get("mcp_tools", []):
+    # Read mcp_tools from top level; fallback to skills[0].mcp_tools if top-level is empty
+    mcp_tools_list = skill_cfg_raw.get("mcp_tools", [])
+    if not mcp_tools_list:
+        skills_list = skill_cfg_raw.get("skills", [])
+        if skills_list and isinstance(skills_list[0], dict):
+            mcp_tools_list = skills_list[0].get("mcp_tools", [])
+            if mcp_tools_list:
+                _logger.warning("mcp_tools found under skills[] but not at top level — using skills[] fallback. Move mcp_tools to root of YAML.")
+    for mcp_ref in mcp_tools_list:
         server_name = mcp_ref.get("server", "")
         tools = mcp_ref.get("tools", [])
 
@@ -3568,6 +3585,24 @@ def sync_agents_on_startup():
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning("Agent sync failed (non-fatal): %s", e)
+
+
+@app.on_event("startup")
+def cleanup_stale_fleet_sessions():
+    """Timeout fleet sessions stuck in running/pending from crashed executors."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return
+    try:
+        from agentura_sdk.memory.fleet_store import FleetStore
+        store = FleetStore(dsn)
+        count = store.timeout_stale_sessions(timeout_minutes=15)
+        if count:
+            import logging
+            logging.getLogger(__name__).info("Cleaned up %d stale fleet sessions on startup", count)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Fleet session cleanup failed (non-fatal): %s", e)
 
 
 # ---------------------------------------------------------------------------

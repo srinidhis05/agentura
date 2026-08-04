@@ -149,6 +149,61 @@ CREATE INDEX IF NOT EXISTS idx_executions_triggered_by ON executions(triggered_b
 -- Cross-agent learning: reflexion scope (skill | domain | org)
 ALTER TABLE reflexions ADD COLUMN IF NOT EXISTS scope VARCHAR(10) DEFAULT 'skill';
 CREATE INDEX IF NOT EXISTS idx_reflexions_scope ON reflexions(scope);
+
+-- Ops Genie: incident knowledge store
+CREATE TABLE IF NOT EXISTS incidents (
+    id TEXT PRIMARY KEY,
+    service_name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'P3',
+    status TEXT NOT NULL DEFAULT 'active',
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    acknowledged_at TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    duration_min REAL,
+    root_cause_category TEXT,
+    root_cause_detail TEXT,
+    resolution_action TEXT,
+    resolution_detail TEXT,
+    enrichment_execution_id TEXT,
+    enrichment_hypothesis TEXT,
+    enrichment_correlation_rule TEXT,
+    enrichment_suggested_actions JSONB,
+    enrichment_raw_context JSONB,
+    hypothesis_correct BOOLEAN,
+    alert_channel TEXT,
+    alert_ts TEXT,
+    thread_message_count INT DEFAULT 0,
+    thread_summary TEXT,
+    thread_participants TEXT[],
+    parent_incident_id TEXT REFERENCES incidents(id),
+    correlated_alert_count INT DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    harvested_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_incidents_service ON incidents(service_name);
+CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
+CREATE INDEX IF NOT EXISTS idx_incidents_started ON incidents(started_at);
+CREATE INDEX IF NOT EXISTS idx_incidents_root_cause ON incidents(root_cause_category);
+CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity);
+
+CREATE TABLE IF NOT EXISTS incident_alerts (
+    id SERIAL PRIMARY KEY,
+    incident_id TEXT NOT NULL REFERENCES incidents(id),
+    monitor_name TEXT NOT NULL,
+    monitor_id TEXT,
+    alert_channel TEXT,
+    alert_ts TEXT,
+    severity TEXT,
+    fired_at TIMESTAMPTZ DEFAULT NOW(),
+    resolved_at TIMESTAMPTZ,
+    was_noise BOOLEAN DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_incident_alerts_incident ON incident_alerts(incident_id);
+CREATE INDEX IF NOT EXISTS idx_incident_alerts_monitor ON incident_alerts(monitor_name);
 """
 
 

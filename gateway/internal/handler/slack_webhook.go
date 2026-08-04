@@ -426,6 +426,13 @@ func (h *SlackWebhookHandler) handleMessage(w http.ResponseWriter, app *config.S
 			removeSlackReaction(app.BotToken, event.Channel, event.TS, typingReaction)
 		}
 
+		// Suppress response if result is empty (e.g. triage-router returned null route)
+		if strings.TrimSpace(result) == "" {
+			slog.Info("empty result — suppressing Slack response",
+				"app", app.Name, "channel", event.Channel)
+			return
+		}
+
 		// Post result — use Block Kit if skill returned rich_output
 		var postedTS string
 		if blocks, fallback, ok := tryParseRichOutput(result); ok {
@@ -961,12 +968,12 @@ func (h *SlackWebhookHandler) dispatchAuto(ctx context.Context, app *config.Slac
 		routedSkill = qualified
 	}
 
-	// If triage didn't produce a route, fall back to data-query (general-purpose).
-	// Never dump help text for natural language — always attempt an answer.
+	// If triage returned empty/null route, the message is not bot-directed — suppress response.
+	// This happens when the triage-router classifies a message as general conversation.
 	if routedSkill == "" {
-		routedSkill = app.DomainScope + "/data-query"
-		slog.Info("dispatchAuto: no triage route, falling back to data-query",
-			"domain", app.DomainScope)
+		slog.Info("dispatchAuto: triage returned null route — suppressing response",
+			"domain", app.DomainScope, "text", cmd.Text)
+		return "", cmd, nil
 	}
 
 	inputData := map[string]any{"text": cmd.Text}
