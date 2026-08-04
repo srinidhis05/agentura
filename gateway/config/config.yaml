@@ -70,6 +70,9 @@ triggers:
     enabled: true
     secret: "${GITHUB_WEBHOOK_SECRET}"
     token: "${GITHUB_TOKEN}"
+    app_id: "${GITHUB_APP_ID}"
+    private_key: "${GITHUB_APP_PRIVATE_KEY}"
+    installation_id: "${GITHUB_INSTALLATION_ID}"
   slack:
     enabled: true
     apps:
@@ -105,6 +108,10 @@ triggers:
         dm:
           policy: "open"
           allowlist: []
+        channels:
+          - id: "${OPS_TECH_CHANNEL_ID}"
+            name: "ops-tech-issues"
+            mention_only: true
         events:
           message: true
           app_mention: true
@@ -316,6 +323,37 @@ triggers:
             extract:
               input: "{question}"
             description: "D0 activation, signup funnel, referral quality"
+      - name: codelens
+        signing_secret: "${SLACK_CODELENS_SIGNING_SECRET}"
+        bot_token: "${SLACK_CODELENS_BOT_TOKEN}"
+        app_token: "${SLACK_CODELENS_APP_TOKEN}"
+        mode: "socket"
+        domain_scope: "dev"
+        allowed_skills: ["code-review-bot", "ios-code-review-bot"]
+        ack_reaction: "eyes"
+        typing_reaction: "hourglass_flowing_sand"
+        dm:
+          policy: "open"
+        events:
+          message: true
+          message_dm_only: true
+          thread_mention_only: true
+          app_mention: true
+          reaction: false
+        commands:
+          - pattern: "ask {question}"
+            skill: "code-review-bot"
+            extract: {"question": "{question}", "role": "developer"}
+            description: "Ask a question about the Android codebase"
+          - pattern: "ios {question}"
+            skill: "ios-code-review-bot"
+            extract: {"question": "{question}", "role": "developer"}
+            description: "Ask a question about the iOS codebase"
+          - pattern: "pm {question}"
+            skill: "code-review-bot"
+            extract: {"question": "{question}", "role": "product_manager"}
+            description: "Ask a PM-friendly question about the codebase"
+            default: true   # any unprefixed question routes here
       - name: ge
         signing_secret: "${SLACK_GE_SIGNING_SECRET}"
         bot_token: "${SLACK_GE_BOT_TOKEN}"
@@ -383,14 +421,14 @@ agents:
   - domain: ecm
     coordinator: ecm-coordinator
     heartbeat:
-      every: "12h"
+      every: "4h"
       target: "${ECM_HEARTBEAT_CHANNEL}"
       model: "anthropic/claude-sonnet-4-5-20250929"
       light_context: true
       isolated_session: true
       silent: true
       active_hours:
-        start: "02:30"
+        start: "04:00"
         end: "17:30"
         timezone: "UTC"
       ack_max_chars: 300

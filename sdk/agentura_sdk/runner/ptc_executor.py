@@ -86,7 +86,7 @@ def _build_ptc_request(ctx: SkillContext) -> dict:
 
     from agentura_sdk.runner.agent_executor import _build_prompt_with_memory
 
-    system_prompt = _build_prompt_with_memory(ctx)
+    system_prompt, _reflexion_ids = _build_prompt_with_memory(ctx)
 
     max_tokens = 16384
     budget_tokens = 0

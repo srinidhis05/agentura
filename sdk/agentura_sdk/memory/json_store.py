@@ -83,11 +83,13 @@ class JSONStore:
         ]
         return matches[:limit]
 
-    def get_executions(self, skill_path: str | None = None) -> list[dict]:
+    def get_executions(self, skill_path: str | None = None, since: str | None = None) -> list[dict]:
         mem = self._load("episodic_memory.json")
         entries = mem.get("entries", [])
         if skill_path:
             entries = [e for e in entries if e.get("skill") == skill_path]
+        if since:
+            entries = [e for e in entries if str(e.get("timestamp", "")) >= since]
         return entries
 
     def get_corrections(self, skill_path: str | None = None) -> list[dict]:

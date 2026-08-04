@@ -178,6 +178,7 @@ class SkillResult(BaseModel):
     pending_action: str = ""
     verified: Optional[bool] = None
     verify_issues: list[str] = Field(default_factory=list)
+    injected_reflexion_ids: list[str] = Field(default_factory=list)
 
 
 # --- Service indexer types ---

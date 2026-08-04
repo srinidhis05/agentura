@@ -240,11 +240,11 @@ function AgencySystem() {
                 <span className="h-2 w-2 rounded-full bg-emerald-500/50" />
               </div>
               <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-muted-foreground">
-                <code>{`# ECM Manager — Soul
+                <code>{`# Operations Lead — Soul
 
-You are the ECM Manager, the
-operational brain behind enterprise
-content management workflows.
+You are the Operations Lead, the
+operational brain behind workflow
+automation and process optimization.
 
 You think in queues, SLAs, and
 resolution patterns. You never guess
@@ -331,7 +331,7 @@ delegation:
         <div className="mt-10 rounded-xl border border-violet-500/20 bg-violet-500/[0.03] p-6 text-center">
           <p className="text-sm text-muted-foreground">
             <span className="font-semibold text-violet-400">14 agents</span> across 4 domains
-            &mdash; ECM, Incubator, Global Equities, Project Management &mdash;
+            &mdash; Operations, Incubator, Developer Productivity, Project Management &mdash;
             each with personality, scheduled heartbeats, and budget controls
           </p>
         </div>
@@ -1095,14 +1095,14 @@ function SkillsCatalog() {
       ],
     },
     {
-      name: "ecm",
-      label: "Enterprise Content Mgmt",
+      name: "operations",
+      label: "Operations & Workflows",
       color: "amber",
       skills: [
-        { name: "triage", role: "Agent", desc: "Queries Redshift for stuck orders, classifies, assigns" },
-        { name: "ecm-daily-flow", role: "Agent", desc: "Generates ECM backlog dashboard with trends" },
-        { name: "pattern-intelligence", role: "Agent", desc: "Analyzes stuck order patterns, detects SLA breaches" },
-        { name: "process-stuck-order", role: "Agent", desc: "Diagnoses and resolves stuck orders via MCP tools" },
+        { name: "triage", role: "Agent", desc: "Classifies incoming tickets, routes to right queue" },
+        { name: "daily-flow", role: "Agent", desc: "Generates daily backlog dashboard with trends" },
+        { name: "pattern-intelligence", role: "Agent", desc: "Analyzes recurring patterns, detects SLA breaches" },
+        { name: "process-ticket", role: "Agent", desc: "Diagnoses and resolves tickets via MCP tools" },
       ],
     },
   ];
@@ -1163,7 +1163,7 @@ function SkillsCatalog() {
         {/* Additional domains */}
         <div className="mt-6 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
-            { name: "ge", label: "Global Equities", count: 5 },
+            { name: "analytics", label: "Analytics", count: 5 },
             { name: "pm", label: "Project Mgmt", count: 4 },
             { name: "hr", label: "Human Resources", count: 3 },
             { name: "productivity", label: "Productivity", count: 3 },

@@ -271,6 +271,7 @@ def get_registry() -> MCPRegistry:
         "databricks": os.environ.get("MCP_DATABRICKS_URL", ""),
         "clickup": os.environ.get("MCP_CLICKUP_URL", ""),
         "metabase": os.environ.get("MCP_METABASE_URL", ""),
+        "datadog": os.environ.get("MCP_DATADOG_URL", ""),
     }
     for name, url in _well_known.items():
         if url:

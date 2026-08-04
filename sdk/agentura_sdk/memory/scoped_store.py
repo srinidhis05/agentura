@@ -64,12 +64,12 @@ class DomainScopedStore:
         self._check_write_access(skill_path)
         return self._store.search_similar(skill_path, query, limit)
 
-    def get_executions(self, skill_path: str | None = None) -> list[dict]:
+    def get_executions(self, skill_path: str | None = None, since: str | None = None) -> list[dict]:
         if skill_path:
             self._check_write_access(skill_path)
-            return self._store.get_executions(skill_path)
+            return self._store.get_executions(skill_path, since=since)
         # No skill_path — return all, but filter by domain
-        return self._filter_by_domain(self._store.get_executions(None))
+        return self._filter_by_domain(self._store.get_executions(None, since=since))
 
     def get_corrections(self, skill_path: str | None = None) -> list[dict]:
         if skill_path:

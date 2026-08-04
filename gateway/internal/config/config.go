@@ -106,6 +106,7 @@ type SlackCommandAlias struct {
 	Skill       string            `yaml:"skill"`       // skill name (domain inferred from app)
 	Extract     map[string]string `yaml:"extract"`     // optional param extraction overrides
 	Description string            `yaml:"description"` // shown in help
+	Default     bool              `yaml:"default"`     // when true, used as fallback if no other pattern matches (full text bound to the alias's placeholder)
 }
 
 // SlackInteractionHandler routes Slack interactions (modals, selects, shortcuts) to skills/pipelines.
@@ -134,19 +135,24 @@ type SlackChannelACL struct {
 
 // SlackEventConfig controls which event types are processed.
 type SlackEventConfig struct {
-	Message       bool `yaml:"message"`        // message.channels, message.im, etc.
-	AppMention    bool `yaml:"app_mention"`     // @bot mentions
-	Reaction      bool `yaml:"reaction"`        // reaction_added, reaction_removed
-	MemberJoin    bool `yaml:"member_join"`     // member_joined_channel
-	MemberLeave   bool `yaml:"member_leave"`    // member_left_channel
-	ChannelRename bool `yaml:"channel_rename"`  // channel_rename
-	Pin           bool `yaml:"pin"`             // pin_added, pin_removed
+	Message           bool `yaml:"message"`             // message.channels, message.im, etc.
+	MessageDMOnly     bool `yaml:"message_dm_only"`     // when true, only process DM messages (ignore channel messages)
+	ThreadMentionOnly bool `yaml:"thread_mention_only"` // when true, in-thread replies require an explicit @mention at the START of the message (applies to DMs and channels). Mid-sentence mentions are dropped silently — see GR-034.
+	AppMention        bool `yaml:"app_mention"`         // @bot mentions
+	Reaction          bool `yaml:"reaction"`            // reaction_added, reaction_removed
+	MemberJoin        bool `yaml:"member_join"`         // member_joined_channel
+	MemberLeave       bool `yaml:"member_leave"`        // member_left_channel
+	ChannelRename     bool `yaml:"channel_rename"`      // channel_rename
+	Pin               bool `yaml:"pin"`                 // pin_added, pin_removed
 }
 
 type GitHubWebhookConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Secret  string `yaml:"secret"`
-	Token   string `yaml:"token"` // GitHub API token for fetching PR diffs and changed files
+	Enabled        bool   `yaml:"enabled"`
+	Secret         string `yaml:"secret"`
+	Token          string `yaml:"token"`           // Static token (deprecated, fallback for dev/local)
+	AppID          string `yaml:"app_id"`           // GitHub App ID
+	PrivateKey     string `yaml:"private_key"`      // PEM-encoded RSA private key
+	InstallationID string `yaml:"installation_id"`  // GitHub App installation ID
 }
 
 type CronConfig struct {

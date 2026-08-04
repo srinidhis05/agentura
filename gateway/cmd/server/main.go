@@ -12,6 +12,7 @@ import (
 	"github.com/agentura-ai/agentura/gateway/internal/adapter/executor"
 	"github.com/agentura-ai/agentura/gateway/internal/adapter/postgres"
 	"github.com/agentura-ai/agentura/gateway/internal/config"
+	ghtoken "github.com/agentura-ai/agentura/gateway/internal/github"
 	"github.com/agentura-ai/agentura/gateway/internal/handler"
 	"github.com/agentura-ai/agentura/gateway/internal/service"
 )
@@ -90,6 +91,25 @@ func main() {
 		socketMgr.Start(context.Background())
 	}
 
+	// GitHub App token provider (generates fresh installation tokens per request)
+	// Read PEM directly from env — YAML config can't handle multi-line PEM values.
+	var githubTokenProvider handler.GitHubTokenProvider
+	ghCfg := cfg.Triggers.GitHub
+	privateKeyPEM := ghCfg.PrivateKey
+	if pk := os.Getenv("GITHUB_APP_PRIVATE_KEY"); pk != "" {
+		privateKeyPEM = pk
+	}
+	tp, err := ghtoken.NewTokenProvider(ghCfg.AppID, privateKeyPEM, ghCfg.InstallationID)
+	if err != nil {
+		slog.Error("failed to initialize GitHub token provider, falling back to static token", "error", err)
+	}
+	if tp != nil {
+		githubTokenProvider = tp
+		slog.Info("github app token provider initialized", "app_id", ghCfg.AppID)
+	} else if ghCfg.Token != "" {
+		slog.Info("github using static token (no app credentials configured)")
+	}
+
 	// Handlers
 	handlers := handler.Handlers{
 		Health:    handler.NewHealthHandler(dbCheck),
@@ -101,7 +121,7 @@ func main() {
 		Events:    handler.NewEventsHandler(executorClient),
 		Memory:    handler.NewMemoryHandler(executorClient),
 		Webhook:   handler.NewWebhookHandler(executorClient, cfg.Triggers.Webhook),
-		GitHub:    handler.NewGitHubWebhookHandler(executorClient, cfg.Triggers.GitHub),
+		GitHub:    handler.NewGitHubWebhookHandler(executorClient, cfg.Triggers.GitHub, githubTokenProvider),
 		Slack:     slackHandler,
 		Trigger:   handler.NewTriggerHandler(scheduler),
 		Pipeline:  handler.NewPipelineHandler(executorClient),

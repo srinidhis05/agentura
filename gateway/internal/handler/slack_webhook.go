@@ -154,6 +154,11 @@ func applyEventDefaults(app *config.SlackAppConfig) {
 		app.Events.Message = true
 		app.Events.AppMention = true
 	}
+	// Default: only process DMs, not ambient channel messages (GR-033).
+	// Bots that need channel messages must explicitly set message_dm_only: false.
+	if app.Events.Message && !app.Events.MessageDMOnly {
+		app.Events.MessageDMOnly = true
+	}
 }
 
 // Handle processes POST /api/v1/webhooks/slack.
@@ -239,6 +244,36 @@ func (h *SlackWebhookHandler) handleEventCallback(w http.ResponseWriter, app *co
 			slackWebhookRequestsTotal.WithLabelValues(app.Name, "ignored").Inc()
 			httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "ignored", "reason": "event_disabled"})
 			return
+		}
+
+		// message_dm_only: only process DMs, ignore all channel messages.
+		if event.Type == "message" && app.Events.MessageDMOnly && !isDM(event.ChannelType) {
+			slackWebhookRequestsTotal.WithLabelValues(app.Name, "ignored").Inc()
+			httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "ignored", "reason": "message_dm_only"})
+			return
+		}
+
+		// thread_mention_only: in-thread replies must include an explicit
+		// @mention, regardless of channel type (DM or channel). Prevents the
+		// bot from re-triggering on conversational follow-ups in threads
+		// where it previously replied.
+		//
+		// CONSTRAINT — the mention must be at the START of the message.
+		// `HasPrefix` is intentional, not a bug. Mid-sentence mentions like
+		// "hi <@Ubot>, can you explain this?" are dropped silently and the bot
+		// will NOT reply. This matches common slash-command / chat-bot UX where
+		// invocation must lead the message. If you change this to `Contains`,
+		// any message that incidentally @mentions the bot anywhere will trigger
+		// a reply, which is rarely what the author intended. Document any UX
+		// change here in GUARDRAILS.md (see GR-034).
+		if event.Type == "message" && app.Events.ThreadMentionOnly {
+			isThreadReply := event.ThreadTS != "" && event.ThreadTS != event.TS
+			hasBotMention := strings.HasPrefix(strings.TrimSpace(event.Text), "<@")
+			if isThreadReply && !hasBotMention {
+				slackWebhookRequestsTotal.WithLabelValues(app.Name, "ignored").Inc()
+				httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "ignored", "reason": "thread_mention_only"})
+				return
+			}
 		}
 
 		// Enforce DM policy
@@ -409,8 +444,17 @@ func (h *SlackWebhookHandler) handleMessage(w http.ResponseWriter, app *config.S
 		go addSlackReaction(app.BotToken, event.Channel, event.TS, typingReaction)
 	}
 
+	// Fetch full thread history from Slack so multi-turn replies have proper
+	// context. Only worth doing when this message is a reply inside an existing
+	// thread (ThreadTS set and not equal to the triggering message itself).
+	// Done before the goroutine so the skill sees it; failure returns "".
+	var threadHistory string
+	if event.ThreadTS != "" && event.ThreadTS != event.TS {
+		threadHistory = fetchSlackThreadContext(app.BotToken, event.Channel, event.ThreadTS, event.TS)
+	}
+
 	go func() {
-		result, finalCmd := h.dispatchAndFormat(app, event.Channel, event.User, cmd, event.ThreadTS, threadTS)
+		result, finalCmd := h.dispatchAndFormat(app, event.Channel, event.User, cmd, event.ThreadTS, threadTS, threadHistory)
 
 		slog.Info("dispatch result",
 			"app", app.Name,
@@ -424,6 +468,13 @@ func (h *SlackWebhookHandler) handleMessage(w http.ResponseWriter, app *config.S
 		// Remove typing indicator
 		if typingReaction != "" {
 			removeSlackReaction(app.BotToken, event.Channel, event.TS, typingReaction)
+		}
+
+		// Suppress response if result is empty (e.g. triage-router returned null route)
+		if strings.TrimSpace(result) == "" {
+			slog.Info("empty result — suppressing Slack response",
+				"app", app.Name, "channel", event.Channel)
+			return
 		}
 
 		// Post result — use Block Kit if skill returned rich_output
@@ -658,6 +709,26 @@ func matchCommandAlias(text string, app *config.SlackAppConfig) *slackCommand {
 		}
 	}
 
+	// Pass 3: default fallback. If any alias is marked `default: true`, route
+	// to it with the user's full text bound to that alias's variable
+	// placeholder (the first `{...}` in its pattern). Lets users skip the
+	// prefix entirely — e.g. ask a free-form question and have CodeLens treat
+	// it as `pm {question}` by default.
+	for _, alias := range app.Commands {
+		if !alias.Default {
+			continue
+		}
+		input := map[string]string{}
+		for _, pp := range strings.Fields(strings.ToLower(alias.Pattern)) {
+			if strings.HasPrefix(pp, "{") && strings.HasSuffix(pp, "}") {
+				key := pp[1 : len(pp)-1]
+				input[key] = text
+				break
+			}
+		}
+		return buildAliasCommand(text, lower, input, alias, app)
+	}
+
 	return nil
 }
 
@@ -733,32 +804,15 @@ func matchPattern(text, pattern string) map[string]string {
 	return result
 }
 
-func (h *SlackWebhookHandler) dispatchAndFormat(app *config.SlackAppConfig, channel, user string, cmd slackCommand, origThreadTS, replyTS string) (string, slackCommand) {
+func (h *SlackWebhookHandler) dispatchAndFormat(app *config.SlackAppConfig, channel, user string, cmd slackCommand, origThreadTS, replyTS, threadHistory string) (string, slackCommand) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	// Thread continuity: thread replies skip triage, reuse previous skill
-	if origThreadTS != "" && cmd.Action == "auto" {
-		if entry := lookupThread(app.Name, channel, origThreadTS); entry != nil {
-			cmd = slackCommand{
-				Action: "run",
-				Target: entry.skill,
-				Input: map[string]any{
-					"text": cmd.Text,
-					"thread_context": map[string]any{
-						"previous_output": entry.lastOutput,
-						"turn":            entry.turn + 1,
-					},
-				},
-				Text:   cmd.Text,
-				UserID: cmd.UserID,
-			}
-			for k, v := range entry.entities {
-				cmd.Input[k] = v
-			}
-			slog.Info("thread continuity: reusing skill", "app", app.Name, "skill", entry.skill, "turn", entry.turn+1)
-		}
-	}
+	// Every triggering message now goes through normal alias / triage routing.
+	// (We previously skipped triage by reusing the prior skill via threadRegistry,
+	// but that conflated "we know the skill" with "the user wants the bot
+	// involved at all" — see thread_mention_only.) The registry is still kept
+	// for reaction-feedback attribution; only the dispatch shortcut is removed.
 
 	// For auto commands: try command aliases first (highest priority),
 	// then fall back to domain triage if no alias matches.
@@ -775,7 +829,7 @@ func (h *SlackWebhookHandler) dispatchAndFormat(app *config.SlackAppConfig, chan
 
 	switch cmd.Action {
 	case "run":
-		result, err = h.dispatchSkill(ctx, app, cmd)
+		result, err = h.dispatchSkill(ctx, app, cmd, threadHistory)
 	case "pipeline":
 		result, err = h.dispatchPipeline(ctx, app, cmd)
 	case "skills":
@@ -784,7 +838,7 @@ func (h *SlackWebhookHandler) dispatchAndFormat(app *config.SlackAppConfig, chan
 		result = h.helpText(app)
 	default:
 		var routedCmd slackCommand
-		result, routedCmd, err = h.dispatchAuto(ctx, app, cmd)
+		result, routedCmd, err = h.dispatchAuto(ctx, app, cmd, threadHistory)
 		if routedCmd.Target != "" {
 			cmd = routedCmd
 		}
@@ -807,7 +861,7 @@ func (h *SlackWebhookHandler) dispatchAndFormat(app *config.SlackAppConfig, chan
 	return result, cmd
 }
 
-func (h *SlackWebhookHandler) dispatchSkill(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, error) {
+func (h *SlackWebhookHandler) dispatchSkill(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand, threadHistory string) (string, error) {
 	if cmd.Target == "" {
 		return "", fmt.Errorf("usage: `run <domain/skill> [json_input]`")
 	}
@@ -831,6 +885,17 @@ func (h *SlackWebhookHandler) dispatchSkill(ctx context.Context, app *config.Sla
 	inputData := cmd.Input
 	if inputData == nil {
 		inputData = map[string]any{}
+	}
+
+	// Inject Slack-fetched thread history. Merges with any thread_context the
+	// registry already populated (previous_output, turn) instead of clobbering.
+	if threadHistory != "" {
+		tc, _ := inputData["thread_context"].(map[string]any)
+		if tc == nil {
+			tc = make(map[string]any)
+		}
+		tc["history"] = threadHistory
+		inputData["thread_context"] = tc
 	}
 
 	// Check if user has connected required OAuth providers
@@ -944,7 +1009,7 @@ func (h *SlackWebhookHandler) listSkills(ctx context.Context, app *config.SlackA
 	return sb.String(), nil
 }
 
-func (h *SlackWebhookHandler) dispatchAuto(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand) (string, slackCommand, error) {
+func (h *SlackWebhookHandler) dispatchAuto(ctx context.Context, app *config.SlackAppConfig, cmd slackCommand, threadHistory string) (string, slackCommand, error) {
 	if app.DomainScope == "" {
 		return h.helpText(app) + "\n\n_Type `help` to see available commands._", cmd, nil
 	}
@@ -961,12 +1026,12 @@ func (h *SlackWebhookHandler) dispatchAuto(ctx context.Context, app *config.Slac
 		routedSkill = qualified
 	}
 
-	// If triage didn't produce a route, fall back to data-query (general-purpose).
-	// Never dump help text for natural language — always attempt an answer.
+	// If triage returned empty/null route, the message is not bot-directed — suppress response.
+	// This happens when the triage-router classifies a message as general conversation.
 	if routedSkill == "" {
-		routedSkill = app.DomainScope + "/data-query"
-		slog.Info("dispatchAuto: no triage route, falling back to data-query",
-			"domain", app.DomainScope)
+		slog.Info("dispatchAuto: triage returned null route — suppressing response",
+			"domain", app.DomainScope, "text", cmd.Text)
+		return "", cmd, nil
 	}
 
 	inputData := map[string]any{"text": cmd.Text}
@@ -974,7 +1039,7 @@ func (h *SlackWebhookHandler) dispatchAuto(ctx context.Context, app *config.Slac
 		inputData[k] = v
 	}
 	routedCmd := slackCommand{Action: "run", Target: routedSkill, Input: inputData, Text: cmd.Text, UserID: cmd.UserID}
-	result, err := h.dispatchSkill(ctx, app, routedCmd)
+	result, err := h.dispatchSkill(ctx, app, routedCmd, threadHistory)
 	if err != nil {
 		slog.Error("dispatchAuto: routed skill failed", "skill", routedSkill, "error", err)
 		return "", routedCmd, err
@@ -1080,36 +1145,117 @@ func (h *SlackWebhookHandler) helpText(app *config.SlackAppConfig) string {
 
 // ---------- Slack API Helpers ----------
 
+// splitForSlack chunks text into ≤maxLen pieces, biasing splits toward natural
+// boundaries (paragraph > line > sentence > word > hard cut). If a chunk would
+// end inside an open ```fenced code block```, the block is closed at the end of
+// that chunk and reopened at the start of the next, so each part renders as
+// valid mrkdwn on its own.
+func splitForSlack(text string, maxLen int) []string {
+	if len(text) <= maxLen {
+		return []string{text}
+	}
+
+	var parts []string
+	remaining := text
+	for len(remaining) > maxLen {
+		cut := findSplitPoint(remaining, maxLen)
+		parts = append(parts, remaining[:cut])
+		remaining = strings.TrimLeft(remaining[cut:], " \n")
+	}
+	if remaining != "" {
+		parts = append(parts, remaining)
+	}
+
+	// Preserve code-block continuity across parts: if a part has an odd number
+	// of ``` fences, it leaves a block open — close it, and reopen on the next.
+	for i := range parts {
+		if strings.Count(parts[i], "```")%2 == 1 {
+			parts[i] = parts[i] + "\n```"
+			if i+1 < len(parts) {
+				parts[i+1] = "```\n" + parts[i+1]
+			}
+		}
+	}
+
+	// Prefix each part beyond the first with a part marker so users see continuity.
+	if len(parts) > 1 {
+		for i := range parts {
+			parts[i] = fmt.Sprintf("_part %d/%d_\n%s", i+1, len(parts), parts[i])
+		}
+	}
+	return parts
+}
+
+// findSplitPoint returns the highest-quality split index ≤ maxLen in text.
+// Preference: \n\n > \n > sentence end > space > hard cut at maxLen.
+func findSplitPoint(text string, maxLen int) int {
+	if len(text) <= maxLen {
+		return len(text)
+	}
+	window := text[:maxLen]
+
+	if i := strings.LastIndex(window, "\n\n"); i > maxLen/2 {
+		return i + 2
+	}
+	if i := strings.LastIndex(window, "\n"); i > maxLen/2 {
+		return i + 1
+	}
+	for _, term := range []string{". ", "! ", "? "} {
+		if i := strings.LastIndex(window, term); i > maxLen/2 {
+			return i + len(term)
+		}
+	}
+	if i := strings.LastIndex(window, " "); i > maxLen/2 {
+		return i + 1
+	}
+	return maxLen
+}
+
+// postSlackMessage posts text to a channel at top level (no thread). Long text
+// is split into multiple sequential top-level messages, each visible directly
+// in the channel feed. The `_part N/M_` prefix added by splitForSlack signals
+// continuity to readers.
+//
+// Why not thread parts 2..N under part 1: in a channel feed, threaded replies
+// are collapsed behind a "X replies" link. If we threaded the continuation,
+// part 1 would look like a truncated answer that readers easily miss; they'd
+// have to click into the thread to find the rest. Sequential top-level posts
+// keep every part in the main feed.
+//
+// Returns the timestamp of the FIRST part so callers that anchor future
+// thread replies (e.g. follow-ups) stay attached to where the conversation
+// started.
 func postSlackMessage(botToken, channel, text string) (string, error) {
 	if botToken == "" || isSlackSecretPlaceholder(botToken) {
 		return "", fmt.Errorf("bot token not configured")
 	}
 
 	text = markdownToSlackMrkdwn(text)
+	parts := splitForSlack(text, slackMaxMessageLen)
 
-	if len(text) > slackMaxMessageLen {
-		text = text[:slackMaxMessageLen] + "\n... (truncated)"
+	var firstTS string
+	for i, part := range parts {
+		body, err := json.Marshal(map[string]string{
+			"channel": channel,
+			"text":    part,
+		})
+		if err != nil {
+			return firstTS, fmt.Errorf("marshaling slack message part %d: %w", i+1, err)
+		}
+		respBody, err := slackAPIPostWithBody(botToken, "/chat.postMessage", body)
+		if err != nil {
+			return firstTS, err
+		}
+		var resp struct {
+			OK bool   `json:"ok"`
+			TS string `json:"ts"`
+		}
+		json.Unmarshal(respBody, &resp)
+		if i == 0 {
+			firstTS = resp.TS
+		}
 	}
-
-	payload, err := json.Marshal(map[string]string{
-		"channel": channel,
-		"text":    text,
-	})
-	if err != nil {
-		return "", fmt.Errorf("marshaling slack message: %w", err)
-	}
-
-	respBody, err := slackAPIPostWithBody(botToken, "/chat.postMessage", payload)
-	if err != nil {
-		return "", err
-	}
-
-	var slackResp struct {
-		OK bool   `json:"ok"`
-		TS string `json:"ts"`
-	}
-	json.Unmarshal(respBody, &slackResp)
-	return slackResp.TS, nil
+	return firstTS, nil
 }
 
 func postSlackThreadReply(botToken, channel, threadTS, text string) (string, error) {
@@ -1118,31 +1264,33 @@ func postSlackThreadReply(botToken, channel, threadTS, text string) (string, err
 	}
 
 	text = markdownToSlackMrkdwn(text)
+	parts := splitForSlack(text, slackMaxMessageLen)
 
-	if len(text) > slackMaxMessageLen {
-		text = text[:slackMaxMessageLen] + "\n... (truncated)"
+	// Every part is posted into the same thread (threadTS), so they appear as
+	// sequential replies. Return the LAST timestamp — callers that register
+	// thread state use that as the reply anchor.
+	var lastTS string
+	for i, part := range parts {
+		body, err := json.Marshal(map[string]string{
+			"channel":   channel,
+			"text":      part,
+			"thread_ts": threadTS,
+		})
+		if err != nil {
+			return lastTS, fmt.Errorf("marshaling slack thread reply part %d: %w", i+1, err)
+		}
+		respBody, err := slackAPIPostWithBody(botToken, "/chat.postMessage", body)
+		if err != nil {
+			return lastTS, err
+		}
+		var resp struct {
+			OK bool   `json:"ok"`
+			TS string `json:"ts"`
+		}
+		json.Unmarshal(respBody, &resp)
+		lastTS = resp.TS
 	}
-
-	payload, err := json.Marshal(map[string]string{
-		"channel":   channel,
-		"text":      text,
-		"thread_ts": threadTS,
-	})
-	if err != nil {
-		return "", fmt.Errorf("marshaling slack thread reply: %w", err)
-	}
-
-	respBody, err := slackAPIPostWithBody(botToken, "/chat.postMessage", payload)
-	if err != nil {
-		return "", err
-	}
-
-	var slackResp struct {
-		OK bool   `json:"ok"`
-		TS string `json:"ts"`
-	}
-	json.Unmarshal(respBody, &slackResp)
-	return slackResp.TS, nil
+	return lastTS, nil
 }
 
 func addSlackReaction(botToken, channel, timestamp, reaction string) {
@@ -1209,6 +1357,96 @@ func slackAPIPostWithBody(botToken, endpoint string, payload []byte) ([]byte, er
 func slackAPIPost(botToken, endpoint string, payload []byte) error {
 	_, err := slackAPIPostWithBody(botToken, endpoint, payload)
 	return err
+}
+
+// fetchSlackThreadContext returns the last N messages of a Slack thread,
+// formatted one-per-line as `[user] …` / `[bot] …`. The triggering message
+// (excludeTS) is omitted so the bot doesn't see its own current question
+// echoed back.
+//
+// Returns "" on any failure — Slack API errors must never block dispatch.
+// Skills that consume this read `input.thread_context.history`.
+func fetchSlackThreadContext(botToken, channel, threadTS, excludeTS string) string {
+	if botToken == "" || isSlackSecretPlaceholder(botToken) || threadTS == "" {
+		return ""
+	}
+
+	const (
+		fetchLimit = 30
+		keepLast   = 20
+		maxLineLen = 400
+	)
+
+	endpoint := fmt.Sprintf("%s/conversations.replies?channel=%s&ts=%s&limit=%d",
+		slackAPIBaseURL,
+		url.QueryEscape(channel),
+		url.QueryEscape(threadTS),
+		fetchLimit,
+	)
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+botToken)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		slog.Debug("fetchSlackThreadContext: API call failed", "error", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		slog.Debug("fetchSlackThreadContext: non-200", "status", resp.StatusCode)
+		return ""
+	}
+
+	var result struct {
+		OK       bool `json:"ok"`
+		Messages []struct {
+			User  string `json:"user"`
+			BotID string `json:"bot_id"`
+			Text  string `json:"text"`
+			TS    string `json:"ts"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil || !result.OK {
+		return ""
+	}
+
+	lines := make([]string, 0, len(result.Messages))
+	for _, m := range result.Messages {
+		if m.TS == excludeTS {
+			continue
+		}
+		text := strings.TrimSpace(m.Text)
+		if text == "" {
+			continue
+		}
+		speaker := "user"
+		if m.BotID != "" {
+			speaker = "bot"
+		}
+		if len(text) > maxLineLen {
+			text = text[:maxLineLen] + "…"
+		}
+		lines = append(lines, fmt.Sprintf("[%s] %s", speaker, text))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(lines) > keepLast {
+		lines = lines[len(lines)-keepLast:]
+	}
+	slog.Info("slack thread history fetched",
+		"channel", channel,
+		"thread_ts", threadTS,
+		"lines", len(lines),
+	)
+	return strings.Join(lines, "\n")
 }
 
 // ---------- Signature & Utilities ----------

@@ -433,13 +433,9 @@ async def run_pr_pipeline(pr_event: dict) -> dict:
             review_body = review_output.get("summary", "Automated review by Agentura PR Pipeline")
 
             if inline_comments or review_body:
-                # Determine review event based on verdict or blocker findings
-                verdict = review_output.get("verdict", "")
-                has_blocking = verdict == "request-changes" or any(
-                    f.get("severity", "").upper() == "BLOCKER"
-                    for f in review_output.get("findings", [])
-                )
-                event = "REQUEST_CHANGES" if has_blocking else "COMMENT"
+                # Always COMMENT during beta — never REQUEST_CHANGES.
+                # Graduate after false positive rate < 10% across 50+ reviews.
+                event = "COMMENT"
 
                 await github_client.post_review(
                     repo=repo,

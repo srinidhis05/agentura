@@ -23,5 +23,8 @@ def get_sandbox_module() -> ModuleType:
             return k8s_file_sandbox
         from agentura_sdk.sandbox import k8s_sandbox
         return k8s_sandbox
+    if backend == "none":
+        from agentura_sdk.sandbox import none_sandbox
+        return none_sandbox
     from agentura_sdk.sandbox import docker_sandbox
     return docker_sandbox

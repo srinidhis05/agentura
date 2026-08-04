@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 import psycopg2
 import psycopg2.extras
@@ -253,5 +256,48 @@ class FleetStore:
                         (limit,),
                     )
                 return [self._row_to_dict(row) for row in cur.fetchall()]
+        finally:
+            self._pool.putconn(conn)
+
+    def timeout_stale_sessions(self, timeout_minutes: int = 15) -> int:
+        """Mark stale 'running' or 'pending' sessions as 'timed_out'.
+
+        Sessions stuck in running/pending for longer than timeout_minutes
+        are zombies from crashed/restarted executors. Mark them as timed_out
+        and update their agents too.
+
+        Returns the number of sessions timed out.
+        """
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                # Timeout stale sessions
+                cur.execute(
+                    """UPDATE fleet_sessions
+                       SET status = 'timed_out', updated_at = NOW()
+                       WHERE status IN ('running', 'pending')
+                         AND created_at < NOW() - INTERVAL '%s minutes'
+                       RETURNING session_id""",
+                    (timeout_minutes,),
+                )
+                timed_out = cur.fetchall()
+                session_ids = [row[0] for row in timed_out]
+
+                # Also timeout their agents
+                if session_ids:
+                    cur.execute(
+                        """UPDATE fleet_agents
+                           SET status = 'timed_out', updated_at = NOW()
+                           WHERE session_id = ANY(%s)
+                             AND status IN ('running', 'pending')""",
+                        (session_ids,),
+                    )
+
+            conn.commit()
+
+            if session_ids:
+                logger.info("timed out %d stale fleet sessions: %s",
+                            len(session_ids), session_ids[:5])
+            return len(session_ids)
         finally:
             self._pool.putconn(conn)

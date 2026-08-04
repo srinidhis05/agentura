@@ -149,6 +149,16 @@ def _build_agent_request(ctx: SkillContext) -> dict:
 
     system_prompt = _build_system_prompt(ctx)
 
+    # Determine task type — review skills get READ-ONLY constrained behavior.
+    # Priority: explicit frontmatter task_type > name heuristic > default "build"
+    task_type = getattr(ctx, "task_type", "") or ""
+    if not task_type:
+        skill_name = getattr(ctx, "skill_name", "") or ""
+        if any(kw in skill_name.lower() for kw in ("review", "validator", "reporter")):
+            task_type = "review"
+        else:
+            task_type = "build"
+
     req = {
         "prompt": json.dumps(ctx.input_data, indent=2),
         "system_prompt": system_prompt,
@@ -157,6 +167,7 @@ def _build_agent_request(ctx: SkillContext) -> dict:
         "max_budget_usd": max_budget,
         "mcp_servers": mcp_servers,
         "allowed_tools": allowed_tools,
+        "task_type": task_type,
     }
 
     # Self-critique verification (DEC-069)

@@ -110,6 +110,94 @@ SANDBOX_TOOLS = [
         },
     },
     {
+        "name": "query_code_graph",
+        "description": (
+            "Query the pre-built codebase knowledge graph. PREFER THIS over git_codebase "
+            "for broad questions — it returns structured relationship data in one call "
+            "instead of many git round-trips, saving significant context tokens.\n\n"
+            "Modes:\n"
+            "  find    – locate files/classes by name or keyword\n"
+            "  callers – find every file that imports/references a class\n"
+            "  deps    – show what a file/class depends on\n"
+            "  module  – list all files in a module or directory\n"
+            "  summary – graph stats (file count, build time)\n\n"
+            "Examples:\n"
+            "  {mode:'find',    term:'RemittanceViewModel'}   → files containing this class\n"
+            "  {mode:'callers', term:'RemittanceViewModel'}   → files that import it\n"
+            "  {mode:'deps',    term:'RemittanceViewModel'}   → what it depends on\n"
+            "  {mode:'module',  term:'data-layer'}            → all files in that module\n"
+            "Fall back to git_codebase for authorship, blame, and recent-change queries. "
+            "If the user asks about a non-default branch, pass it via the 'branch' param — "
+            "the graph may not be prebuilt for that branch, in which case use git_codebase "
+            "(which also accepts 'branch' and will check it out)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["find", "callers", "deps", "module", "summary"],
+                    "description": "Query mode",
+                },
+                "term": {
+                    "type": "string",
+                    "description": "Class name, file path fragment, or keyword to query",
+                },
+                "codebase": {
+                    "type": "string",
+                    "description": "Which codebase: 'android' (default) or 'ios'",
+                },
+                "branch": {
+                    "type": "string",
+                    "description": (
+                        "Optional branch name (can be partial/fuzzy — e.g. 'release 1.5' "
+                        "resolves to 'release/1.5.0'). Omit for default branch."
+                    ),
+                },
+            },
+            "required": ["mode", "term"],
+        },
+    },
+    {
+        "name": "git_codebase",
+        "description": (
+            "Run a read-only git command against a mounted codebase. "
+            "Use for: authorship (git log/blame), recent changes (git log), "
+            "exact file content (git show). "
+            "For finding files and class relationships, prefer query_code_graph — it's faster. "
+            "Supported sub-commands: log, blame, show, diff, shortlog, ls-files, grep. "
+            "Android source files live under app/src/main/java/ (not kotlin/). "
+            "To get author: 'git log --follow -1 --format=\"%an\" -- <path>'. "
+            "To blame a file: 'git blame <path>'. "
+            "To see contributors: 'git shortlog -sne --all | head -20'. "
+            "If the user mentions a branch (even partially, like 'release 1.5'), pass it "
+            "via the 'branch' param — it'll be fuzzy-matched against remote branches and "
+            "checked out under a lock before the command runs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Full git command to run, e.g. 'git blame path/to/File.kt'",
+                },
+                "codebase": {
+                    "type": "string",
+                    "description": "Which codebase to query: 'android' (default) or 'ios'",
+                },
+                "branch": {
+                    "type": "string",
+                    "description": (
+                        "Optional branch name (can be partial/fuzzy). Triggers a fetch + "
+                        "checkout under a cross-process lock before the command runs. "
+                        "Omit to query the currently-checked-out branch."
+                    ),
+                },
+            },
+            "required": ["command"],
+        },
+    },
+    {
         "name": "task_complete",
         "description": "Signal that the task is finished. Provide a summary of what was built and any output URLs or file paths.",
         "input_schema": {
@@ -380,9 +468,334 @@ def _execute_tool(
         return _create_branch(sandbox, tool_input)
     if tool_name == "create_pr":
         return _create_pr(sandbox, tool_input)
+    if tool_name == "query_code_graph":
+        return _query_code_graph(tool_input)
+    if tool_name == "git_codebase":
+        return _git_codebase(tool_input)
     if tool_name == "task_complete":
         return json.dumps(tool_input)
     return f"Unknown tool: {tool_name}"
+
+
+def _query_code_graph(params: dict) -> str:
+    """Dispatch to the graph query engine.
+
+    If a branch is specified and no graph exists for it, build one on demand:
+    acquire the repo lock, fuzzy-resolve the branch, check it out, run the
+    built-in graph builder (~0.5s), then query. Subsequent queries on the
+    same branch hit the cache.
+    """
+    from agentura_sdk.runner.graph_builder import query as graph_query
+    mode = params.get("mode", "find")
+    term = params.get("term", "").strip()
+    codebase = params.get("codebase", "android").lower()
+    branch = (params.get("branch") or "").strip() or None
+    if not term and mode != "summary":
+        return "[error] query_code_graph requires 'term'"
+
+    resolution_note = ""
+    if branch:
+        resolved, err, note = _ensure_branch_graph(codebase, branch)
+        if err:
+            return err
+        if resolved:
+            branch = resolved
+            resolution_note = note
+
+    result = graph_query(codebase, mode, term, branch=branch)
+    if resolution_note:
+        result = f"{resolution_note}\n{result}"
+    return result
+
+
+def _ensure_branch_graph(codebase: str, branch: str) -> tuple[str | None, str | None, str]:
+    """Build a branch-specific graph if missing. Returns (resolved_branch, error, note).
+
+    On success: (resolved, None, note_or_empty) — note indicates fuzzy resolution
+    or build-on-demand so the LLM can see what happened.
+    On error:   (None, error_message, "")
+    """
+    import fcntl
+    from agentura_sdk.runner.graph_builder import _graph_path, build_and_save
+
+    repo_dir = _CODEBASE_ROOTS.get(codebase)
+    if not repo_dir:
+        return (None, f"[error] unknown codebase '{codebase}'", "")
+
+    # Fast path: graph already exists for the raw input branch name
+    if os.path.exists(_graph_path(codebase, branch)):
+        return (branch, None, "")
+
+    lock_path = _repo_lock_path(codebase)
+    try:
+        lock_fd = open(lock_path, "w")
+    except OSError as exc:
+        return (None, f"[error] could not open repo lock: {exc}", "")
+
+    try:
+        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+
+        resolved, err = _resolve_branch(repo_dir, branch)
+        if err:
+            return (None, err, "")
+
+        # Graph may exist under the resolved name (e.g. user typed fuzzy input)
+        if os.path.exists(_graph_path(codebase, resolved)):
+            note = (
+                f"[branch: {resolved} (fuzzy-matched from '{branch}')]"
+                if resolved != branch else ""
+            )
+            return (resolved, None, note)
+
+        # Need to build. Checkout branch under the same lock, then scan.
+        switch_err = _switch_branch(repo_dir, resolved)
+        if switch_err:
+            return (None, switch_err, "")
+
+        out_dir = os.path.dirname(_graph_path(codebase, resolved))
+        try:
+            build_and_save(repo_dir, codebase, out_dir)
+        except Exception as exc:
+            return (None, f"[error] graph build failed: {exc}", "")
+
+        if resolved != branch:
+            note = (
+                f"[branch: {resolved} (graph built on demand, "
+                f"fuzzy-matched from '{branch}')]"
+            )
+        else:
+            note = f"[branch: {resolved} (graph built on demand)]"
+        return (resolved, None, note)
+    finally:
+        try:
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        lock_fd.close()
+
+
+_CODEBASE_ROOTS = {
+    "android": "/codebase/vance-android",
+    "ios": "/codebase/vance-ios",
+}
+
+_GIT_ALLOWED_SUBCMDS = {"log", "blame", "show", "diff", "shortlog", "ls-files", "grep"}
+
+# Cache remote-branch listings per repo — avoids hitting the network on every
+# branch resolution. TTL is deliberately short so newly-pushed branches surface
+# within a minute.
+_BRANCH_LIST_CACHE: dict[str, tuple[float, list[str]]] = {}
+_BRANCH_CACHE_TTL_S = 60.0
+
+
+def _list_remote_branches(repo_dir: str) -> list[str]:
+    """List branches on origin. Cached for _BRANCH_CACHE_TTL_S per repo."""
+    import subprocess as sp
+    now = time.monotonic()
+    cached = _BRANCH_LIST_CACHE.get(repo_dir)
+    if cached and now - cached[0] < _BRANCH_CACHE_TTL_S:
+        return cached[1]
+    try:
+        result = sp.run(
+            ["git", "ls-remote", "--heads", "origin"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=15,
+        )
+    except Exception:
+        return cached[1] if cached else []
+    if result.returncode != 0:
+        return cached[1] if cached else []
+    branches: list[str] = []
+    for line in result.stdout.splitlines():
+        parts = line.strip().split("\t")
+        if len(parts) == 2 and parts[1].startswith("refs/heads/"):
+            branches.append(parts[1][len("refs/heads/"):])
+    _BRANCH_LIST_CACHE[repo_dir] = (now, branches)
+    return branches
+
+
+def _resolve_branch(repo_dir: str, user_input: str) -> tuple[str | None, str | None]:
+    """Fuzzy-match user input against remote branches.
+
+    Returns (resolved_branch, error). Exactly one is non-None.
+
+    Resolution order:
+      1. Exact match (case-sensitive)
+      2. Case-insensitive exact match
+      3. Single substring match
+      4. Top difflib candidate with ratio >= 0.9 AND clear lead over runner-up
+      5. Otherwise: ambiguous — return candidate list for disambiguation
+    """
+    from difflib import SequenceMatcher, get_close_matches
+
+    user_input = (user_input or "").strip()
+    if not user_input:
+        return None, "[error] empty branch name"
+
+    branches = _list_remote_branches(repo_dir)
+    if not branches:
+        return None, "[error] could not list remote branches (network/auth issue?)"
+
+    if user_input in branches:
+        return user_input, None
+    for b in branches:
+        if b.lower() == user_input.lower():
+            return b, None
+
+    substr = [b for b in branches if user_input.lower() in b.lower()]
+    if len(substr) == 1:
+        return substr[0], None
+
+    candidates = get_close_matches(user_input, branches, n=3, cutoff=0.5)
+    if not candidates and substr:
+        candidates = substr[:3]
+    if not candidates:
+        return None, f"[error] no branch found matching '{user_input}'"
+
+    scores = sorted(
+        ((c, SequenceMatcher(None, user_input.lower(), c.lower()).ratio()) for c in candidates),
+        key=lambda x: -x[1],
+    )
+    top_name, top_score = scores[0]
+
+    # Single candidate with decent confidence — auto-pick (handles typos like "mane" → "main")
+    if len(scores) == 1 and top_score >= 0.7:
+        return top_name, None
+
+    # Multiple candidates but one clear winner
+    if len(scores) >= 2:
+        runner_up_score = scores[1][1]
+        if top_score >= 0.9 and top_score - runner_up_score > 0.15:
+            return top_name, None
+
+    return None, (
+        f"[ambiguous] branch '{user_input}' matches multiple candidates: "
+        + ", ".join(f"'{c}'" for c, _ in scores)
+        + ". Ask the user to specify the exact branch name, or retry with one of these."
+    )
+
+
+def _switch_branch(repo_dir: str, branch: str) -> str | None:
+    """Fetch + checkout `branch` in `repo_dir`. Returns error string or None."""
+    import subprocess as sp
+    try:
+        fetch = sp.run(
+            ["git", "fetch", "--depth=500", "origin", f"{branch}:refs/remotes/origin/{branch}"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=60,
+        )
+        if fetch.returncode != 0:
+            return f"[error] fetch failed for '{branch}': {fetch.stderr.strip()[:300]}"
+        checkout = sp.run(
+            ["git", "checkout", "-B", branch, f"origin/{branch}"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=15,
+        )
+        if checkout.returncode != 0:
+            return f"[error] checkout failed for '{branch}': {checkout.stderr.strip()[:300]}"
+        return None
+    except sp.TimeoutExpired:
+        return "[error] git fetch/checkout timed out"
+    except Exception as exc:
+        return f"[error] branch switch failed: {exc}"
+
+
+def _repo_lock_path(codebase: str) -> str:
+    lock_dir = "/data/.agentura/locks"
+    os.makedirs(lock_dir, exist_ok=True)
+    return os.path.join(lock_dir, f"{codebase}.branch.lock")
+
+
+def _git_codebase(params: dict) -> str:
+    """Run a read-only git command against a mounted codebase.
+
+    If `branch` is supplied, fuzzy-resolve it against remote branches, then
+    fetch + checkout under a cross-process file lock (required because uvicorn
+    runs with multiple workers sharing the same repo clone). The lock is held
+    through the git command itself so another worker can't switch branches
+    mid-query.
+    """
+    import fcntl
+    import shlex
+    import subprocess as sp
+
+    command = params.get("command", "").strip()
+    codebase = params.get("codebase", "android").lower()
+    requested_branch = (params.get("branch") or "").strip()
+
+    repo_dir = _CODEBASE_ROOTS.get(codebase)
+    if not repo_dir:
+        return f"[error] unknown codebase '{codebase}'. Use 'android' or 'ios'."
+
+    if not os.path.isdir(repo_dir):
+        return f"[error] codebase not found at {repo_dir}"
+
+    if not command:
+        return "[error] empty command"
+
+    if any(op in command for op in ("|", ";", "&&", "||", ">", "<", "`", "$(")):
+        return "[error] shell operators are not allowed in git commands"
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError as exc:
+        return f"[error] could not parse command: {exc}"
+
+    args = tokens[1:] if tokens and tokens[0] == "git" else tokens
+    subcmd = args[0] if args else ""
+    if not subcmd or subcmd not in _GIT_ALLOWED_SUBCMDS:
+        return (
+            f"[error] git sub-command '{subcmd}' is not allowed. "
+            f"Allowed: {', '.join(sorted(_GIT_ALLOWED_SUBCMDS))}"
+        )
+
+    resolved_branch: str | None = None
+    lock_path = _repo_lock_path(codebase)
+
+    try:
+        lock_fd = open(lock_path, "w")
+    except OSError as exc:
+        return f"[error] could not open repo lock at {lock_path}: {exc}"
+
+    try:
+        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+
+        if requested_branch:
+            resolved_branch, err = _resolve_branch(repo_dir, requested_branch)
+            if err:
+                return err
+            switch_err = _switch_branch(repo_dir, resolved_branch)
+            if switch_err:
+                return switch_err
+
+        git_argv = ["git"] + args
+        try:
+            result = sp.run(
+                git_argv,
+                cwd=repo_dir,
+                shell=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            output = (result.stdout or "") + (result.stderr or "")
+            output = output.strip() or "(no output)"
+            if len(output) > 8000:
+                output = output[:8000] + "\n... [truncated]"
+            if resolved_branch:
+                note = f"[branch: {resolved_branch}"
+                if resolved_branch != requested_branch:
+                    note += f" (fuzzy-matched from '{requested_branch}')"
+                note += "]"
+                output = f"{note}\n{output}"
+            return output
+        except sp.TimeoutExpired:
+            return "[error] git command timed out after 30s"
+        except Exception as exc:
+            return f"[error] {exc}"
+    finally:
+        try:
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        lock_fd.close()
 
 
 def _clone_repo(sandbox: object, params: dict) -> str:
@@ -487,15 +900,72 @@ def _recall_memories(skill_path: str, input_data: dict) -> str:
         return ""
 
 
-def _build_prompt_with_memory(ctx: SkillContext) -> str:
-    """Compose system prompt with memory recall injected."""
-    memory_section = _recall_memories(
-        f"{ctx.domain}/{ctx.skill_name}", ctx.input_data
-    )
+def _inject_reflexions(skill_path: str) -> tuple[str, list[str]]:
+    """Load top utility-scored reflexions for prompt injection.
+
+    Returns (prompt_block, list_of_reflexion_ids) so the caller can
+    record which reflexions were injected after the execution_id is known.
+    """
+    try:
+        from agentura_sdk.memory import get_memory_store
+
+        store = get_memory_store()
+        reflexions = store.get_top_reflexions(skill_path, limit=5, min_score=0.3)
+        if not reflexions:
+            return "", []
+
+        lines = []
+        ids = []
+        for r in reflexions:
+            content = r.get("rule", "")
+            score = r.get("utility_score", 0.5)
+            rid = r.get("reflexion_id", "")
+            if content:
+                lines.append(f"- {content[:300]} (confidence: {score:.2f})")
+                if rid:
+                    ids.append(rid)
+
+        if not lines:
+            return "", []
+
+        block = (
+            "<past_learnings>\n"
+            "These are patterns learned from previous reviews on this repo. "
+            "Use them to calibrate your findings.\n"
+            + "\n".join(lines)
+            + "\n</past_learnings>"
+        )
+        logger.info("Injected %d reflexions into prompt for %s", len(ids), skill_path)
+        return block, ids
+    except Exception as exc:
+        logger.debug("Reflexion injection skipped: %s", exc)
+        return "", []
+
+
+def _build_prompt_with_memory(ctx: SkillContext) -> tuple[str, list[str]]:
+    """Compose system prompt with memory recall and reflexions injected.
+
+    Returns (system_prompt, injected_reflexion_ids).
+    """
+    skill_path = f"{ctx.domain}/{ctx.skill_name}"
+
+    # Inject utility-scored reflexions
+    reflexion_block, reflexion_ids = _inject_reflexions(skill_path)
+
+    # Recall general memories (corrections, etc.)
+    memory_section = _recall_memories(skill_path, ctx.input_data)
+
+    parts = []
+    if reflexion_block:
+        parts.append(reflexion_block)
     if memory_section:
-        logger.info("Injected %d chars of memory context", len(memory_section))
-        return f"{memory_section}\n\n---\n\n{ctx.system_prompt}"
-    return ctx.system_prompt
+        parts.append(memory_section)
+
+    if parts:
+        prefix = "\n\n---\n\n".join(parts)
+        logger.info("Injected %d chars of memory+reflexion context", len(prefix))
+        return f"{prefix}\n\n---\n\n{ctx.system_prompt}", reflexion_ids
+    return ctx.system_prompt, reflexion_ids
 
 
 # --- Agent loops ---
@@ -511,8 +981,8 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
     if tool_server_map:
         logger.info("MCP tools loaded: %s", list(tool_server_map.keys()))
 
-    # Compose prompt with memory recall
-    system_prompt = _build_prompt_with_memory(ctx)
+    # Compose prompt with memory recall + reflexion injection
+    system_prompt, injected_reflexion_ids = _build_prompt_with_memory(ctx)
 
     try:
         provider = _get_provider(ctx.model, system_prompt, all_tools,
@@ -599,6 +1069,33 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
             if final_output:
                 break
 
+        # Forced synthesis safety net: the main loop can exit with an empty
+        # summary in two cases — (a) the LLM returns no tool calls AND empty
+        # text (break with text=""), (b) max_iterations is reached mid-
+        # exploration. In both cases we've gathered real data via tools but
+        # have no answer to show. Give the model one final chance to
+        # synthesize, forbidden from calling tools.
+        summary_text = final_output.get("summary", "") if isinstance(final_output, dict) else ""
+        if not task_completed and not summary_text.strip() and iterations:
+            logger.warning(
+                "Agent produced no answer after %d tool calls — forcing synthesis",
+                len(iterations),
+            )
+            provider.add_user_message(
+                "Based on ALL tool results above, write your complete answer now. "
+                "Do NOT call any more tools. If exploration was incomplete, state "
+                "what you found and what remained unexplored. Produce a real answer "
+                "even if partial — an empty response is never acceptable."
+            )
+            try:
+                _, _, forced_text, tokens_in, tokens_out = await asyncio.to_thread(provider.call)
+                total_in += tokens_in
+                total_out += tokens_out
+                if forced_text and forced_text.strip():
+                    final_output = {"summary": forced_text, "synthesis_forced": True}
+            except Exception as exc:
+                logger.warning("Forced synthesis call failed: %s", exc)
+
         # Self-critique verification loop (DEC-069)
         verified = None
         verify_issues: list[str] = []
@@ -678,6 +1175,7 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
             context_for_next=context_for_next,
             verified=verified,
             verify_issues=verify_issues,
+            injected_reflexion_ids=injected_reflexion_ids,
         )
 
     except Exception as e:
@@ -710,8 +1208,8 @@ async def execute_agent_streaming(
     if tool_server_map:
         logger.info("MCP tools loaded: %s", list(tool_server_map.keys()))
 
-    # Compose prompt with memory recall
-    system_prompt = _build_prompt_with_memory(ctx)
+    # Compose prompt with memory recall and reflexions
+    system_prompt, _reflexion_ids = _build_prompt_with_memory(ctx)
 
     try:
         provider = _get_provider(ctx.model, system_prompt, all_tools,

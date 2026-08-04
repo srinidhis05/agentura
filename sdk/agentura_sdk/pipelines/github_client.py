@@ -123,6 +123,21 @@ async def post_comment(
         return resp.json()
 
 
+async def get_pr_comments(
+    repo: str,
+    pr_number: int,
+    token: str | None = None,
+) -> list[dict]:
+    """Get all issue comments on a PR."""
+    token = token or get_token()
+    url = f"{GITHUB_API}/repos/{repo}/issues/{pr_number}/comments"
+
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        resp = await client.get(url, headers=_headers(token), params={"per_page": 30, "direction": "desc"})
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def get_comment_reactions(
     repo: str,
     comment_id: int,

@@ -94,16 +94,15 @@ def synthesize(
     store = get_memory_store()
     result = SynthesisResult()
 
-    # Load executions
-    if skill_filter:
-        executions = store.get_executions(skill_filter)
-    else:
-        executions = store.get_executions()
-
-    # Filter by time window
+    # Filter by time window in the DB query — avoids loading the entire
+    # executions table into Python memory (OOM on large deployments).
     cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
     cutoff_str = cutoff.isoformat()
-    executions = [e for e in executions if str(e.get("timestamp", "")) >= cutoff_str]
+
+    if skill_filter:
+        executions = store.get_executions(skill_filter, since=cutoff_str)
+    else:
+        executions = store.get_executions(since=cutoff_str)
 
     result.executions_analyzed = len(executions)
     if not executions:

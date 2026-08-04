@@ -248,6 +248,32 @@ def _count_guardrails(domain_dir: Path) -> int:
     return len(re.findall(r"##\s+GRD-\d+", grd_file.read_text()))
 
 
+_ALLOWED_ROLES = {"developer", "product-manager", "product_manager"}
+
+
+def _load_role_prompt(skill_root: Path, input_data: dict) -> str:
+    """Load a role-specific prompt from prompts/<role>.md if it exists.
+
+    Only roles in _ALLOWED_ROLES are accepted — arbitrary user input is
+    never interpolated into the filesystem path.
+    """
+    role_raw = str((input_data or {}).get("role", "")).strip()
+    if not role_raw:
+        return ""
+    # Normalise: underscores → hyphens, lowercase
+    role_slug = role_raw.lower().replace("_", "-")
+    if role_slug not in _ALLOWED_ROLES:
+        return ""
+    # Resolve and confirm the final path stays inside prompts/
+    prompts_dir = (skill_root / "prompts").resolve()
+    prompt_file = (prompts_dir / f"{role_slug}.md").resolve()
+    if not str(prompt_file).startswith(str(prompts_dir)):
+        return ""
+    if prompt_file.exists():
+        return prompt_file.read_text().strip()
+    return ""
+
+
 def _count_corrections(skill_dir: Path) -> int:
     """Count test entries in tests/generated/corrections.yaml."""
     corr_file = skill_dir / "tests" / "generated" / "corrections.yaml"
@@ -706,7 +732,7 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest, request: Re
 
     model = req.model_override or skill_md.metadata.model
 
-    # Compose system prompt: WORKSPACE + DOMAIN + Reflexion + ProjectConfigs + SKILL
+    # Compose system prompt: WORKSPACE + DOMAIN + Reflexion + ProjectConfigs + RolePrompt + SKILL
     prompt_parts = []
     if skill_md.workspace_context:
         prompt_parts.append(skill_md.workspace_context)
@@ -717,6 +743,9 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest, request: Re
     project_configs = _load_project_configs(SKILLS_DIR / domain)
     if project_configs:
         prompt_parts.append(project_configs)
+    role_prompt = _load_role_prompt(root, input_data)
+    if role_prompt:
+        prompt_parts.append(role_prompt)
     prompt_parts.append(skill_md.system_prompt)
     composed_prompt = "\n\n---\n\n".join(prompt_parts)
 
@@ -865,6 +894,9 @@ async def execute_stream(domain: str, skill_name: str, req: ExecuteRequest):
     project_configs = _load_project_configs(SKILLS_DIR / domain)
     if project_configs:
         prompt_parts.append(project_configs)
+    role_prompt = _load_role_prompt(root, input_data)
+    if role_prompt:
+        prompt_parts.append(role_prompt)
     prompt_parts.append(skill_md.system_prompt)
     composed_prompt = "\n\n---\n\n".join(prompt_parts)
 
@@ -3568,6 +3600,24 @@ def sync_agents_on_startup():
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning("Agent sync failed (non-fatal): %s", e)
+
+
+@app.on_event("startup")
+def cleanup_stale_fleet_sessions():
+    """Timeout fleet sessions stuck in running/pending from crashed executors."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return
+    try:
+        from agentura_sdk.memory.fleet_store import FleetStore
+        store = FleetStore(dsn)
+        count = store.timeout_stale_sessions(timeout_minutes=15)
+        if count:
+            import logging
+            logging.getLogger(__name__).info("Cleaned up %d stale fleet sessions on startup", count)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Fleet session cleanup failed (non-fatal): %s", e)
 
 
 # ---------------------------------------------------------------------------
