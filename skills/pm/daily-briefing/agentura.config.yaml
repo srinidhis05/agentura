@@ -1,0 +1,62 @@
+domain:
+  name: pm
+  description: "Project Management — morning briefing with day-of-week variants"
+  owner: "pm-team"
+
+skills:
+  - name: daily-briefing
+    path: daily-briefing
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: cron
+        schedule: "0 9 * * 2-5"
+      - type: api
+      - type: slack
+        pattern: "morning briefing|what's on today|daily briefing"
+
+agent:
+  executor: ptc
+  max_iterations: 15
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.40"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "Day-of-week variant applied correctly"
+    - "Privacy filter applied to meetings"
+    - "All available MCP sources checked"
+    - "Summary posted to Slack or written to TASK_RESULT.json"
+
+mcp_tools:
+  - server: granola
+    tools: ["*"]
+  - server: notion
+    tools: ["*"]
+  - server: slack
+    tools: ["*"]
+  - server: clickup
+    tools: ["*"]
+  - server: gmail
+    tools: ["*"]
+
+display:
+  title: "Daily Briefing"
+  subtitle: "Morning prep: meetings, tasks, priorities"
+  avatar: "DB"
+  color: "#f97316"
+  tags: ["PM", "Daily", "Briefing"]
+  conversation_starters:
+    - "Morning briefing"
+    - "What's on today?"
+    - "Brief me for today"

@@ -1,0 +1,61 @@
+domain:
+  name: pm
+  description: "Project Management — end-of-day retrospective summary"
+  owner: "pm-team"
+
+skills:
+  - name: daily-wrap
+    path: daily-wrap
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: cron
+        schedule: "0 18 * * 1-5"
+        description: "6pm weekdays — end-of-day wrap-up"
+      - type: api
+      - type: slack
+        pattern: "end of day|eod summary|daily wrap|what happened today"
+
+agent:
+  executor: ptc
+  max_iterations: 20
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.35"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "At least one MCP system queried"
+    - "Summary includes meetings and/or tasks from today"
+    - "Privacy filter applied to meetings"
+    - "Posted to Slack or written to TASK_RESULT.json"
+
+mcp_tools:
+  - server: granola
+    tools: ["*"]
+  - server: clickup
+    tools: ["*"]
+  - server: notion
+    tools: ["*"]
+  - server: slack
+    tools: ["*"]
+
+display:
+  title: "EOD Wrap-Up"
+  subtitle: "End-of-day summary — meetings, tasks, decisions"
+  avatar: "EW"
+  color: "#6366f1"
+  tags: ["PM", "EOD", "Cron"]
+  conversation_starters:
+    - "End of day summary"
+    - "What happened today?"
+    - "Wrap up today's activity"

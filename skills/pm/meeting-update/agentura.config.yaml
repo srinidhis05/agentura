@@ -1,0 +1,70 @@
+domain:
+  name: pm
+  description: "Project Management — meeting processing, multi-system updates (Notion, Slack, Email, ClickUp)"
+  owner: "pm-team"
+
+skills:
+  - name: meeting-update
+    path: meeting-update
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$1.00"
+    triggers:
+      - type: api
+      - type: command
+        pattern: "{project}-update"
+      - type: slack
+        pattern: "update .+ meeting|process .+ meeting|distribute meeting"
+
+agent:
+  executor: ptc
+  max_iterations: 30
+
+guardrails:
+  budget:
+    max_per_execution: "$1.00"
+    alert_at: "$0.80"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "Meeting notes fetched from Granola"
+    - "Privacy filter applied before processing"
+    - "User approved each system write via AskUserQuestion"
+    - "Provenance included in all Notion writes"
+    - "Change classification (factual/interpretive) applied"
+    - "Run logged to run-history"
+
+mcp_tools:
+  - server: granola
+    tools: ["*"]
+    approval_required:
+      - get_meeting_transcript
+  - server: notion
+    tools: ["*"]
+  - server: slack
+    tools: ["*"]
+  - server: gmail
+    tools: ["*"]
+    approval_required:
+      - send_email
+      - send_draft
+      - create_draft
+  - server: clickup
+    tools: ["*"]
+
+display:
+  title: "Meeting Update"
+  subtitle: "Meeting → Notion + Slack + Email + ClickUp"
+  avatar: "MU"
+  color: "#6366f1"
+  tags: ["PM", "Meeting", "Multi-System"]
+  conversation_starters:
+    - "Process today's standup meeting"
+    - "Update all systems from latest standup"
+    - "Post meeting notes to Slack only"

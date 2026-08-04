@@ -1,0 +1,44 @@
+domain:
+  name: pm
+  description: "Project Management — request classification and routing"
+  owner: "pm-team"
+
+skills:
+  - name: triage
+    path: triage
+    role: specialist
+    model: anthropic/claude-haiku-4-5-20251001
+    cost_budget: "$0.01"
+    triggers:
+      - type: api
+      - type: slack
+
+agent:
+  executor: ptc
+  max_iterations: 1
+
+guardrails:
+  budget:
+    max_per_execution: "$0.01"
+    alert_at: "$0.01"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "Route returned matches one of 14 valid skills"
+    - "Confidence score between 0 and 1"
+    - "No direct answer to user query"
+
+mcp_tools: []
+
+display:
+  title: "Triage Router"
+  subtitle: "Classify and route PM requests"
+  avatar: "TR"
+  color: "#64748b"
+  tags: ["PM", "Router"]

@@ -1,0 +1,60 @@
+domain:
+  name: pm
+  description: "Project Management — pre-meeting briefing preparation"
+  owner: "pm-team"
+
+skills:
+  - name: meeting-prep
+    path: meeting-prep
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: api
+      - type: slack
+        pattern: "prep for meeting|briefing for|what should I cover|meeting prep"
+
+agent:
+  executor: ptc
+  max_iterations: 15
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.40"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "All available MCP sources checked"
+    - "Privacy filter applied to meeting results"
+    - "Talking points prioritized by urgency"
+    - "No write operations performed"
+
+mcp_tools:
+  - server: granola
+    tools: ["*"]
+  - server: notion
+    tools: ["*"]
+  - server: slack
+    tools: ["*"]
+  - server: gmail
+    tools: ["*"]
+  - server: clickup
+    tools: ["*"]
+
+display:
+  title: "Meeting Prep"
+  subtitle: "Pre-meeting briefing with open items + talking points"
+  avatar: "MP"
+  color: "#06b6d4"
+  tags: ["PM", "Briefing", "Read-Only"]
+  conversation_starters:
+    - "Prep for tomorrow's partner meeting"
+    - "Briefing for the Acme sync"
+    - "What should I cover in the partner call?"

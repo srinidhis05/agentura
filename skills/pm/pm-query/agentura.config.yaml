@@ -1,0 +1,52 @@
+domain:
+  name: pm
+  description: "Project Management — Q&A, item lookup, and scoped search"
+  owner: "pm-team"
+
+skills:
+  - name: pm-query
+    path: pm-query
+    role: agent
+    model: anthropic/claude-haiku-4-5-20251001
+    cost_budget: "$0.10"
+    triggers:
+      - type: api
+
+agent:
+  executor: ptc
+  max_iterations: 10
+
+guardrails:
+  budget:
+    max_per_execution: "$0.10"
+    alert_at: "$0.08"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "Exact-ID queries use fast path (no semantic search)"
+    - "Search scoped to project parent page"
+    - "No write operations performed"
+    - "Sources included in response"
+
+mcp_tools:
+  - server: notion
+    tools: ["*"]
+  - server: clickup
+    tools: ["*"]
+
+display:
+  title: "PM Query"
+  subtitle: "Q&A + item lookup + search"
+  avatar: "PQ"
+  color: "#3b82f6"
+  tags: ["PM", "Q&A", "Read-Only"]
+  conversation_starters:
+    - "What's the status of E-005?"
+    - "Who is working on the API integration?"
+    - "Find tasks assigned to Alice"

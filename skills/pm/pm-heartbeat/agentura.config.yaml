@@ -1,0 +1,54 @@
+domain:
+  name: pm
+  description: "Project Management — automated cron health monitor"
+  owner: "pm-team"
+
+skills:
+  - name: pm-heartbeat
+    path: pm-heartbeat
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.50"
+    triggers:
+      - type: cron
+        schedule: "15 18 * * 1-5"
+      - type: api
+
+agent:
+  executor: ptc
+  max_iterations: 15
+
+guardrails:
+  budget:
+    max_per_execution: "$0.50"
+    alert_at: "$0.40"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "Unprocessed meetings identified via run-history"
+    - "Privacy filter applied"
+    - "Stale projects detected"
+    - "No write operations performed"
+
+mcp_tools:
+  - server: granola
+    tools: ["*"]
+  - server: clickup
+    tools: ["*"]
+  - server: notion
+    tools: ["*"]
+  - server: slack
+    tools: ["*"]
+
+display:
+  title: "PM Heartbeat"
+  subtitle: "Automated health check: unprocessed meetings, overdue tasks"
+  avatar: "HB"
+  color: "#dc2626"
+  tags: ["PM", "Health", "Cron"]

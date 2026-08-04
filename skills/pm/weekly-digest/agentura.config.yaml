@@ -1,0 +1,62 @@
+domain:
+  name: pm
+  description: "Project Management — comprehensive Monday weekly rollup"
+  owner: "pm-team"
+
+skills:
+  - name: weekly-digest
+    path: weekly-digest
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.75"
+    triggers:
+      - type: cron
+        schedule: "0 9 * * 1"
+      - type: api
+      - type: slack
+        pattern: "weekly digest|week in review|weekly summary|weekly rollup"
+
+agent:
+  executor: ptc
+  max_iterations: 20
+
+guardrails:
+  budget:
+    max_per_execution: "$0.75"
+    alert_at: "$0.60"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "All configured MCP sources checked"
+    - "Partner email activity included (if partners configured)"
+    - "Agent execution stats included from run-history"
+    - "Privacy filter applied to meetings"
+
+mcp_tools:
+  - server: granola
+    tools: ["*"]
+  - server: notion
+    tools: ["*"]
+  - server: slack
+    tools: ["*"]
+  - server: gmail
+    tools: ["*"]
+  - server: clickup
+    tools: ["*"]
+
+display:
+  title: "Weekly Digest"
+  subtitle: "Monday rollup: meetings, tasks, emails, agent stats"
+  avatar: "WD"
+  color: "#f59e0b"
+  tags: ["PM", "Weekly", "Digest"]
+  conversation_starters:
+    - "Weekly digest for my project"
+    - "What happened last week?"
+    - "Week in review"

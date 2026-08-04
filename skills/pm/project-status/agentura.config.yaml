@@ -1,0 +1,59 @@
+domain:
+  name: pm
+  description: "Project Management — on-demand project health dashboard"
+  owner: "pm-team"
+
+skills:
+  - name: project-status
+    path: project-status
+    role: agent
+    model: anthropic/claude-sonnet-4-5-20250929
+    cost_budget: "$0.30"
+    triggers:
+      - type: api
+      - type: slack
+        pattern: "project status|how is .+ doing|show dashboard|status dashboard"
+
+agent:
+  executor: ptc
+  max_iterations: 15
+
+guardrails:
+  budget:
+    max_per_execution: "$0.30"
+    alert_at: "$0.25"
+
+feedback:
+  capture_corrections: true
+  capture_failure_cases: true
+  auto_generate_tests: false
+
+verify:
+  enabled: true
+  criteria:
+    - "All available MCP sources checked"
+    - "Last activity dates included"
+    - "No write operations performed"
+
+mcp_tools:
+  - server: granola
+    tools: ["*"]
+  - server: notion
+    tools: ["*"]
+  - server: slack
+    tools: ["*"]
+  - server: gmail
+    tools: ["*"]
+  - server: clickup
+    tools: ["*"]
+
+display:
+  title: "Project Status"
+  subtitle: "On-demand project health dashboard"
+  avatar: "PS"
+  color: "#10b981"
+  tags: ["PM", "Dashboard", "Read-Only"]
+  conversation_starters:
+    - "How is the project doing?"
+    - "Project status for Alpha"
+    - "Show me the dashboard"
