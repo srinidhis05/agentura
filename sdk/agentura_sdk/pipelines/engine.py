@@ -34,10 +34,19 @@ class PipelineStep:
 
 
 @dataclass
+class DeterministicNode:
+    """A pipeline step that runs a shell command. Cannot be skipped."""
+    id: str
+    command: str
+    timeout_seconds: float = 30.0
+    always_runs: bool = True  # if True, on_failure policy of the phase cannot skip this node
+
+
+@dataclass
 class PipelinePhase:
     name: str
     type: str = "sequential"  # "sequential" | "parallel"
-    steps: list[PipelineStep] = field(default_factory=list)
+    steps: list[PipelineStep | DeterministicNode] = field(default_factory=list)
     fan_out_from: str | None = None
     fan_in_from: str | None = None
 
@@ -47,20 +56,91 @@ class PipelineDef:
     name: str
     description: str = ""
     input_mapping: dict[str, str] = field(default_factory=dict)
-    steps: list[PipelineStep] = field(default_factory=list)
+    steps: list[PipelineStep | DeterministicNode] = field(default_factory=list)
     phases: list[PipelinePhase] = field(default_factory=list)
     trigger: dict[str, Any] = field(default_factory=dict)
 
 
-def _parse_steps(raw_steps: list[dict]) -> list[PipelineStep]:
-    return [
-        PipelineStep(
-            skill=s["skill"],
-            agent_id=s.get("agent_id", ""),
-            required=s.get("required", True),
+def _parse_steps(raw_steps: list[dict]) -> list[PipelineStep | DeterministicNode]:
+    parsed: list[PipelineStep | DeterministicNode] = []
+    for s in raw_steps:
+        if "deterministic" in s:
+            d = s["deterministic"]
+            parsed.append(DeterministicNode(
+                id=d["id"],
+                command=d["command"],
+                timeout_seconds=float(d.get("timeout_seconds", 30.0)),
+                always_runs=d.get("always_runs", True),
+            ))
+        else:
+            parsed.append(PipelineStep(
+                skill=s["skill"],
+                agent_id=s.get("agent_id", ""),
+                required=s.get("required", True),
+            ))
+    return parsed
+
+
+async def execute_deterministic_node(
+    node: DeterministicNode,
+    context: dict[str, Any],
+    run_root: Path,
+) -> dict[str, Any]:
+    """Execute a shell command from a DeterministicNode.
+
+    Returns {"status": "ok"|"error"|"timeout", "stdout": ..., "stderr": ..., "exit_code": ...}
+    """
+    # Build minimal env: PATH, HOME, TMPDIR + any env from context
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/root"),
+        "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+    }
+    env.update(context.get("env", {}))
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            node.command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(run_root),
+            env=env,
         )
-        for s in raw_steps
-    ]
+
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=node.timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return {
+                "status": "timeout",
+                "stdout": "",
+                "stderr": f"Command timed out after {node.timeout_seconds}s",
+                "exit_code": -1,
+            }
+
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
+        exit_code = proc.returncode or 0
+
+        return {
+            "status": "ok" if exit_code == 0 else "error",
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+        }
+
+    except Exception as e:
+        logger.error("deterministic node %s failed: %s", node.id, e)
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": str(e),
+            "exit_code": -1,
+        }
 
 
 def load_pipeline(name: str) -> PipelineDef:
@@ -228,7 +308,7 @@ def _sse(event_type: str, data: dict) -> str:
 
 
 async def _run_flat_steps(
-    steps: list[PipelineStep],
+    steps: list[PipelineStep | DeterministicNode],
     normalized: dict[str, Any],
     carry_forward: dict[str, Any],
     skills_dir: Path,
@@ -239,6 +319,30 @@ async def _run_flat_steps(
         step_start = time.monotonic()
         step_input = dict(normalized)
         step_input.update(carry_forward)
+
+        if isinstance(step, DeterministicNode):
+            # Run deterministic shell command
+            result = await execute_deterministic_node(step, step_input, skills_dir)
+            step_latency = (time.monotonic() - step_start) * 1000
+            status = result["status"]
+
+            step_results.append({
+                "step": step_idx,
+                "node_id": step.id,
+                "type": "deterministic",
+                "status": "success" if status == "ok" else "error",
+                "latency_ms": step_latency,
+                "cost_usd": 0.0,
+                "output": result,
+            })
+
+            # Store stdout in carry_forward so downstream steps can access it
+            carry_forward[f"deterministic:{step.id}"] = result
+
+            if status != "ok" and step.always_runs:
+                # always_runs nodes failing = phase fails unconditionally
+                break
+            continue
 
         try:
             ctx = _build_skill_context(step.skill, step_input, skills_dir)
@@ -590,6 +694,12 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
             )
             store.update_session_status(session_id, "running")
 
+        from agentura_sdk.memory.seat_store import get_seat_store
+        from agentura_sdk.runner.seat_resolver import resolve_seat
+        from agentura_sdk.runner.seat_hooks import record_outcome
+        seat_store = get_seat_store()
+        _seat_ids = {}  # aid -> seat_id, resolved once per step
+
         # --- Phase-based execution (parallel + sequential mix) ---
         for phase in pipeline.phases:
             total_expected += len(phase.steps)
@@ -616,8 +726,10 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                 if store and session_id:
                     for step in phase.steps:
                         aid = step.agent_id or step.skill.replace("/", "-")
+                        seat_id = resolve_seat(seat_store, step.skill) if seat_store else None
+                        _seat_ids[aid] = seat_id
                         try:
-                            store.create_agent(session_id, f"{session_id}-{aid}", step.skill)
+                            store.create_agent(session_id, f"{session_id}-{aid}", step.skill, seat_id=seat_id)
                         except Exception:
                             pass
 
@@ -640,6 +752,9 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                             )
                         except Exception:
                             pass
+                        _sid = _seat_ids.get(aid)
+                        record_outcome(seat_store if _sid else None, _sid, session_id,
+                                       r.get("success", False), cost_usd=r.get("cost_usd", 0), latency_ms=r.get("latency_ms", 0))
 
                 # Merge context_for_next from all parallel agents
                 for r in phase_results:
@@ -655,8 +770,10 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                 if store and session_id:
                     for step in phase.steps:
                         aid = step.agent_id or step.skill.replace("/", "-")
+                        seat_id = resolve_seat(seat_store, step.skill) if seat_store else None
+                        _seat_ids[aid] = seat_id
                         try:
-                            store.create_agent(session_id, f"{session_id}-{aid}", step.skill)
+                            store.create_agent(session_id, f"{session_id}-{aid}", step.skill, seat_id=seat_id)
                         except Exception:
                             pass
 
@@ -679,6 +796,9 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                             )
                         except Exception:
                             pass
+                        _sid = _seat_ids.get(aid)
+                        record_outcome(seat_store if _sid else None, _sid, session_id,
+                                       r.get("success", False), cost_usd=r.get("cost_usd", 0), latency_ms=r.get("latency_ms", 0))
 
                 # Propagate agent_results for downstream fan-in phases
                 carry_forward["agent_results"] = _compact_agent_results(seq_results)
@@ -737,7 +857,7 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
 
 
 async def _stream_flat_steps(
-    steps: list[PipelineStep],
+    steps: list[PipelineStep | DeterministicNode],
     normalized: dict[str, Any],
     carry_forward: dict[str, Any],
     skills_dir: Path,
@@ -752,6 +872,33 @@ async def _stream_flat_steps(
         step_start = time.monotonic()
         step_input = dict(normalized)
         step_input.update(carry_forward)
+
+        if isinstance(step, DeterministicNode):
+            yield _sse("step_started", {
+                "step": step_idx,
+                "node_id": step.id,
+                "type": "deterministic",
+                "status": "running",
+            })
+
+            result = await execute_deterministic_node(step, step_input, skills_dir)
+            step_latency = (time.monotonic() - step_start) * 1000
+            status = result["status"]
+
+            carry_forward[f"deterministic:{step.id}"] = result
+
+            yield _sse("step_completed", {
+                "step": step_idx,
+                "node_id": step.id,
+                "type": "deterministic",
+                "success": status == "ok",
+                "latency_ms": step_latency,
+                "cost_usd": 0.0,
+            })
+
+            if status != "ok" and step.always_runs:
+                break
+            continue
 
         yield _sse("step_started", {
             "step": step_idx,

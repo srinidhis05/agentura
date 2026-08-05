@@ -647,6 +647,50 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
             except Exception as exc:
                 logger.debug("Self-critique verification failed: %s", exc)
 
+        # Independent judge evaluation (runs after verify, uses a different model)
+        judge_score: float | None = None
+        judge_reasoning = ""
+        if task_completed and ctx.judge_config and ctx.judge_config.enabled:
+            try:
+                from agentura_sdk.runner.judge import build_judge_prompt, parse_judge_response
+
+                output_text = json.dumps(final_output, indent=2)
+
+                # Optionally arm the judge with objective tool evidence
+                tool_evidence = ""
+                _tool_cmd = getattr(ctx.judge_config, "tool_command", "") or ""
+                if _tool_cmd:
+                    try:
+                        from agentura_sdk.runner.judge import run_judge_tool
+                        tool_evidence = await run_judge_tool(_tool_cmd)
+                    except Exception:
+                        tool_evidence = ""
+
+                judge_prompt = build_judge_prompt(
+                    ctx.judge_config.rubric, output_text, tool_evidence=tool_evidence
+                )
+
+                # Use a separate provider with the judge's model (independent evaluation)
+                judge_provider = _get_provider(
+                    ctx.judge_config.model,
+                    "You are an independent evaluator. Score output against the rubric.",
+                    [],  # No tools — judge only evaluates
+                )
+                judge_provider.add_user_message(judge_prompt)
+                judge_response = judge_provider.get_response()
+                total_in += getattr(judge_response, "input_tokens", 0)
+                total_out += getattr(judge_response, "output_tokens", 0)
+                judge_text = judge_provider.extract_text(judge_response)
+                judge_score, judge_reasoning = parse_judge_response(judge_text)
+
+                if judge_score is not None and judge_score < ctx.judge_config.score_threshold:
+                    logger.info(
+                        "Judge scored %.1f (threshold %.1f) — marking as failed: %s",
+                        judge_score, ctx.judge_config.score_threshold, judge_reasoning[:200],
+                    )
+            except Exception as exc:
+                logger.debug("Judge evaluation failed: %s", exc)
+
         # Extract artifacts from sandbox before closing
         context_for_next: dict = {}
         files_created = final_output.get("files_created", [])
@@ -660,9 +704,15 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
         latency_ms = (time.monotonic() - start) * 1000
         cost_usd = (total_in * 3.0 + total_out * 15.0) / 1_000_000
 
+        # Judge below threshold marks execution as failed
+        judge_passed = (
+            judge_score is None
+            or judge_score >= (ctx.judge_config.score_threshold if ctx.judge_config else 3.0)
+        )
+
         return SkillResult(
             skill_name=ctx.skill_name,
-            success=task_completed or bool(iterations),
+            success=(task_completed or bool(iterations)) and judge_passed,
             output={
                 **final_output,
                 "iterations_count": len(iterations),
@@ -678,6 +728,8 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
             context_for_next=context_for_next,
             verified=verified,
             verify_issues=verify_issues,
+            judge_score=judge_score,
+            judge_reasoning=judge_reasoning,
         )
 
     except Exception as e:

@@ -11,7 +11,7 @@ from pathlib import Path
 import frontmatter
 import yaml
 
-from agentura_sdk.types import SkillMetadata
+from agentura_sdk.types import JudgeConfig, SkillMetadata
 
 
 @dataclass
@@ -24,6 +24,7 @@ class LoadedSkill:
     reflexion_context: str
     raw_content: str
     injected_reflexion_ids: list[str] = field(default_factory=list)
+    judge_config: JudgeConfig | None = None
 
 
 def load_workspace_md(skill_path: Path) -> str:
@@ -245,6 +246,7 @@ def load_skill_md(skill_path: Path, include_reflexions: bool = True) -> LoadedSk
     post = frontmatter.loads(raw)
     if post.metadata:
         metadata = _parse_metadata(post.metadata)
+        judge_config = _parse_judge_config(post.metadata)
         return LoadedSkill(
             metadata=metadata,
             system_prompt=post.content.strip(),
@@ -254,6 +256,7 @@ def load_skill_md(skill_path: Path, include_reflexions: bool = True) -> LoadedSk
             reflexion_context=reflexion_context,
             raw_content=raw,
             injected_reflexion_ids=injected_ids,
+            judge_config=judge_config,
         )
 
     # Fallback: YAML in ```yaml code fence under ## Skill Metadata
@@ -262,6 +265,7 @@ def load_skill_md(skill_path: Path, include_reflexions: bool = True) -> LoadedSk
         # Metadata may be nested under 'skill' key
         skill_data = metadata_dict.get("skill", metadata_dict)
         metadata = _parse_metadata(skill_data)
+        judge_config = _parse_judge_config(metadata_dict)
         # Strip the metadata section, keep the rest as prompt
         prompt = _strip_metadata_section(raw)
         return LoadedSkill(
@@ -273,6 +277,7 @@ def load_skill_md(skill_path: Path, include_reflexions: bool = True) -> LoadedSk
             reflexion_context=reflexion_context,
             raw_content=raw,
             injected_reflexion_ids=injected_ids,
+            judge_config=judge_config,
         )
 
     raise ValueError(
@@ -307,6 +312,16 @@ def _extract_code_fence_metadata(content: str) -> dict | None:
     if match:
         return yaml.safe_load(match.group(1))
     return None
+
+
+def _parse_judge_config(data: dict) -> JudgeConfig | None:
+    """Parse judge config from frontmatter dict, if present."""
+    judge_raw = data.get("judge")
+    if not judge_raw or not isinstance(judge_raw, dict):
+        return None
+    if not judge_raw.get("enabled"):
+        return None
+    return JudgeConfig(**judge_raw)
 
 
 def _strip_metadata_section(content: str) -> str:

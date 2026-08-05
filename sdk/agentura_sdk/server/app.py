@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from agentura_sdk.runner.skill_loader import load_skill_md
-from agentura_sdk.types import SandboxConfig, SkillContext, SkillResult, SkillRole, VerifyConfig
+from agentura_sdk.types import JudgeConfig, SandboxConfig, SkillContext, SkillResult, SkillRole, VerifyConfig
 
 SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", "/skills"))
 KNOWLEDGE_DIR = Path(os.environ.get("AGENTURA_KNOWLEDGE_DIR") or str(".agentura"))
@@ -738,6 +738,7 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest, request: Re
 
     # Load verify config (DEC-069)
     verify_config = None
+    judge_config = None
     skill_config_check = root / "agentura.config.yaml"
     if skill_config_check.exists():
         try:
@@ -745,8 +746,15 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest, request: Re
             verify_raw = cfg_raw.get("verify", {})
             if verify_raw and verify_raw.get("enabled"):
                 verify_config = VerifyConfig(**verify_raw)
+            judge_raw = cfg_raw.get("judge", {})
+            if judge_raw and judge_raw.get("enabled"):
+                judge_config = JudgeConfig(**judge_raw)
         except Exception:
             pass
+
+    # Judge config from SKILL.md frontmatter takes precedence over config file
+    if skill_md.judge_config:
+        judge_config = skill_md.judge_config
 
     ctx = SkillContext(
         skill_name=skill_md.metadata.name,
@@ -759,6 +767,7 @@ async def execute(domain: str, skill_name: str, req: ExecuteRequest, request: Re
         sandbox_config=sandbox_config,
         injected_reflexion_ids=skill_md.injected_reflexion_ids,
         verify_config=verify_config,
+        judge_config=judge_config,
     )
 
     if req.dry_run:
@@ -3266,6 +3275,41 @@ def get_agent(agent_id: str):
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
     return agent
+
+
+@app.get("/api/v1/seat-track-record")
+def get_seat_track_record(skill: str):
+    """Track record for the seat that owns a skill. Read-only; does not create a seat."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    from agentura_sdk.memory.seat_store import get_seat_store
+    from agentura_sdk.runner.seat_resolver import seat_key
+    store = get_seat_store()
+    if not store:
+        raise HTTPException(status_code=503, detail="seat store unavailable")
+    name, _, _ = seat_key(skill)
+    seat = store.get_seat_by_name(name)
+    if not seat:
+        raise HTTPException(status_code=404, detail=f"No seat for skill: {skill}")
+    return {"seat": seat, "track_record": store.get_track_record(seat["id"])}
+
+
+@app.post("/api/v1/ratings")
+async def post_rating(request: Request):
+    """Ingest a user rating (1-5) and attribute it to the skill's seat."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    data = await request.json()
+    skill = data.get("skill", "")
+    rating = data.get("rating")
+    if not skill or rating is None:
+        raise HTTPException(status_code=400, detail="skill and rating required")
+    from agentura_sdk.memory.seat_store import get_seat_store
+    from agentura_sdk.runner.seat_hooks import record_rating
+    record_rating(get_seat_store(), skill, rating, task_id=data.get("task_id", ""), model=data.get("model", ""))
+    return {"ok": True}
 
 
 @app.post("/api/v1/agents")

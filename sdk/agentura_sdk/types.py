@@ -122,6 +122,19 @@ class VerifyConfig(BaseModel):
     max_retries: int = 1
 
 
+class JudgeConfig(BaseModel):
+    """Independent model evaluation configuration.
+
+    The judge uses a DIFFERENT model than the agent to evaluate output
+    against a rubric. Scores 1-5; execution fails if score < threshold.
+    """
+    enabled: bool = False
+    rubric: str = ""
+    model: str = ""  # REQUIRED — must differ from the agent's model
+    score_threshold: float = 3.0
+    tool_command: str = ""  # optional shell command; its output is fed to the judge as evidence
+
+
 class McpToolRef(BaseModel):
     server: str
     tools: list[str]
@@ -161,6 +174,7 @@ class SkillContext(BaseModel):
     sandbox_config: Optional[SandboxConfig] = None
     injected_reflexion_ids: list[str] = Field(default_factory=list)
     verify_config: Optional["VerifyConfig"] = None
+    judge_config: Optional["JudgeConfig"] = None
 
 
 class SkillResult(BaseModel):
@@ -178,6 +192,8 @@ class SkillResult(BaseModel):
     pending_action: str = ""
     verified: Optional[bool] = None
     verify_issues: list[str] = Field(default_factory=list)
+    judge_score: Optional[float] = None
+    judge_reasoning: str = ""
 
 
 # --- Service indexer types ---
