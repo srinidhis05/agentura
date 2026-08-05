@@ -35,6 +35,17 @@ class TestBuildJudgePrompt:
         assert "REASONING:" in prompt
         assert "1-5" in prompt
 
+    def test_no_tool_evidence_by_default(self):
+        prompt = build_judge_prompt(rubric="rubric", output_text="out")
+        assert "Objective Evidence" not in prompt
+
+    def test_includes_tool_evidence_when_provided(self):
+        prompt = build_judge_prompt(
+            rubric="rubric", output_text="out", tool_evidence="tests: 3 passed"
+        )
+        assert "Objective Evidence" in prompt
+        assert "3 passed" in prompt
+
 
 class TestParseJudgeResponse:
     def test_valid_score_and_reasoning(self):
