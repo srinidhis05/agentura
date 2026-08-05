@@ -3268,6 +3268,41 @@ def get_agent(agent_id: str):
     return agent
 
 
+@app.get("/api/v1/seat-track-record")
+def get_seat_track_record(skill: str):
+    """Track record for the seat that owns a skill. Read-only; does not create a seat."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    from agentura_sdk.memory.seat_store import get_seat_store
+    from agentura_sdk.runner.seat_resolver import seat_key
+    store = get_seat_store()
+    if not store:
+        raise HTTPException(status_code=503, detail="seat store unavailable")
+    name, _, _ = seat_key(skill)
+    seat = store.get_seat_by_name(name)
+    if not seat:
+        raise HTTPException(status_code=404, detail=f"No seat for skill: {skill}")
+    return {"seat": seat, "track_record": store.get_track_record(seat["id"])}
+
+
+@app.post("/api/v1/ratings")
+async def post_rating(request: Request):
+    """Ingest a user rating (1-5) and attribute it to the skill's seat."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    data = await request.json()
+    skill = data.get("skill", "")
+    rating = data.get("rating")
+    if not skill or rating is None:
+        raise HTTPException(status_code=400, detail="skill and rating required")
+    from agentura_sdk.memory.seat_store import get_seat_store
+    from agentura_sdk.runner.seat_hooks import record_rating
+    record_rating(get_seat_store(), skill, rating, task_id=data.get("task_id", ""), model=data.get("model", ""))
+    return {"ok": True}
+
+
 @app.post("/api/v1/agents")
 async def create_agent(request: Request):
     """Create a new agent."""
