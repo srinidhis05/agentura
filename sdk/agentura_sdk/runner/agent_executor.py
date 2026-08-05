@@ -655,7 +655,20 @@ async def execute_agent(ctx: SkillContext) -> SkillResult:
                 from agentura_sdk.runner.judge import build_judge_prompt, parse_judge_response
 
                 output_text = json.dumps(final_output, indent=2)
-                judge_prompt = build_judge_prompt(ctx.judge_config.rubric, output_text)
+
+                # Optionally arm the judge with objective tool evidence
+                tool_evidence = ""
+                _tool_cmd = getattr(ctx.judge_config, "tool_command", "") or ""
+                if _tool_cmd:
+                    try:
+                        from agentura_sdk.runner.judge import run_judge_tool
+                        tool_evidence = await run_judge_tool(_tool_cmd)
+                    except Exception:
+                        tool_evidence = ""
+
+                judge_prompt = build_judge_prompt(
+                    ctx.judge_config.rubric, output_text, tool_evidence=tool_evidence
+                )
 
                 # Use a separate provider with the judge's model (independent evaluation)
                 judge_provider = _get_provider(

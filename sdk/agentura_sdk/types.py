@@ -132,6 +132,7 @@ class JudgeConfig(BaseModel):
     rubric: str = ""
     model: str = ""  # REQUIRED — must differ from the agent's model
     score_threshold: float = 3.0
+    tool_command: str = ""  # optional shell command; its output is fed to the judge as evidence
 
 
 class McpToolRef(BaseModel):
