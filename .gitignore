@@ -70,3 +70,6 @@ gateway/server
 _legacy/
 apps/
 showcase/
+
+# Local skill planning/review scratch (specs, plans, review tasks)
+.hash/
