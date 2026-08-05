@@ -61,6 +61,21 @@ Be strict. A score of 3.0 means "acceptable", 4.0 means "good", 5.0 means "excel
 Most outputs should score 2-4. Reserve 5 for genuinely excellent work."""
 
 
+async def run_judge_tool(command: str, cwd: str | None = None, timeout: float = 60.0) -> str:
+    """Run a verification command; return its output as judge evidence. Never raises."""
+    import asyncio
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, cwd=cwd,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        code = proc.returncode or 0
+        text = (out or b"").decode("utf-8", "replace")
+        return f"$ {command}\n(exit {code})\n{text[:2000]}"
+    except Exception as e:
+        return f"$ {command}\n(tool error: {e})"
+
+
 def parse_judge_response(text: str) -> tuple[float | None, str]:
     """Parse SCORE and REASONING from judge response.
 

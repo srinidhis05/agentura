@@ -47,6 +47,33 @@ class TestBuildJudgePrompt:
         assert "3 passed" in prompt
 
 
+class TestRunJudgeTool:
+    def test_success_output(self):
+        import asyncio
+
+        from agentura_sdk.runner.judge import run_judge_tool
+
+        result = asyncio.run(run_judge_tool("echo hello"))
+        assert "hello" in result
+        assert "exit 0" in result
+
+    def test_nonzero_exit(self):
+        import asyncio
+
+        from agentura_sdk.runner.judge import run_judge_tool
+
+        result = asyncio.run(run_judge_tool("false"))
+        assert "exit 1" in result
+
+    def test_bad_command_does_not_raise(self):
+        import asyncio
+
+        from agentura_sdk.runner.judge import run_judge_tool
+
+        result = asyncio.run(run_judge_tool("this_command_does_not_exist_xyz"))
+        assert isinstance(result, str)
+
+
 class TestParseJudgeResponse:
     def test_valid_score_and_reasoning(self):
         score, reasoning = parse_judge_response("SCORE: 4.2\nREASONING: good")
