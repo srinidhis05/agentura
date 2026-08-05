@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Seat Identity — Implementation Plan</title>
+<style>
+body{max-width:820px;margin:2rem auto;font-family:system-ui;line-height:1.5;color:#1a1a1a;padding:0 1rem}
+h1{font-size:1.8rem;margin-bottom:.25rem}
+h2{border-bottom:2px solid #ddd;padding-bottom:.25rem;margin-top:2.5rem}
+h3{margin-top:2rem;background:#eef2f7;padding:.5rem .75rem;border-radius:4px}
+.lede{font-size:1.15rem;color:#444;margin-top:0}
+blockquote{background:#fff8e1;border-left:4px solid #f0ad4e;padding:.75rem 1rem;margin:1rem 0}
+table{border-collapse:collapse;width:100%;margin:1rem 0}
+th,td{border:1px solid #ccc;padding:.5rem;text-align:left;vertical-align:top;font-size:.92rem}
+th{background:#f0f0f0}
+pre{background:#f5f5f5;padding:.75rem;overflow:auto;border-radius:4px;font-size:.85rem;border:1px solid #e0e0e0}
+code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:.9em}
+.step{margin:.4rem 0}
+.iface{background:#f0f7f0;padding:.6rem .8rem;border-radius:4px;margin:.6rem 0;font-size:.92rem}
+.files{font-size:.92rem;color:#333;margin:.3rem 0}
+ul{margin:.3rem 0}
+</style>
+</head>
+<body>
+
+<h1>Seat Identity — Implementation Plan</h1>
+<p class="lede">Bind ephemeral sessions to persistent seats and roll up a per-seat track record — the foundation subsystem for Agentura's agent lifecycle. (Wake-packet priming deferred to its own spec — see Overview.)</p>
+
+<h2>Overview</h2>
+<blockquote>For agentic workers: REQUIRED SUB-SKILL — use subagent-driven-development (recommended) or executing-plans to implement task-by-task. Each task's implementation goes through test-driven-development, mandatory in this repo. Steps use ☐ checkboxes.</blockquote>
+
+<p><strong>Goal:</strong> Give Agentura agents a persistent identity (seat) distinct from ephemeral runs (sessions), an append-only event ledger, and a per-seat track record readable per skill.</p>
+
+<p><strong>Architecture:</strong> Two new Postgres tables (seats, seat_events) via self-creating schema strings (repo has no central migration runner). A SeatStore mirrors the existing AgentStore pattern. The pipeline engine resolves a seat per step (idempotent get-or-create keyed on skill_path), binds seat_id onto fleet_agents, and appends outcome events. All seat calls are additive and degradable — if the seat layer fails, runs behave byte-identically to today.</p>
+
+<p><strong>Tech Stack:</strong> Python 3.13, psycopg2, FastAPI, pytest. Postgres.</p>
+
+<p><strong>Deferred from v1:</strong> Wake-packet injection (priming identity/track-record into the system prompt) is deferred to its own spec. v1 ships the measurable half — SeatStore + seat_events ledger + track record + read endpoint + eval-label capture. Rationale: the v1 net-new priming payload was thin over today's existing memory injection, and the prompt-mutation surface is better introduced once there is real signal (ratings/gates) to inject.</p>
+
+<h2>Global Constraints</h2>
+<ul>
+<li>Additive only (Zero Logic Mutation): a run's success/failure must be byte-identical when the seat layer is disabled or throws. Every seat call is wrapped so it never raises into the run path.</li>
+<li>get_track_record MUST aggregate in SQL (GROUP BY / FILTER); never SELECT * into Python (prior production OOM from loading 20K rows).</li>
+<li>seat_events is append-only: SeatStore exposes no UPDATE/DELETE of events. Corrections are new events.</li>
+<li>Schema changes are idempotent CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS inside the store's schema string, run on __init__ (mirror AgentStore/FleetStore).</li>
+<li>v1 seat grain keys on skill_path only; role/domain are stored as attributes (refines spec DECISION 1 for implementation consistency — engine and executor both resolve by skill_path so they hit the same seat). Note this in the plan.</li>
+<li>DB-backed tests use the real-Postgres skipif pattern: <code>@pytest.mark.skipif(not bool(os.environ.get("DATABASE_URL")), reason="DATABASE_URL not set")</code>. Pure functions (seat_key) are unit-tested without a DB.</li>
+<li>Conventional commits. Every task ends with a commit.</li>
+</ul>
+
+<h2>File Structure</h2>
+<table>
+<tr><th>File</th><th>Create/Modify</th><th>Responsibility</th></tr>
+<tr><td>sdk/agentura_sdk/memory/seat_store.py</td><td>Create</td><td>seats + seat_events tables; get_or_create_seat, get_seat, append_event, get_track_record, rename_seat</td></tr>
+<tr><td>sdk/agentura_sdk/runner/seat_resolver.py</td><td>Create</td><td>seat_key (pure) + resolve_seat (degradable get-or-create)</td></tr>
+<tr><td>sdk/agentura_sdk/runner/seat_hooks.py</td><td>Create</td><td>record_outcome (degradable ledger writer used by engine)</td></tr>
+<tr><td>sdk/agentura_sdk/memory/fleet_store.py</td><td>Modify</td><td>add seat_id column to FLEET_SCHEMA; add seat_id param to create_agent</td></tr>
+<tr><td>sdk/agentura_sdk/pipelines/engine.py</td><td>Modify</td><td>resolve seat + bind seat_id at create_agent sites (~724, ~763); append outcome at update sites (~736, ~775)</td></tr>
+<tr><td>sdk/agentura_sdk/server/app.py</td><td>Modify</td><td>add GET /api/v1/agents/{seat_id}/track-record (follow get_agent ~3264)</td></tr>
+<tr><td>sdk/tests/test_seat_store.py</td><td>Create</td><td>import smoke + real-PG idempotency/track-record/rename</td></tr>
+<tr><td>sdk/tests/test_seat_resolver.py</td><td>Create</td><td>seat_key determinism (pure)</td></tr>
+</table>
+
+<h2>Tasks</h2>
+
+<h3>Task 1: SeatStore — tables + get_or_create_seat + get_seat</h3>
+<p class="files"><strong>Files:</strong> Create sdk/agentura_sdk/memory/seat_store.py; Test sdk/tests/test_seat_store.py</p>
+<div class="iface"><strong>Interfaces — Produces:</strong> <code>class SeatStore(dsn: str | None = None)</code>; <code>get_or_create_seat(name, role="", domain="", pronouns="they/them", model="") -&gt; str</code>; <code>get_seat(seat_id) -&gt; dict | None</code>; <code>get_seat_store() -&gt; SeatStore | None</code> (lazy module-level singleton); <code>get_seat_by_name(name) -&gt; dict | None</code>.</div>
+
+<p class="step">☐ Step 1 — Write failing import smoke test:</p>
+<pre><code>import os, pytest
+HAS_PG = bool(os.environ.get("DATABASE_URL"))
+
+def test_schema_has_tables():
+    from agentura_sdk.memory.seat_store import SEAT_SCHEMA
+    assert "CREATE TABLE IF NOT EXISTS seats" in SEAT_SCHEMA
+    assert "CREATE TABLE IF NOT EXISTS seat_events" in SEAT_SCHEMA
+</code></pre>
+
+<p class="step">☐ Step 2 — Run, expect fail: <code>cd sdk &amp;&amp; python -m pytest tests/test_seat_store.py::test_schema_has_tables -v</code> — Expected: FAIL (module not found).</p>
+
+<p class="step">☐ Step 3 — Implement — create seat_store.py with this exact content:</p>
+<pre><code>"""Seat identity store — persistent agent identity + append-only event ledger (PostgreSQL)."""
+from __future__ import annotations
+
+import json
+import os
+import uuid
+
+import psycopg2
+import psycopg2.extras
+import psycopg2.pool
+
+SEAT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS seats (
+    id            TEXT PRIMARY KEY,
+    name          TEXT UNIQUE NOT NULL,
+    role          TEXT NOT NULL DEFAULT '',
+    domain        TEXT NOT NULL DEFAULT '',
+    pronouns      TEXT NOT NULL DEFAULT 'they/them',
+    current_model TEXT DEFAULT '',
+    renamed_from  TEXT DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'active',
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS seat_events (
+    id         BIGSERIAL PRIMARY KEY,
+    seat_id    TEXT NOT NULL REFERENCES seats(id),
+    session_id TEXT,
+    type       TEXT NOT NULL,
+    model      TEXT DEFAULT '',
+    payload    JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_seat_events_seat ON seat_events(seat_id, created_at);
+"""
+
+
+class SeatStore:
+    """PostgreSQL store for seat identity + append-only event ledger."""
+
+    def __init__(self, dsn: str | None = None):
+        self._dsn = dsn or os.environ.get("DATABASE_URL", "")
+        self._pool = psycopg2.pool.ThreadedConnectionPool(minconn=2, maxconn=10, dsn=self._dsn)
+        self._ensure_schema()
+
+    def _ensure_schema(self) -&gt; None:
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(SEAT_SCHEMA)
+            conn.commit()
+        finally:
+            self._pool.putconn(conn)
+
+    def get_or_create_seat(self, name, role="", domain="", pronouns="they/them", model="") -&gt; str:
+        seat_id = uuid.uuid4().hex[:12]
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO seats (id, name, role, domain, pronouns, current_model)
+                       VALUES (%s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (name) DO UPDATE SET
+                         role = EXCLUDED.role,
+                         domain = EXCLUDED.domain,
+                         current_model = COALESCE(NULLIF(EXCLUDED.current_model, ''), seats.current_model)
+                       RETURNING id""",
+                    (seat_id, name, role, domain, pronouns, model),
+                )
+                row = cur.fetchone()
+                if row:
+                    seat_id = row[0]
+            conn.commit()
+        finally:
+            self._pool.putconn(conn)
+        return seat_id
+
+    def get_seat(self, seat_id) -&gt; dict | None:
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT * FROM seats WHERE id = %s", (seat_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+        finally:
+            self._pool.putconn(conn)
+
+    def get_seat_by_name(self, name) -&gt; dict | None:
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT * FROM seats WHERE name = %s", (name,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+        finally:
+            self._pool.putconn(conn)
+
+
+_SEAT_STORE = None
+
+
+def get_seat_store():
+    """Lazy module-level singleton reused across calls. Returns None if DB unavailable."""
+    global _SEAT_STORE
+    if _SEAT_STORE is None:
+        try:
+            _SEAT_STORE = SeatStore()
+        except Exception:
+            return None
+    return _SEAT_STORE
+</code></pre>
+
+<p class="step">☐ Step 4 — Run, expect pass: same pytest command — Expected: PASS.</p>
+
+<p class="step">☐ Step 5 — Add real-PG idempotency test — append to test file:</p>
+<pre><code>@pytest.mark.skipif(not HAS_PG, reason="DATABASE_URL not set")
+def test_get_or_create_is_idempotent():
+    import uuid
+    from agentura_sdk.memory.seat_store import SeatStore
+    s = SeatStore()
+    nm = f"dev/idem-{uuid.uuid4().hex[:8]}"
+    a = s.get_or_create_seat(name=nm, role="idem", domain="dev")
+    b = s.get_or_create_seat(name=nm, role="idem", domain="dev")
+    assert a == b
+    assert s.get_seat(a)["name"] == nm
+</code></pre>
+
+<p class="step">☐ Step 6 — Add current_model regression test — append to test file (proves the COALESCE fix keeps current_model when a later call passes an empty model):</p>
+<pre><code>@pytest.mark.skipif(not HAS_PG, reason="DATABASE_URL not set")
+def test_current_model_not_wiped_by_empty():
+    import uuid
+    from agentura_sdk.memory.seat_store import SeatStore
+    s = SeatStore()
+    nm = f"dev/model-{uuid.uuid4().hex[:8]}"
+    s.get_or_create_seat(name=nm, role="m", domain="dev", model="glm-5")
+    s.get_or_create_seat(name=nm, role="m", domain="dev")  # empty model must NOT wipe
+    assert s.get_seat_by_name(nm)["current_model"] == "glm-5"
+</code></pre>
+
+<p class="step">☐ Step 7 — Run: <code>cd sdk &amp;&amp; python -m pytest tests/test_seat_store.py -v</code> — Expected: PASS (or SKIP if no DATABASE_URL).</p>
+
+<p class="step">☐ Step 8 — Commit: <code>git add sdk/agentura_sdk/memory/seat_store.py sdk/tests/test_seat_store.py &amp;&amp; git commit -m "feat(seat): add SeatStore with seats + seat_events tables"</code></p>
+
+<h3>Task 2: SeatStore.append_event + get_track_record</h3>
+<p class="files"><strong>Files:</strong> Modify sdk/agentura_sdk/memory/seat_store.py; Test sdk/tests/test_seat_store.py</p>
+<div class="iface"><strong>Interfaces — Produces:</strong> <code>append_event(seat_id, type, session_id=None, model="", payload=None) -&gt; None</code>; <code>get_track_record(seat_id) -&gt; dict</code> returning keys runs, success_rate, avg_cost_usd, avg_latency_ms, gate_pass_rate, recent_wins.</div>
+
+<p class="step">☐ Step 1 — Write failing test:</p>
+<pre><code>@pytest.mark.skipif(not HAS_PG, reason="DATABASE_URL not set")
+def test_track_record_math():
+    from agentura_sdk.memory.seat_store import SeatStore
+    s = SeatStore()
+    seat = s.get_or_create_seat(name=f"dev/tr-{__import__('uuid').uuid4().hex[:8]}", role="tr", domain="dev")
+    # empty record
+    tr0 = s.get_track_record(seat)
+    assert tr0["runs"] == 0 and tr0["success_rate"] == 0.0
+    # two completed, one failed
+    s.append_event(seat, "session_completed", payload={"cost_usd": 0.10, "latency_ms": 1000})
+    s.append_event(seat, "session_completed", payload={"cost_usd": 0.20, "latency_ms": 3000})
+    s.append_event(seat, "session_failed", payload={"cost_usd": 0.05, "latency_ms": 500})
+    s.append_event(seat, "gate_passed")
+    s.append_event(seat, "gate_failed")
+    tr = s.get_track_record(seat)
+    assert tr["runs"] == 3
+    assert abs(tr["success_rate"] - (2/3)) &lt; 1e-6
+    assert abs(tr["gate_pass_rate"] - 0.5) &lt; 1e-6
+    assert len(tr["recent_wins"]) == 2
+</code></pre>
+
+<p class="step">☐ Step 2 — Run, expect fail: <code>cd sdk &amp;&amp; python -m pytest tests/test_seat_store.py::test_track_record_math -v</code> — Expected: FAIL (append_event/get_track_record missing) or SKIP without DB.</p>
+
+<p class="step">☐ Step 3 — Implement — add these two methods to SeatStore (verbatim):</p>
+<pre><code>    def append_event(self, seat_id, event_type, session_id=None, model="", payload=None) -&gt; None:
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO seat_events (seat_id, session_id, type, model, payload)
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (seat_id, session_id, event_type, model, json.dumps(payload or {})),
+                )
+            conn.commit()
+        finally:
+            self._pool.putconn(conn)
+
+    def get_track_record(self, seat_id) -&gt; dict:
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT
+                         count(*) FILTER (WHERE type IN ('session_completed','session_failed')) AS runs,
+                         count(*) FILTER (WHERE type = 'session_completed') AS successes,
+                         count(*) FILTER (WHERE type = 'gate_passed') AS gate_pass,
+                         count(*) FILTER (WHERE type IN ('gate_passed','gate_failed')) AS gate_total,
+                         avg((payload-&gt;&gt;'cost_usd')::float)
+                           FILTER (WHERE type IN ('session_completed','session_failed')) AS avg_cost,
+                         avg((payload-&gt;&gt;'latency_ms')::float)
+                           FILTER (WHERE type IN ('session_completed','session_failed')) AS avg_latency
+                       FROM seat_events WHERE seat_id = %s""",
+                    (seat_id,),
+                )
+                agg = cur.fetchone() or {}
+                cur.execute(
+                    """SELECT payload, created_at FROM seat_events
+                       WHERE seat_id = %s AND type = 'session_completed'
+                       ORDER BY created_at DESC LIMIT 3""",
+                    (seat_id,),
+                )
+                wins = [dict(r) for r in cur.fetchall()]
+        finally:
+            self._pool.putconn(conn)
+        runs = agg.get("runs") or 0
+        gate_total = agg.get("gate_total") or 0
+        return {
+            "runs": runs,
+            "success_rate": (agg.get("successes") or 0) / runs if runs else 0.0,
+            "avg_cost_usd": float(agg.get("avg_cost") or 0.0),
+            "avg_latency_ms": float(agg.get("avg_latency") or 0.0),
+            "gate_pass_rate": (agg.get("gate_pass") or 0) / gate_total if gate_total else 0.0,
+            "recent_wins": wins,
+        }
+</code></pre>
+
+<p><strong>Note:</strong> Param renamed type -&gt; event_type (avoid shadowing builtin); positional callers (record_outcome, record_rating) are unaffected.</p>
+
+<p><strong>Note (v1):</strong> gate_pass_rate reads 0.0 in v1 — no gate writer exists until DeterministicNode is wired to record_outcome(gate=...) in Subsystem 3. The read path is intentionally ready.</p>
+
+<p class="step">☐ Step 4 — Run, expect pass: same command — Expected PASS or SKIP.</p>
+<p class="step">☐ Step 5 — Commit: <code>git add -A &amp;&amp; git commit -m "feat(seat): add append_event + SQL-aggregate get_track_record"</code></p>
+
+<h3>Task 3: SeatStore.rename_seat</h3>
+<p class="files"><strong>Files:</strong> Modify sdk/agentura_sdk/memory/seat_store.py; Test sdk/tests/test_seat_store.py</p>
+<div class="iface"><strong>Interfaces — Produces:</strong> <code>rename_seat(seat_id, new_name) -&gt; None</code> (keeps id, sets renamed_from, appends a 'renamed' event).</div>
+
+<p class="step">☐ Step 1 — Write failing test:</p>
+<pre><code>@pytest.mark.skipif(not HAS_PG, reason="DATABASE_URL not set")
+def test_rename_keeps_id_and_history():
+    import uuid
+    from agentura_sdk.memory.seat_store import SeatStore
+    s = SeatStore()
+    old = f"dev/rn-{uuid.uuid4().hex[:8]}"
+    new = f"dev/rn2-{uuid.uuid4().hex[:8]}"
+    seat = s.get_or_create_seat(name=old, role="rn", domain="dev")
+    s.rename_seat(seat, new)
+    row = s.get_seat(seat)
+    assert row["name"] == new
+    assert row["renamed_from"] == old
+</code></pre>
+
+<p class="step">☐ Step 2 — Run, expect fail.</p>
+
+<p class="step">☐ Step 3 — Implement — add method verbatim:</p>
+<pre><code>    def rename_seat(self, seat_id, new_name) -&gt; None:
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT name FROM seats WHERE id = %s", (seat_id,))
+                row = cur.fetchone()
+                old = row[0] if row else ""
+                cur.execute(
+                    "UPDATE seats SET renamed_from = %s, name = %s WHERE id = %s",
+                    (old, new_name, seat_id),
+                )
+                cur.execute(
+                    "INSERT INTO seat_events (seat_id, type, payload) VALUES (%s, 'renamed', %s)",
+                    (seat_id, json.dumps({"from": old, "to": new_name})),
+                )
+            conn.commit()
+        finally:
+            self._pool.putconn(conn)
+</code></pre>
+
+<p><strong>WARNING (v1):</strong> rename_seat is roadmap-only (future seat addressability). Do NOT call it while seats are keyed by skill_path — renaming changes the resolution key, so the next run of that skill creates a fresh seat and orphans history. Present but uninvoked in v1.</p>
+
+<p class="step">☐ Step 4 — Run, expect pass.</p>
+<p class="step">☐ Step 5 — Commit: <code>git add -A &amp;&amp; git commit -m "feat(seat): add rename_seat preserving id + history"</code></p>
+
+<h3>Task 4: SeatResolver</h3>
+<p class="files"><strong>Files:</strong> Create sdk/agentura_sdk/runner/seat_resolver.py; Test sdk/tests/test_seat_resolver.py</p>
+<div class="iface"><strong>Interfaces — Produces:</strong> <code>seat_key(skill_path: str) -&gt; tuple[str, str, str]</code> (pure, returns name, role, domain); <code>resolve_seat(store, skill_path, model="") -&gt; str | None</code>.</div>
+
+<p class="step">☐ Step 1 — Write failing test — pure, no DB:</p>
+<pre><code>def test_seat_key_derivation():
+    from agentura_sdk.runner.seat_resolver import seat_key
+    assert seat_key("dev/pr-code-reviewer") == ("dev/pr-code-reviewer", "pr-code-reviewer", "dev")
+    assert seat_key("summarizer") == ("summarizer", "summarizer", "")
+    assert seat_key("/dev/x/") == ("dev/x", "x", "dev")
+    assert seat_key("") == ("unknown", "", "")
+</code></pre>
+
+<p class="step">☐ Step 2 — Run, expect fail: <code>cd sdk &amp;&amp; python -m pytest tests/test_seat_resolver.py -v</code>.</p>
+
+<p class="step">☐ Step 3 — Implement — verbatim:</p>
+<pre><code>"""Resolve a skill to a persistent seat identity. v1 keys on skill_path."""
+from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def seat_key(skill_path: str) -&gt; tuple[str, str, str]:
+    """Pure: (name, role, domain) for a skill path. Keys on skill_path in v1."""
+    skill_path = (skill_path or "").strip("/")
+    parts = skill_path.split("/") if skill_path else []
+    domain = parts[0] if len(parts) &gt; 1 else ""
+    role = parts[-1] if parts else ""
+    return skill_path or "unknown", role, domain
+
+
+def resolve_seat(store, skill_path: str, model: str = "") -&gt; str | None:
+    """Get-or-create the seat for a skill. Degradable: returns None on any failure."""
+    try:
+        name, role, domain = seat_key(skill_path)
+        return store.get_or_create_seat(name=name, role=role, domain=domain, model=model)
+    except Exception as e:
+        logger.warning("seat resolve failed for %s: %s", skill_path, e)
+        return None
+</code></pre>
+
+<p class="step">☐ Step 4 — Run, expect pass.</p>
+<p class="step">☐ Step 5 — Commit: <code>git add sdk/agentura_sdk/runner/seat_resolver.py sdk/tests/test_seat_resolver.py &amp;&amp; git commit -m "feat(seat): add seat_key + resolve_seat"</code></p>
+
+<h3>Task 5: fleet_agents.seat_id column + create_agent param</h3>
+<p class="files"><strong>Files:</strong> Modify sdk/agentura_sdk/memory/fleet_store.py</p>
+<div class="iface"><strong>Interfaces — Consumes:</strong> existing FleetStore.create_agent(session_id, agent_id, skill_path). <strong>Produces:</strong> create_agent(session_id, agent_id, skill_path, seat_id=None).</div>
+
+<p class="step">☐ Step 1 — Write failing test — append to sdk/tests/test_seat_store.py:</p>
+<pre><code>def test_fleet_schema_has_seat_id():
+    from agentura_sdk.memory.fleet_store import FLEET_SCHEMA
+    assert "seat_id" in FLEET_SCHEMA
+</code></pre>
+
+<p class="step">☐ Step 2 — Run, expect fail: <code>cd sdk &amp;&amp; python -m pytest tests/test_seat_store.py::test_fleet_schema_has_seat_id -v</code>.</p>
+
+<p class="step">☐ Step 3 — Implement:</p>
+<p>(a) In FLEET_SCHEMA (fleet_store.py), after the fleet_agents CREATE TABLE block and before/after the indexes, add an idempotent column add:</p>
+<pre><code>ALTER TABLE fleet_agents ADD COLUMN IF NOT EXISTS seat_id TEXT;
+</code></pre>
+<p>Note: plain TEXT, no FK — seats is created by SeatStore and store init order is not guaranteed; attribution is by convention.</p>
+<p>(b) Change create_agent signature to <code>def create_agent(self, session_id, agent_id, skill_path, seat_id=None) -&gt; str:</code> and add <code>seat_id</code> to the INSERT column list and values (INSERT INTO fleet_agents (agent_id, session_id, skill_path, seat_id, status) VALUES (%s,%s,%s,%s,'pending')), passing seat_id.</p>
+
+<p class="step">☐ Step 4 — Run, expect pass.</p>
+<p class="step">☐ Step 5 — Commit: <code>git add sdk/agentura_sdk/memory/fleet_store.py sdk/tests/test_seat_store.py &amp;&amp; git commit -m "feat(seat): bind seat_id onto fleet_agents"</code></p>
+
+<h3>Task 6: seat_hooks + engine wiring</h3>
+<p class="files"><strong>Files:</strong> Create sdk/agentura_sdk/runner/seat_hooks.py; Modify sdk/agentura_sdk/pipelines/engine.py; Test sdk/tests/test_seat_store.py (fake-store unit test for record_outcome)</p>
+<div class="iface"><strong>Interfaces — Consumes:</strong> SeatStore.append_event; resolve_seat. <strong>Produces:</strong> <code>record_outcome(store, seat_id, session_id, success, cost_usd=0.0, latency_ms=0.0, gate=None, model="")</code>.</div>
+
+<p class="step">☐ Step 1 — Write failing test — fake store, no DB:</p>
+<pre><code>def test_record_outcome_appends_events():
+    from agentura_sdk.runner.seat_hooks import record_outcome
+    calls = []
+    class Fake:
+        def append_event(self, seat_id, type, session_id=None, model="", payload=None):
+            calls.append((type, payload))
+    record_outcome(Fake(), "seat1", "sess1", True, cost_usd=0.1, latency_ms=900, gate="pass")
+    types = [c[0] for c in calls]
+    assert "session_completed" in types and "gate_passed" in types
+
+def test_record_outcome_never_raises():
+    from agentura_sdk.runner.seat_hooks import record_outcome
+    class Boom:
+        def append_event(self, *a, **k):
+            raise RuntimeError("db down")
+    record_outcome(Boom(), "seat1", "sess1", False)  # must not raise
+    record_outcome(None, None, "sess1", True)         # must not raise
+</code></pre>
+
+<p class="step">☐ Step 2 — Run, expect fail.</p>
+
+<p class="step">☐ Step 3 — Implement seat_hooks.py — verbatim:</p>
+<pre><code>"""Degradable seat-ledger hooks for the pipeline engine. These never raise."""
+from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def record_outcome(store, seat_id, session_id, success, cost_usd=0.0, latency_ms=0.0, gate=None, model=""):
+    """Append a session outcome (and optional gate) event. Never raises."""
+    if not store or not seat_id:
+        return
+    try:
+        store.append_event(
+            seat_id,
+            "session_completed" if success else "session_failed",
+            session_id=session_id,
+            model=model,
+            payload={"success": bool(success), "cost_usd": cost_usd, "latency_ms": latency_ms},
+        )
+        if gate in ("pass", "fail"):
+            store.append_event(
+                seat_id,
+                "gate_passed" if gate == "pass" else "gate_failed",
+                session_id=session_id,
+                payload={},
+            )
+    except Exception as e:
+        logger.warning("record_outcome failed seat=%s: %s", seat_id, e)
+</code></pre>
+
+<p class="step">☐ Step 4 — Run, expect pass.</p>
+
+<p class="step">☐ Step 5 — Wire engine.py — describe the edits (do NOT paste unrelated engine code). Fix F1 — cached singleton + resolve-once; no per-wake connection pool.</p>
+<p>(a) In run_pipeline, replace any per-call SeatStore construction: import the singleton and a per-phase cache dict.</p>
+<pre><code>from agentura_sdk.memory.seat_store import get_seat_store
+from agentura_sdk.runner.seat_resolver import resolve_seat
+seat_store = get_seat_store()
+_seat_ids = {}  # aid -&gt; seat_id, resolved once per step
+</code></pre>
+<p>(b) At BOTH create_agent sites (parallel ~724, sequential ~763), resolve once and remember it:</p>
+<pre><code>seat_id = resolve_seat(seat_store, step.skill) if seat_store else None
+_seat_ids[aid] = seat_id
+try:
+    store.create_agent(session_id, f"{session_id}-{aid}", step.skill, seat_id=seat_id)
+except Exception:
+    pass
+</code></pre>
+<p>(c) At BOTH update_agent_status sites (parallel ~736-744, sequential ~775-783), reuse the stored seat_id (NO re-resolve) and record the outcome:</p>
+<pre><code>from agentura_sdk.runner.seat_hooks import record_outcome
+_sid = _seat_ids.get(aid)
+record_outcome(seat_store if _sid else None, _sid, session_id,
+               r.get("success", False), cost_usd=r.get("cost_usd", 0), latency_ms=r.get("latency_ms", 0))
+</code></pre>
+<p>(All new code — engine.py has no seat references today; these are additions, not replacements. Fix F1 — cached singleton via get_seat_store() + resolve-once per step through the _seat_ids cache.)</p>
+
+<p class="step">☐ Step 6 — Add identity-persists round-trip test (Success Criterion 1) — append to test file:</p>
+<pre><code>@pytest.mark.skipif(not HAS_PG, reason="DATABASE_URL not set")
+def test_identity_persists_across_sessions():
+    import uuid
+    from agentura_sdk.memory.seat_store import SeatStore
+    from agentura_sdk.runner.seat_resolver import resolve_seat
+    from agentura_sdk.runner.seat_hooks import record_outcome
+    s = SeatStore()
+    skill = f"dev/persist-{uuid.uuid4().hex[:8]}"
+    a = resolve_seat(s, skill)
+    record_outcome(s, a, "sess-1", True, cost_usd=0.1, latency_ms=500)
+    b = resolve_seat(s, skill)          # second run resolves the SAME seat
+    record_outcome(s, b, "sess-2", True, cost_usd=0.2, latency_ms=700)
+    assert a == b                        # identity persists across sessions
+    assert s.get_track_record(a)["runs"] == 2   # runs 1 -&gt; 2
+</code></pre>
+
+<p class="step">☐ Step 7 — Verify engine imports + smoke: <code>cd sdk &amp;&amp; python -c "import agentura_sdk.pipelines.engine"</code> — Expected: no error. Then <code>python -m pytest tests/test_seat_store.py -v</code>.</p>
+
+<p class="step">☐ Step 8 — Commit: <code>git add sdk/agentura_sdk/runner/seat_hooks.py sdk/agentura_sdk/pipelines/engine.py sdk/tests/test_seat_store.py &amp;&amp; git commit -m "feat(seat): resolve+bind seat and record outcomes in pipeline engine"</code></p>
+
+<h3>Task 7: track-record endpoint</h3>
+<p class="files"><strong>Files:</strong> Modify sdk/agentura_sdk/server/app.py</p>
+<div class="iface"><strong>Interfaces — Consumes:</strong> SeatStore.get_seat_by_name, get_track_record. <strong>Produces:</strong> <code>GET /api/v1/seat-track-record?skill=&lt;skill_path&gt;</code> (read-only, keyed by skill).</div>
+
+<p class="step">☐ Step 1 — Add endpoint after get_agent (~line 3277), verbatim:</p>
+<pre><code>@app.get("/api/v1/seat-track-record")
+def get_seat_track_record(skill: str):
+    """Track record for the seat that owns a skill. Read-only; does not create a seat."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    from agentura_sdk.memory.seat_store import get_seat_store
+    from agentura_sdk.runner.seat_resolver import seat_key
+    store = get_seat_store()
+    if not store:
+        raise HTTPException(status_code=503, detail="seat store unavailable")
+    name, _, _ = seat_key(skill)
+    seat = store.get_seat_by_name(name)
+    if not seat:
+        raise HTTPException(status_code=404, detail=f"No seat for skill: {skill}")
+    return {"seat": seat, "track_record": store.get_track_record(seat["id"])}
+</code></pre>
+
+<p class="step">☐ Step 2 — Verify import: <code>cd sdk &amp;&amp; python -c "import agentura_sdk.server.app"</code> — Expected: no error.</p>
+<p class="step">☐ Step 3 — Commit: <code>git add sdk/agentura_sdk/server/app.py &amp;&amp; git commit -m "feat(seat): add track-record endpoint"</code></p>
+
+<h3>Task 8: Eval-label capture (Harness v2 Claim 7)</h3>
+<p class="files"><strong>Files:</strong> Modify sdk/agentura_sdk/runner/seat_hooks.py, sdk/agentura_sdk/memory/seat_store.py, sdk/agentura_sdk/server/app.py; Test sdk/tests/test_seat_store.py</p>
+<div class="iface"><strong>Interfaces — Produces:</strong> <code>record_rating(store, skill_path, rating, task_id="", model="")</code> (degradable); track_record gains <code>avg_rating</code>; endpoint <code>POST /api/v1/ratings</code>.</div>
+<p>Context: production generates "rate 1-5" prompts and discards them (forensically proven, Harness v2 Proof Claim 7). This wires them to the seat ledger as a 'rating' event — the cheapest real outcome signal.</p>
+<p class="step">☐ Step 1 — Write failing test (fake store, no DB):</p>
+<pre><code>def test_record_rating_appends_event():
+    from agentura_sdk.runner.seat_hooks import record_rating
+    calls = []
+    class Fake:
+        def get_or_create_seat(self, **k): return "seat1"
+        def append_event(self, seat_id, type, session_id=None, model="", payload=None):
+            calls.append((type, payload))
+    record_rating(Fake(), "dev/x", 4, task_id="t1", model="glm-5")
+    assert calls and calls[0][0] == "rating" and calls[0][1]["rating"] == 4
+
+def test_record_rating_never_raises():
+    from agentura_sdk.runner.seat_hooks import record_rating
+    class Boom:
+        def get_or_create_seat(self, **k): raise RuntimeError("down")
+    record_rating(Boom(), "dev/x", 3)   # must not raise
+    record_rating(None, "dev/x", 3)     # must not raise
+</code></pre>
+<p class="step">☐ Step 2 — Run, expect fail: <code>cd sdk &amp;&amp; python -m pytest tests/test_seat_store.py -k record_rating -v</code>.</p>
+<p class="step">☐ Step 3 — Implement record_rating in seat_hooks.py (append verbatim):</p>
+<pre><code>def record_rating(store, skill_path, rating, task_id="", model=""):
+    """Append a user rating (1-5) as a seat 'rating' event. Never raises."""
+    if not store:
+        return
+    try:
+        from agentura_sdk.runner.seat_resolver import resolve_seat
+        seat_id = resolve_seat(store, skill_path, model=model)
+        if not seat_id:
+            return
+        store.append_event(seat_id, "rating", session_id=task_id, model=model,
+                           payload={"rating": int(rating), "task_id": task_id})
+    except Exception as e:
+        logger.warning("record_rating failed for %s: %s", skill_path, e)
+</code></pre>
+<p class="step">☐ Step 4 — Add avg_rating to get_track_record (seat_store.py). In the aggregate SELECT, add a column:</p>
+<pre><code>                         avg((payload-&gt;&gt;'rating')::float) FILTER (WHERE type = 'rating') AS avg_rating,
+</code></pre>
+<p>and in the returned dict add: <code>"avg_rating": float(agg.get("avg_rating") or 0.0),</code></p>
+<p class="step">☐ Step 5 — Add ingestion endpoint in app.py (after the track-record endpoint), verbatim:</p>
+<pre><code>@app.post("/api/v1/ratings")
+async def post_rating(request: Request):
+    """Ingest a user rating (1-5) and attribute it to the skill's seat."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
+    data = await request.json()
+    skill = data.get("skill", "")
+    rating = data.get("rating")
+    if not skill or rating is None:
+        raise HTTPException(status_code=400, detail="skill and rating required")
+    from agentura_sdk.memory.seat_store import get_seat_store
+    from agentura_sdk.runner.seat_hooks import record_rating
+    record_rating(get_seat_store(), skill, rating, task_id=data.get("task_id", ""), model=data.get("model", ""))
+    return {"ok": True}
+</code></pre>
+<p class="step">☐ Step 6 — Add endpoint + avg_rating test — append to test file:</p>
+<pre><code>@pytest.mark.skipif(not HAS_PG, reason="DATABASE_URL not set")
+def test_track_record_endpoint_and_avg_rating():
+    import uuid
+    from fastapi.testclient import TestClient
+    from agentura_sdk.server.app import app
+    from agentura_sdk.memory.seat_store import get_seat_store
+    from agentura_sdk.runner.seat_hooks import record_rating
+    c = TestClient(app)
+    skill = f"dev/ep-{uuid.uuid4().hex[:8]}"
+    assert c.get("/api/v1/seat-track-record", params={"skill": skill}).status_code == 404
+    record_rating(get_seat_store(), skill, 4)
+    r = c.get("/api/v1/seat-track-record", params={"skill": skill})
+    assert r.status_code == 200
+    assert r.json()["track_record"]["avg_rating"] == 4.0
+</code></pre>
+<p class="step">☐ Step 7 — Run: <code>cd sdk &amp;&amp; python -m pytest tests/test_seat_store.py -k record_rating -v</code> then <code>python -c "import agentura_sdk.server.app"</code>.</p>
+<p class="step">☐ Step 8 — Commit: <code>git add -A &amp;&amp; git commit -m "feat(seat): capture eval labels as rating events (Harness v2 Claim 7)"</code></p>
+
+<h2>Verification</h2>
+<ul>
+<li>Identity persists: test_get_or_create_is_idempotent (Task 1) + two engine runs of one skill share a seat_id.</li>
+<li>Track record is a bounded SQL aggregate: get_track_record uses FILTER/AVG, LIMIT 3 wins (Task 2).</li>
+<li>Eval labels captured: test_record_rating_appends_event + POST /api/v1/ratings attributes ratings to the skill's seat (Task 8).</li>
+<li>Identity persists (Success Criterion 1) proven: test_identity_persists_across_sessions (Task 6); current_model preserved: test_current_model_not_wiped_by_empty (Task 1); endpoint 404/200 + avg_rating: test_track_record_endpoint_and_avg_rating (Task 8).</li>
+<li>Full suite: <code>cd sdk &amp;&amp; python -m pytest tests/test_seat_store.py tests/test_seat_resolver.py -v</code></li>
+</ul>
+
+<h2>REVIEW REPORT</h2>
+<table>
+<tr><th>Review</th><th>Trigger</th><th>Why</th><th>Status</th><th>Findings</th></tr>
+<tr><td>CEO Review</td><td>/plan-ceo-review</td><td>Scope &amp; strategy</td><td>COMPLETE — SELECTIVE EXPANSION</td><td>3 section findings (F1 pool-leak, F2 injection, F3 kill-switch) resolved; 1 expansion accepted (Task 8 eval-labels); wake injection cut from v1</td></tr>
+<tr><td>Outside Voice</td><td>Claude subagent (Codex not installed)</td><td>Independent 2nd opinion</td><td>COMPLETE — 5/10 → reshaped</td><td>9 findings: #2/#4/#7/#8/#9 fixed; #3/#5 kept+annotated; #1 ledger kept (user); #6 wake cut (user); #7 wording fixed</td></tr>
+<tr><td>Eng Review</td><td>/plan-eng-review</td><td>Architecture &amp; tests (required gate)</td><td>COMPLETE — CLEARED</td><td>Arch/Perf clean; 3 test gaps + 1 quality nit fixed: identity-persists round-trip test, endpoint+avg_rating test, current_model regression test, event_type rename</td></tr>
+</table>
+<p><strong>CROSS-MODEL:</strong> Outside voice and section review agreed on all correctness fixes; the two strategic tensions (ledger over-build, hollow wake) were escalated to the user, who kept the ledger and cut wake from v1.</p>
+<p><strong>VERDICT:</strong> CEO + ENG CLEARED — ready to implement. Deferred items (wake injection, routing, Subs 2-6, gate writer) recorded in <code>.hash/plans/2026-08-05-seat-identity-ceo.md</code>.</p>
+<p>NO UNRESOLVED DECISIONS</p>
+
+</body>
+</html>
