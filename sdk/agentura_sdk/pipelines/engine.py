@@ -694,6 +694,12 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
             )
             store.update_session_status(session_id, "running")
 
+        from agentura_sdk.memory.seat_store import get_seat_store
+        from agentura_sdk.runner.seat_resolver import resolve_seat
+        from agentura_sdk.runner.seat_hooks import record_outcome
+        seat_store = get_seat_store()
+        _seat_ids = {}  # aid -> seat_id, resolved once per step
+
         # --- Phase-based execution (parallel + sequential mix) ---
         for phase in pipeline.phases:
             total_expected += len(phase.steps)
@@ -720,8 +726,10 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                 if store and session_id:
                     for step in phase.steps:
                         aid = step.agent_id or step.skill.replace("/", "-")
+                        seat_id = resolve_seat(seat_store, step.skill) if seat_store else None
+                        _seat_ids[aid] = seat_id
                         try:
-                            store.create_agent(session_id, f"{session_id}-{aid}", step.skill)
+                            store.create_agent(session_id, f"{session_id}-{aid}", step.skill, seat_id=seat_id)
                         except Exception:
                             pass
 
@@ -744,6 +752,9 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                             )
                         except Exception:
                             pass
+                        _sid = _seat_ids.get(aid)
+                        record_outcome(seat_store if _sid else None, _sid, session_id,
+                                       r.get("success", False), cost_usd=r.get("cost_usd", 0), latency_ms=r.get("latency_ms", 0))
 
                 # Merge context_for_next from all parallel agents
                 for r in phase_results:
@@ -759,8 +770,10 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                 if store and session_id:
                     for step in phase.steps:
                         aid = step.agent_id or step.skill.replace("/", "-")
+                        seat_id = resolve_seat(seat_store, step.skill) if seat_store else None
+                        _seat_ids[aid] = seat_id
                         try:
-                            store.create_agent(session_id, f"{session_id}-{aid}", step.skill)
+                            store.create_agent(session_id, f"{session_id}-{aid}", step.skill, seat_id=seat_id)
                         except Exception:
                             pass
 
@@ -783,6 +796,9 @@ async def run_pipeline(name: str, pipeline_input: dict[str, Any]) -> dict[str, A
                             )
                         except Exception:
                             pass
+                        _sid = _seat_ids.get(aid)
+                        record_outcome(seat_store if _sid else None, _sid, session_id,
+                                       r.get("success", False), cost_usd=r.get("cost_usd", 0), latency_ms=r.get("latency_ms", 0))
 
                 # Propagate agent_results for downstream fan-in phases
                 carry_forward["agent_results"] = _compact_agent_results(seq_results)

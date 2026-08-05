@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS fleet_agents (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE fleet_agents ADD COLUMN IF NOT EXISTS seat_id TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_fleet_sessions_status ON fleet_sessions(status);
 CREATE INDEX IF NOT EXISTS idx_fleet_sessions_repo ON fleet_sessions(repo);
 CREATE INDEX IF NOT EXISTS idx_fleet_agents_session ON fleet_agents(session_id);
@@ -129,15 +131,16 @@ class FleetStore:
         session_id: str,
         agent_id: str,
         skill_path: str,
+        seat_id=None,
     ) -> str:
         conn = self._pool.getconn()
         try:
             with conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO fleet_agents
-                       (agent_id, session_id, skill_path, status)
-                       VALUES (%s, %s, %s, 'pending')""",
-                    (agent_id, session_id, skill_path),
+                       (agent_id, session_id, skill_path, seat_id, status)
+                       VALUES (%s, %s, %s, %s, 'pending')""",
+                    (agent_id, session_id, skill_path, seat_id),
                 )
             conn.commit()
         finally:
